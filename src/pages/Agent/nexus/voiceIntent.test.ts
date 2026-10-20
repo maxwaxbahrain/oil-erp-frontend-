@@ -4,13 +4,18 @@ import { buildOpsVans } from '../opsMap/opsMapModel';
 import {
   clearWelcomeSpoken,
   countVanStatuses,
+  customerBalanceSpeech,
+  formatCustomerBalanceSpeech,
   formatVanSummary,
+  formatVoiceMoney,
   formatWelcomeLine,
   hasSpokenWelcome,
   markWelcomeSpoken,
+  nameContainsQueryWords,
   normalizeVoicePhrase,
   parseVoiceIntent,
   resolveCustomerMatches,
+  stripVoiceDecorations,
   WELCOME_SESSION_KEY,
 } from './voiceIntent';
 
@@ -18,6 +23,9 @@ describe('voiceIntent router', () => {
   it('maps supported phrases to intents (including small wording variations)', () => {
     expect(parseVoiceIntent('what are the updates').type).toBe('updates');
     expect(parseVoiceIntent("what's the update").type).toBe('updates');
+    expect(parseVoiceIntent("what's the updates").type).toBe('updates');
+    expect(parseVoiceIntent("what's updates").type).toBe('updates');
+    expect(parseVoiceIntent('what are updates').type).toBe('updates');
     expect(parseVoiceIntent('updates').type).toBe('updates');
     expect(parseVoiceIntent('show me the updates').type).toBe('updates');
 
@@ -54,8 +62,22 @@ describe('voiceIntent router', () => {
 
     const about = parseVoiceIntent('tell me about Gamma Garage');
     expect(about).toEqual({ type: 'customer', query: 'gamma garage' });
-    // normalize lowercases — query should preserve usable name tokens
     expect(normalizeVoicePhrase('Tell me about Gamma Garage')).toContain('gamma garage');
+  });
+
+  it('strips wake / polite prefixes and trailing please', () => {
+    expect(parseVoiceIntent('Zava, what are the updates?').type).toBe('updates');
+    expect(parseVoiceIntent("Please, what's the updates?").type).toBe('updates');
+    expect(parseVoiceIntent('Hey Zava, what are the vans doing?').type).toBe('vans');
+    expect(parseVoiceIntent('Zava open collections please')).toMatchObject({
+      type: 'open_module',
+      module: 'collections',
+    });
+    expect(parseVoiceIntent('Can you tell me about Gamma Garage?')).toEqual({
+      type: 'customer',
+      query: 'gamma garage',
+    });
+    expect(stripVoiceDecorations('um uh Zava please open sales please')).toBe('open sales');
   });
 
   it('customer intent keeps the name after "tell me about"', () => {
@@ -101,6 +123,42 @@ describe('resolveCustomerMatches', () => {
       expect(many.matches).toHaveLength(2);
       expect(many.matches.map((m) => m.name).sort()).toEqual(['Gamma Garage', 'Gamma Supply']);
     }
+  });
+
+  it('single fuzzy hit without query words → confirm (grandma vs Gamma Garage)', () => {
+    expect(nameContainsQueryWords('Gamma Garage', 'grandma')).toBe(false);
+    const confirm = resolveCustomerMatches([{ id: 1, name: 'Gamma Garage' }], 'grandma');
+    expect(confirm).toEqual({
+      kind: 'confirm',
+      id: 1,
+      name: 'Gamma Garage',
+      query: 'grandma',
+    });
+  });
+});
+
+describe('customer balance wording', () => {
+  it('formats >0 / =0 / <0', () => {
+    expect(formatCustomerBalanceSpeech('Acme', 7118)).toBe('Acme owes $7,118.');
+    expect(formatCustomerBalanceSpeech('Acme', 42.5)).toBe('Acme owes $42.50.');
+    expect(formatCustomerBalanceSpeech('Acme', 0)).toBe('Acme owes nothing right now.');
+    expect(formatCustomerBalanceSpeech('Acme', -25)).toBe('Acme has a credit of $25.00.');
+    expect(formatCustomerBalanceSpeech('Acme', -250)).toBe('Acme has a credit of $250.');
+  });
+
+  it('AR loaded OK + missing from per_customer → $0; AR failed → could not load', () => {
+    const map = new Map<number, number>([[1, 100]]);
+    expect(
+      customerBalanceSpeech({ name: 'Zero Co', customerId: 99, arLoadedOk: true, balanceById: map }),
+    ).toBe('Zero Co owes nothing right now.');
+    expect(
+      customerBalanceSpeech({ name: 'Acme', customerId: 1, arLoadedOk: true, balanceById: map }),
+    ).toBe('Acme owes $100.');
+    expect(
+      customerBalanceSpeech({ name: 'Acme', customerId: 1, arLoadedOk: false, balanceById: map }),
+    ).toBe("I couldn't load the balance.");
+    expect(formatVoiceMoney(7.1)).toBe('$7.10');
+    expect(formatVoiceMoney(100)).toBe('$100');
   });
 });
 

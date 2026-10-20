@@ -383,13 +383,25 @@ export default function NexusPage() {
                 ))}
               </div>
             )}
+            {voice.pendingConfirm && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button type="button" style={chipBtn} onClick={() => void voice.confirmYes()}>
+                  Yes
+                </button>
+                <button type="button" style={chipBtn} onClick={() => void voice.confirmNo()}>
+                  No
+                </button>
+              </div>
+            )}
             {voice.customerChoices && voice.customerChoices.length > 0 && (
               <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
                 {voice.customerChoices.map((c) => (
                   <li key={c.id} style={{ marginBottom: 6 }}>
                     <button type="button" style={chipBtn} onClick={() => void voice.pickCustomer(c)}>
                       {c.name}
-                      {c.balance != null ? ` · $${Math.round(c.balance).toLocaleString('en-US')}` : ''}
+                      {c.arLoadedOk && c.balance != null
+                        ? ` · $${Math.round(c.balance).toLocaleString('en-US')}`
+                        : ''}
                     </button>
                   </li>
                 ))}

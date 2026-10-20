@@ -22,6 +22,7 @@ import type { NexusSignalCard } from './nexusModel';
 import {
   VOICE_FALLBACK_CHIPS,
   countVanStatuses,
+  customerBalanceSpeech,
   formatCardSpeech,
   formatVanSummary,
   formatWelcomeLine,
@@ -34,7 +35,20 @@ import {
 
 export type VoiceLine = { who: 'zava' | 'you'; text: string };
 
-export type CustomerChoice = { id: number; name: string; balance: number | null };
+export type CustomerChoice = {
+  id: number;
+  name: string;
+  /** Present when AR loaded; null only while AR failed (UI may hide amount). */
+  balance: number | null;
+  arLoadedOk: boolean;
+};
+
+export type PendingConfirm = {
+  id: number;
+  name: string;
+  arLoadedOk: boolean;
+  balanceById: Map<number, number>;
+};
 
 function failureFromError(error: unknown): string {
   const err = error as {
@@ -98,6 +112,7 @@ export function useNexusVoice(opts: Opts) {
   const [zavaLine, setZavaLine] = useState('');
   const [fallbackChips, setFallbackChips] = useState<string[] | null>(null);
   const [customerChoices, setCustomerChoices] = useState<CustomerChoice[] | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [capReached, setCapReached] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -108,6 +123,11 @@ export function useNexusVoice(opts: Opts) {
   const speakableRef = useRef(speakable);
   const activeCardIdRef = useRef(activeCardId);
   const welcomeArmedRef = useRef(false);
+  const pendingConfirmRef = useRef<PendingConfirm | null>(null);
+
+  useEffect(() => {
+    pendingConfirmRef.current = pendingConfirm;
+  }, [pendingConfirm]);
 
   useEffect(() => {
     speakableRef.current = speakable;
@@ -207,13 +227,49 @@ export function useNexusVoice(opts: Opts) {
     [highlightCard, speakText],
   );
 
+  const speakCustomerBalance = useCallback(
+    async (name: string, customerId: number, arLoadedOk: boolean, balanceById: Map<number, number>) => {
+      await speakText(
+        customerBalanceSpeech({ name, customerId, arLoadedOk, balanceById }),
+      );
+    },
+    [speakText],
+  );
+
   const runIntent = useCallback(
     async (raw: string) => {
       setFallbackChips(null);
-      setCustomerChoices(null);
       const intent = parseVoiceIntent(raw);
 
+      // Pending "Did you mean …?" — yes/no only (or clear and continue)
+      const pending = pendingConfirmRef.current;
+      if (pending) {
+        if (intent.type === 'yes') {
+          setPendingConfirm(null);
+          setCustomerChoices(null);
+          navigate(`/customers/${pending.id}`);
+          await speakCustomerBalance(pending.name, pending.id, pending.arLoadedOk, pending.balanceById);
+          return;
+        }
+        if (intent.type === 'no') {
+          setPendingConfirm(null);
+          setCustomerChoices(null);
+          await speakText('Okay.');
+          return;
+        }
+        // Other intents cancel the confirm prompt
+        setPendingConfirm(null);
+      }
+
+      setCustomerChoices(null);
+
       switch (intent.type) {
+        case 'yes':
+        case 'no':
+          // No pending confirm — treat as unknown
+          setFallbackChips([...VOICE_FALLBACK_CHIPS]);
+          await speakText("I didn't catch that.");
+          return;
         case 'stop':
           stopSpeaking();
           setVoiceState('idle');
@@ -261,13 +317,19 @@ export function useNexusVoice(opts: Opts) {
           return;
         case 'customer': {
           try {
-            const [found, ar] = await Promise.all([
-              searchCustomers(intent.query),
-              getArSummary(),
-            ]);
-            const balanceById = new Map(
-              (ar.per_customer || []).map((r) => [Number(r.id), Number(r.balance)]),
-            );
+            const found = await searchCustomers(intent.query);
+            let arLoadedOk = false;
+            let balanceById = new Map<number, number>();
+            try {
+              const ar = await getArSummary();
+              arLoadedOk = true;
+              balanceById = new Map(
+                (ar.per_customer || []).map((r) => [Number(r.id), Number(r.balance)]),
+              );
+            } catch {
+              arLoadedOk = false;
+            }
+
             const resolved = resolveCustomerMatches(
               (found || []).map((c) => ({ id: Number(c.id), name: String(c.name) })),
               intent.query,
@@ -283,20 +345,28 @@ export function useNexusVoice(opts: Opts) {
                 resolved.matches.map((m) => ({
                   id: m.id,
                   name: m.name,
-                  balance: balanceById.has(m.id) ? balanceById.get(m.id)! : null,
+                  balance: arLoadedOk
+                    ? balanceById.has(m.id)
+                      ? balanceById.get(m.id)!
+                      : 0
+                    : null,
+                  arLoadedOk,
                 })),
               );
-              await speakText(
-                `I found ${n} customers named ${label} — which one?`,
-              );
+              await speakText(`I found ${n} customers named ${label} — which one?`);
               return;
             }
-            const bal = balanceById.get(resolved.id);
-            const amount =
-              bal != null && Number.isFinite(bal)
-                ? `$${Math.round(bal).toLocaleString('en-US')}`
-                : 'an unknown balance';
-            await speakText(`${resolved.name} owes ${amount}.`);
+            if (resolved.kind === 'confirm') {
+              setPendingConfirm({
+                id: resolved.id,
+                name: resolved.name,
+                arLoadedOk,
+                balanceById,
+              });
+              await speakText(`Did you mean ${resolved.name}?`);
+              return;
+            }
+            await speakCustomerBalance(resolved.name, resolved.id, arLoadedOk, balanceById);
           } catch {
             await speakText("I couldn't look that customer up right now.");
           }
@@ -308,7 +378,7 @@ export function useNexusVoice(opts: Opts) {
           await speakText("I didn't catch that.");
       }
     },
-    [navigate, setActivePlanetId, speakCardAt, speakText, stopSpeaking],
+    [navigate, setActivePlanetId, speakCardAt, speakCustomerBalance, speakText, stopSpeaking],
   );
 
   const sendClip = useCallback(
@@ -463,16 +533,35 @@ export function useNexusVoice(opts: Opts) {
   const pickCustomer = useCallback(
     async (choice: CustomerChoice) => {
       setCustomerChoices(null);
+      setPendingConfirm(null);
       setYouLine(choice.name);
-      const amount =
-        choice.balance != null && Number.isFinite(choice.balance)
-          ? `$${Math.round(choice.balance).toLocaleString('en-US')}`
-          : 'an unknown balance';
       navigate(`/customers/${choice.id}`);
-      await speakText(`${choice.name} owes ${amount}.`);
+      const balanceById = new Map<number, number>();
+      if (choice.arLoadedOk && choice.balance != null) {
+        balanceById.set(choice.id, choice.balance);
+      } else if (choice.arLoadedOk) {
+        balanceById.set(choice.id, 0);
+      }
+      await speakCustomerBalance(choice.name, choice.id, choice.arLoadedOk, balanceById);
     },
-    [navigate, speakText],
+    [navigate, speakCustomerBalance],
   );
+
+  const confirmYes = useCallback(async () => {
+    const pending = pendingConfirmRef.current;
+    if (!pending) return;
+    setYouLine('yes');
+    setPendingConfirm(null);
+    navigate(`/customers/${pending.id}`);
+    await speakCustomerBalance(pending.name, pending.id, pending.arLoadedOk, pending.balanceById);
+  }, [navigate, speakCustomerBalance]);
+
+  const confirmNo = useCallback(async () => {
+    if (!pendingConfirmRef.current) return;
+    setYouLine('no');
+    setPendingConfirm(null);
+    await speakText('Okay.');
+  }, [speakText]);
 
   const statusLabel =
     voiceState === 'listening'
@@ -491,10 +580,13 @@ export function useNexusVoice(opts: Opts) {
     zavaLine,
     fallbackChips,
     customerChoices,
+    pendingConfirm,
     statusLabel,
     onOrb,
     runChip,
     pickCustomer,
+    confirmYes,
+    confirmNo,
     stopSpeaking,
   };
 }

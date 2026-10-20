@@ -16,6 +16,8 @@ export type VoiceIntent =
   | { type: 'open_module'; module: PlanetId; href: string; label: string }
   | { type: 'go_nexus' }
   | { type: 'customer'; query: string }
+  | { type: 'yes' }
+  | { type: 'no' }
   | { type: 'unknown' };
 
 /** Shown when the phrase is unknown — never sent to an LLM in Phase 3. */
@@ -83,6 +85,29 @@ export function normalizeVoicePhrase(raw: string): string {
     .trim();
 }
 
+/**
+ * Strip wake/polite fillers before intent match.
+ * Keeps "tell me about …" intact (customer intent).
+ */
+export function stripVoiceDecorations(raw: string): string {
+  let t = normalizeVoicePhrase(raw);
+  let prev = '';
+  while (t && t !== prev) {
+    prev = t;
+    t = t.replace(/\s+please$/i, '').trim();
+    t = t.replace(/^(um|uh|er|ah)\s+/i, '').trim();
+    t = t.replace(/^(hey|hi|hello|ok|okay)\s+zava\s+/i, '').trim();
+    t = t.replace(/^zava\s+please\s+/i, '').trim();
+    t = t.replace(/^zava\s+/i, '').trim();
+    t = t.replace(/^(please|can you|could you|would you)\s+/i, '').trim();
+    // "tell me the updates" → "the updates"; keep "tell me about …"
+    if (/^tell me\s+(?!about\b)/i.test(t)) {
+      t = t.replace(/^tell me\s+/i, '').trim();
+    }
+  }
+  return t;
+}
+
 function matchOpenModule(rest: string): VoiceIntent | null {
   const q = rest.trim();
   if (!q) return null;
@@ -106,8 +131,15 @@ function matchOpenModule(rest: string): VoiceIntent | null {
  * Never invents write/approve/send actions.
  */
 export function parseVoiceIntent(raw: string): VoiceIntent {
-  const t = normalizeVoicePhrase(raw);
+  const t = stripVoiceDecorations(raw);
   if (!t) return { type: 'unknown' };
+
+  if (t === 'yes' || t === 'yeah' || t === 'yep' || t === 'yup' || t === 'confirm') {
+    return { type: 'yes' };
+  }
+  if (t === 'no' || t === 'nope' || t === 'nah' || t === 'cancel') {
+    return { type: 'no' };
+  }
 
   if (t === 'stop' || t === 'mute' || t === 'be quiet' || t === 'quiet') {
     return { type: 'stop' };
@@ -122,11 +154,17 @@ export function parseVoiceIntent(raw: string): VoiceIntent {
   if (
     t === 'updates' ||
     t === 'update' ||
+    t === 'the updates' ||
+    t === 'the update' ||
     t === 'what are the updates' ||
+    t === 'what are updates' ||
     t === "what's the update" ||
     t === "what's the updates" ||
+    t === "what's update" ||
+    t === "what's updates" ||
     t === 'what is the update' ||
     t === 'what is the updates' ||
+    t === 'what is updates' ||
     t === 'show me the updates' ||
     t === 'read the updates' ||
     t === 'tell me the updates'
@@ -157,14 +195,15 @@ export function parseVoiceIntent(raw: string): VoiceIntent {
     return { type: 'unknown' };
   }
 
-  // "go to sales" / "take me to collections"
   const goTo = t.match(/^(?:go to|take me to|open up)\s+(.+)$/);
   if (goTo) {
     const hit = matchOpenModule(goTo[1]);
     if (hit) return hit;
   }
 
-  const about = t.match(/^(?:tell me about|about|who is|what's the balance for|what is the balance for)\s+(.+)$/);
+  const about = t.match(
+    /^(?:tell me about|about|who is|what's the balance for|what is the balance for)\s+(.+)$/,
+  );
   if (about) {
     const query = about[1].replace(/^(customer|the)\s+/, '').trim();
     if (query) return { type: 'customer', query };
@@ -176,11 +215,23 @@ export function parseVoiceIntent(raw: string): VoiceIntent {
 export type CustomerMatchResult =
   | { kind: 'one'; id: number; name: string }
   | { kind: 'none'; query: string }
-  | { kind: 'many'; query: string; matches: Array<{ id: number; name: string }> };
+  | { kind: 'many'; query: string; matches: Array<{ id: number; name: string }> }
+  | { kind: 'confirm'; id: number; name: string; query: string };
+
+/** True when every query word appears in the customer name (substring). */
+export function nameContainsQueryWords(name: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  const n = name.toLowerCase();
+  if (n.includes(q)) return true;
+  const words = q.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return false;
+  return words.every((w) => n.includes(w));
+}
 
 /**
  * Resolve customer name from search results. Never guesses when 0 or 2+ remain.
- * Prefers exact (case-insensitive) name equality, then unique substring match.
+ * Single fuzzy API hit whose name does not contain the query words → confirm.
  */
 export function resolveCustomerMatches(
   results: Array<{ id: number; name: string }>,
@@ -201,12 +252,54 @@ export function resolveCustomerMatches(
     return { kind: 'many', query, matches: partial.map((c) => ({ id: c.id, name: c.name })) };
   }
 
-  // Search API may already have filtered to the query with no local name match —
-  // only accept a single API hit (never guess among several).
+  // Single search hit that does not contain the query words → ask, never guess.
   if (results.length === 1) {
-    return { kind: 'one', id: results[0].id, name: results[0].name };
+    const only = results[0];
+    if (nameContainsQueryWords(only.name, q)) {
+      return { kind: 'one', id: only.id, name: only.name };
+    }
+    return { kind: 'confirm', id: only.id, name: only.name, query };
   }
   return { kind: 'none', query };
+}
+
+/** Under $100 → 2 decimals; otherwise whole dollars. */
+export function formatVoiceMoney(amount: number): string {
+  const abs = Math.abs(Number(amount) || 0);
+  if (abs < 100) {
+    return `$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `$${Math.round(abs).toLocaleString('en-US')}`;
+}
+
+export function formatCustomerBalanceSpeech(name: string, balance: number): string {
+  const b = Number(balance);
+  if (!Number.isFinite(b)) {
+    return `${name} owes nothing right now.`;
+  }
+  if (b > 0.005) return `${name} owes ${formatVoiceMoney(b)}.`;
+  if (b < -0.005) return `${name} has a credit of ${formatVoiceMoney(b)}.`;
+  return `${name} owes nothing right now.`;
+}
+
+/**
+ * Balance line for a known customer.
+ * ar-summary includes every customer (incl. $0). If AR loaded OK but id missing → treat as $0.
+ * Only when AR failed → "I couldn't load the balance."
+ */
+export function customerBalanceSpeech(opts: {
+  name: string;
+  customerId: number;
+  arLoadedOk: boolean;
+  balanceById: Map<number, number>;
+}): string {
+  if (!opts.arLoadedOk) {
+    return "I couldn't load the balance.";
+  }
+  const bal = opts.balanceById.has(opts.customerId)
+    ? opts.balanceById.get(opts.customerId)!
+    : 0;
+  return formatCustomerBalanceSpeech(opts.name, bal);
 }
 
 export type VanStatusCounts = { moving: number; stopped: number; offline: number };
