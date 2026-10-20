@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowRight,
   BarChart3,
-  Bot,
   Boxes,
-  Brain,
-  Package,
-  Radio,
-  Receipt,
+  Building2,
+  Crosshair,
+  FileText,
+  MapPin,
   ShoppingCart,
   Truck,
   Users,
@@ -26,7 +24,7 @@ import { getAllLeaveRequests } from '../../../services/leaveService';
 import { deriveVanLiveStatus } from '../../../lib/vanLiveStatus';
 import { dashboardLowStockAlertCount } from '../../../utils/dashboardLowStock';
 import { firstName } from '../zavaCopy';
-import { companyAmount, priorityPill, signalFigure, signalWhy } from '../signalCards';
+import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
   PLANET_RING_ORDER,
   PLANET_STATUS_COLOR,
@@ -50,29 +48,22 @@ type HealthBody = {
   data_health?: NexusSignalCard[];
 };
 
-const RING: Array<{ id: PlanetId; angle: number }> = [
-  { id: 'sales', angle: -90 },
-  { id: 'collections', angle: -54 },
-  { id: 'purchase', angle: -18 },
-  { id: 'inventory', angle: 18 },
-  { id: 'delivery', angle: 54 },
-  { id: 'finance', angle: 90 },
-  { id: 'expenses', angle: 126 },
-  { id: 'payroll', angle: 162 },
-  { id: 'ai_team', angle: 198 },
-  { id: 'reports', angle: 234 },
-];
+/** Reports at 12 o'clock — matches 11_nexus.jpg */
+const RING: Array<{ id: PlanetId; angle: number }> = PLANET_RING_ORDER.map((id, i) => ({
+  id,
+  angle: -90 + i * 36,
+}));
 
 const PLANET_ICON: Record<PlanetId, typeof ShoppingCart> = {
   sales: ShoppingCart,
   collections: Wallet,
-  purchase: Package,
+  purchase: Truck,
   inventory: Boxes,
-  delivery: Truck,
-  finance: Receipt,
-  expenses: Receipt,
+  delivery: MapPin,
+  finance: Building2,
+  expenses: FileText,
   payroll: Users,
-  ai_team: Brain,
+  ai_team: Crosshair,
   reports: BarChart3,
 };
 
@@ -104,7 +95,27 @@ function unavailableResult<T = number>(): SourceResult<T> {
   return { state: 'unavailable' };
 }
 
-const RING_CIRC = 2 * Math.PI * 118;
+function formatClock(d: Date): string {
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} · ${hh}:${mm}:${ss}`;
+}
+
+function formatNowLabel(d: Date): string {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `NOW ${hh}:${mm}`;
+}
+
+const RING_R = 132;
+const RING_CIRC = 2 * Math.PI * RING_R;
+const ORBIT_R = 178;
+const VIEW = 420;
+const CX = VIEW / 2;
+const CY = VIEW / 2;
 
 export default function NexusPage() {
   const { user } = useAuth();
@@ -117,7 +128,9 @@ export default function NexusPage() {
   const [requestCount, setRequestCount] = useState(0);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [reloadKey, setReloadKey] = useState(0);
+  const [now, setNow] = useState(() => new Date());
   const [planetInputs, setPlanetInputs] = useState({
     owedToUs: unavailableResult<number>(),
     openPoCount: unavailableResult<number>(),
@@ -128,6 +141,11 @@ export default function NexusPage() {
     invoiceCountToday: unavailableResult<number>(),
   });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     if (!isStaging) return;
@@ -152,7 +170,6 @@ export default function NexusPage() {
       track(listDeliveryNotes({ delivery_date: day })),
       track(getAllLeaveRequests()),
     ]);
-    if (!isStaging) return;
 
     const [
       signalsSettled,
@@ -207,7 +224,6 @@ export default function NexusPage() {
         expensesSettled.status === 'fulfilled'
           ? okResult(Number(expensesSettled.value.pending_approval_count || 0))
           : errResult(),
-      // GET /invoices/ has no date filter — do not download the full list.
       invoiceCountToday: unavailableResult(),
     });
 
@@ -244,15 +260,25 @@ export default function NexusPage() {
 
   const health = businessHealthScore(cards, cardsLoadOk);
   const needs = cardsLoadOk ? needsYouCount(cards) : 0;
-  const needsList = cardsLoadOk ? needsYouCards(cards) : [];
-  const activeCard = cards.find((c) => c.id === activeCardId) || cards[0] || null;
-  const upcoming = comingUpCards(cards, activeCard?.id);
-  const nowMinute = new Date().getHours() * 60 + new Date().getMinutes();
+  const needsList = (cardsLoadOk ? needsYouCards(cards) : []).filter((c) => !dismissed.has(c.id));
+  const speakable = cards.filter((c) => !dismissed.has(c.id));
+  const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
+  const upcoming = comingUpCards(speakable, activeCard?.id);
+  const nowMinute = now.getHours() * 60 + now.getMinutes();
+  const activeIndex = activeCard ? speakable.findIndex((c) => c.id === activeCard.id) + 1 : 0;
+  const speakModule = String(activeCard?.module || 'Update').toUpperCase();
 
   const onPlanet = (planet: NexusPlanet) => {
     setActivePlanetId(planet.id);
     const match = cards.find((c) => String(c.module || '').toLowerCase().includes(planet.id.split('_')[0]));
     if (match) setActiveCardId(match.id);
+  };
+
+  const nextUpdate = () => {
+    if (!activeCard || speakable.length < 2) return;
+    const i = speakable.findIndex((c) => c.id === activeCard.id);
+    const next = speakable[(i + 1) % speakable.length];
+    setActiveCardId(next.id);
   };
 
   if (!isStaging) {
@@ -264,115 +290,75 @@ export default function NexusPage() {
   }
 
   const segmentLen = RING_CIRC / PLANET_RING_ORDER.length;
+  const gap = 6;
 
   return (
-    <div
-      style={{
-        minHeight: '100%',
-        background:
-          'radial-gradient(ellipse 80% 50% at 50% 0%, #1a2a4a 0%, transparent 55%), radial-gradient(circle at 20% 80%, #0a1628 0%, transparent 40%), radial-gradient(circle at 80% 60%, #121a2e 0%, transparent 35%), #04080f',
-        color: '#E8EEF9',
-        padding: '20px 20px 32px',
-        fontFamily: 'ui-sans-serif, system-ui, Segoe UI, sans-serif',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        aria-hidden
-        style={{
-          pointerEvents: 'none',
-          position: 'absolute',
-          inset: 0,
-          opacity: 0.35,
-          backgroundImage:
-            'radial-gradient(1px 1px at 10% 20%, #fff 0, transparent 2px), radial-gradient(1px 1px at 30% 70%, #cbd5e1 0, transparent 2px), radial-gradient(1px 1px at 70% 40%, #fff 0, transparent 2px), radial-gradient(1px 1px at 90% 15%, #94a3b8 0, transparent 2px), radial-gradient(1.5px 1.5px at 55% 85%, #fff 0, transparent 2px)',
-        }}
-      />
+    <div className="zava-nexus-root" style={rootStyle}>
+      <div aria-hidden style={starsStyle} />
+      <div aria-hidden style={nebulaStyle} />
 
-      <div
-        style={{
-          position: 'relative',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 11, letterSpacing: '0.18em', color: '#7C8DB5', textTransform: 'uppercase' }}>
-            Zava · Nexus
-          </div>
-          <h1 style={{ margin: '4px 0 0', fontSize: 22, fontWeight: 800 }}>Welcome back, {name}</h1>
-        </div>
-        <Link
-          to="/dashboard"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '8px 14px',
-            borderRadius: 999,
-            border: '1px solid rgba(148,163,184,0.35)',
-            color: '#CBD5E1',
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: 'none',
-          }}
-        >
-          Go to dashboard <ArrowRight size={14} />
-        </Link>
-      </div>
-
-      <div
-        style={{
-          position: 'relative',
-          display: 'grid',
-          gridTemplateColumns: 'minmax(220px, 1fr) minmax(320px, 1.4fr) minmax(220px, 1fr)',
-          gap: 16,
-          alignItems: 'stretch',
-        }}
-        className="zava-nexus-grid"
-      >
-        <aside style={panelStyle}>
-          <SectionTitle>Voice link</SectionTitle>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '12px 14px',
-              borderRadius: 14,
-              background: 'rgba(79,142,247,0.08)',
-              border: '1px solid rgba(79,142,247,0.25)',
-              marginBottom: 16,
-            }}
-          >
-            <Radio size={18} color="#60A5FA" />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Idle</div>
-              <div style={{ fontSize: 11, color: '#94A3B8' }}>
-                Open Talk to speak — Phase 1 keeps the current mic.
-              </div>
+      {/* Header */}
+      <header style={headerStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={logoOrbStyle} />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '0.02em' }}>Zava nexus</span>
+              <span style={{ fontSize: 11, color: '#7C8DB5', letterSpacing: '0.12em' }}>
+                ALL SYSTEMS WATCHED · 10 MODULES
+              </span>
             </div>
           </div>
-          <Link to="/agent" style={{ fontSize: 12, color: '#93C5FD', fontWeight: 600 }}>
-            Open Zava Talk →
+          <Link to="/dashboard" style={dashLinkStyle}>
+            Go to dashboard
           </Link>
+        </div>
+        <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#94A3B8' }}>
+          {formatClock(now)}
+        </div>
+      </header>
 
-          <SectionTitle style={{ marginTop: 22 }}>Needs you · {cardsLoadOk ? needs : '—'}</SectionTitle>
+      <div className="zava-nexus-grid" style={gridStyle}>
+        {/* LEFT */}
+        <aside style={panelStyle}>
+          <SectionTitle>Voice link</SectionTitle>
+          <div style={voicePanelStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', color: '#34D399' }}>IDLE</span>
+              <Waveform />
+            </div>
+            <div style={transcriptStyle}>
+              <p>
+                <span style={whoStyle}>ZAVA</span>
+                {cardsLoadOk
+                  ? ` Welcome back, ${name}. I have ${cards.length} update${cards.length === 1 ? '' : 's'}.${
+                      needs > 0 ? ` ${needs} need${needs === 1 ? 's' : ''} you.` : ''
+                    }`
+                  : ' Couldn’t load signals right now.'}
+              </p>
+              <p style={{ marginTop: 8 }}>
+                <span style={{ ...whoStyle, color: '#60A5FA' }}>YOU</span>
+                {' —'}
+              </p>
+            </div>
+            <Link to="/agent" style={{ fontSize: 12, color: '#5EEAD4', fontWeight: 600, marginTop: 10, display: 'inline-block' }}>
+              Open Zava Talk →
+            </Link>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
+            <SectionTitle style={{ marginBottom: 0 }}>Needs you</SectionTitle>
+            {cardsLoadOk && (
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#F87171', letterSpacing: '0.08em' }}>
+                {needs} URGENT
+              </span>
+            )}
+          </div>
+
           {!cardsLoadOk && (
-            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)', marginBottom: 10 }}>
+            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)' }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Couldn&apos;t load signals</div>
-              <button
-                type="button"
-                style={actionBtn}
-                onClick={() => {
-                  setReloadKey((k) => k + 1);
-                }}
-              >
+              <button type="button" style={primaryBtn} onClick={() => setReloadKey((k) => k + 1)}>
                 Retry
               </button>
             </div>
@@ -380,86 +366,121 @@ export default function NexusPage() {
           {loading && cardsLoadOk && <Muted>—</Muted>}
           {!loading && cardsLoadOk && needsList.length === 0 && <Muted>Nothing urgent right now.</Muted>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {needsList.map((card) => {
-              const pill = priorityPill(card.priority);
-              return (
-                <div key={card.id} style={cardStyle}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <strong style={{ fontSize: 13 }}>{card.title}</strong>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        background: pill.background,
-                        color: pill.color,
-                      }}
-                    >
-                      {pill.label}
-                    </span>
-                  </div>
-                  <p style={{ margin: '6px 0 10px', fontSize: 12, color: '#94A3B8' }}>{signalWhy(card.why)}</p>
-                  <button
-                    type="button"
-                    onClick={() => navigate(card.href || '/agent')}
-                    style={actionBtn}
-                  >
+            {needsList.map((card, idx) => (
+              <div
+                key={card.id}
+                style={{
+                  ...cardStyle,
+                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
+                }}
+              >
+                <strong style={{ fontSize: 13, display: 'block' }}>{card.title}</strong>
+                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>{signalWhy(card.why)}</p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" style={primaryBtn} onClick={() => navigate(card.href || '/agent')}>
                     {card.action || 'Open'}
                   </button>
+                  <button
+                    type="button"
+                    style={ghostBtn}
+                    onClick={() => setDismissed((prev) => new Set(prev).add(card.id))}
+                  >
+                    Later
+                  </button>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </aside>
 
-        <section
-          style={{
-            ...panelStyle,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: 420,
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ position: 'relative', width: 340, height: 340, maxWidth: '100%' }}>
-            <svg viewBox="0 0 320 320" width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
+        {/* CENTER */}
+        <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: 440, margin: '0 auto', aspectRatio: '1' }}>
+            <svg viewBox={`0 0 ${VIEW} ${VIEW}`} width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
+              <defs>
+                <radialGradient id="nexusOrbGrad" cx="35%" cy="30%" r="70%">
+                  <stop offset="0%" stopColor="#E9D5FF" />
+                  <stop offset="35%" stopColor="#A78BFA" />
+                  <stop offset="70%" stopColor="#4F8EF7" />
+                  <stop offset="100%" stopColor="#1E3A5F" />
+                </radialGradient>
+                <filter id="orbGlow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="12" result="b" />
+                  <feMerge>
+                    <feMergeNode in="b" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <circle cx={CX} cy={CY} r={RING_R + 8} fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" strokeDasharray="3 6" />
               {PLANET_RING_ORDER.map((id, i) => {
                 const planet = planetById(planets, id);
                 const color = PLANET_STATUS_COLOR[planet?.status || 'offline'];
-                const dashOffset = -i * segmentLen;
                 return (
                   <circle
                     key={id}
-                    cx="160"
-                    cy="160"
-                    r="118"
+                    cx={CX}
+                    cy={CY}
+                    r={RING_R}
                     fill="none"
                     stroke={color}
-                    strokeWidth="10"
-                    strokeDasharray={`${segmentLen - 4} ${RING_CIRC - (segmentLen - 4)}`}
-                    strokeDashoffset={dashOffset}
-                    strokeLinecap="butt"
-                    transform="rotate(-90 160 160)"
+                    strokeWidth="14"
+                    strokeDasharray={`${segmentLen - gap} ${RING_CIRC - (segmentLen - gap)}`}
+                    strokeDashoffset={-i * segmentLen}
+                    transform={`rotate(-90 ${CX} ${CY})`}
                     opacity={0.95}
+                    style={{ filter: `drop-shadow(0 0 6px ${color})` }}
                   />
                 );
               })}
+              <circle cx={CX} cy={CY} r={86} fill="url(#nexusOrbGrad)" filter="url(#orbGlow)" opacity={0.92} />
+              <circle cx={CX} cy={CY} r={86} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
             </svg>
 
-            {RING.map((slot, index) => {
+            {/* Welcome + score over orb */}
+            <div
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                textAlign: 'center',
+                width: 160,
+                pointerEvents: 'none',
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25, textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
+                <div>Welcome back,</div>
+                <div>{name}</div>
+              </div>
+              <div
+                style={{
+                  marginTop: 10,
+                  fontSize: 10,
+                  letterSpacing: '0.18em',
+                  color: 'rgba(226,232,240,0.75)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Business health{health != null ? ' · Beta' : ''}
+              </div>
+              <div style={{ fontSize: 42, fontWeight: 900, lineHeight: 1.05, marginTop: 2 }}>
+                {loading || health == null ? '—' : health}
+              </div>
+            </div>
+
+            {/* Planets outside ring */}
+            {RING.map((slot) => {
               const planet = planetById(planets, slot.id);
               if (!planet) return null;
               const rad = (slot.angle * Math.PI) / 180;
-              const r = 118;
-              const x = 160 + r * Math.cos(rad);
-              const y = 160 + r * Math.sin(rad);
+              const x = CX + ORBIT_R * Math.cos(rad);
+              const y = CY + ORBIT_R * Math.sin(rad);
               const color = PLANET_STATUS_COLOR[planet.status];
-              const glow = activePlanetId === planet.id;
+              const glow = activePlanetId === planet.id || (activeCard && String(activeCard.module || '').toLowerCase().includes(planet.id.split('_')[0]));
               const Icon = PLANET_ICON[planet.id];
+              const leftPct = (x / VIEW) * 100;
+              const topPct = (y / VIEW) * 100;
               return (
                 <button
                   key={planet.id}
@@ -468,209 +489,185 @@ export default function NexusPage() {
                   onClick={() => onPlanet(planet)}
                   style={{
                     position: 'absolute',
-                    left: x,
-                    top: y,
+                    left: `${leftPct}%`,
+                    top: `${topPct}%`,
                     transform: 'translate(-50%, -50%)',
-                    width: glow ? 58 : 52,
-                    height: glow ? 58 : 52,
-                    borderRadius: '50%',
-                    border: `2px solid ${color}`,
-                    background: planet.connected ? 'rgba(8,15,28,0.95)' : 'rgba(30,41,59,0.85)',
-                    boxShadow: glow ? `0 0 22px ${color}` : `0 0 12px ${color}88`,
-                    color: '#E2E8F0',
+                    background: 'transparent',
+                    border: 'none',
                     cursor: 'pointer',
-                    padding: 2,
-                    zIndex: 2 + index,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 1,
-                  }}
-                >
-                  <Icon size={12} color={color} />
-                  <div style={{ fontSize: 8, fontWeight: 800, lineHeight: 1.05, maxWidth: 46 }}>
-                    {planet.label}
-                  </div>
-                </button>
-              );
-            })}
-
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                width: 150,
-              }}
-            >
-              <div
-                style={{
-                  width: 72,
-                  height: 72,
-                  margin: '0 auto 10px',
-                  borderRadius: '50%',
-                  background: 'radial-gradient(circle at 35% 30%, #C4B5FD, #4F8EF7 55%, #1E3A5F)',
-                  boxShadow: '0 0 40px rgba(99,102,241,0.55)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Bot size={28} color="#fff" />
-              </div>
-              <div style={{ fontSize: 11, color: '#94A3B8', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                Business health · Beta
-              </div>
-              <div style={{ fontSize: 36, fontWeight: 900, lineHeight: 1.05 }}>
-                {loading || health == null ? '—' : health}
-              </div>
-              <div style={{ fontSize: 12, color: '#A5B4C8', marginTop: 4 }}>
-                {cardsLoadOk ? `${needs} need${needs === 1 ? 's' : ''} you` : 'Signals unavailable'}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-              gap: 8,
-              width: '100%',
-              marginTop: 18,
-            }}
-          >
-            {planets.map((p) => {
-              const Icon = PLANET_ICON[p.id];
-              return (
-                <button
-                  key={`m-${p.id}`}
-                  type="button"
-                  onClick={() => onPlanet(p)}
-                  style={{
-                    textAlign: 'left',
-                    background: 'rgba(15,23,42,0.55)',
-                    border: `1px solid ${PLANET_STATUS_COLOR[p.status]}66`,
-                    boxShadow: `0 0 10px ${PLANET_STATUS_COLOR[p.status]}22`,
-                    borderRadius: 10,
-                    padding: '8px 8px',
-                    color: '#E2E8F0',
-                    cursor: 'pointer',
+                    padding: 0,
+                    width: 72,
+                    zIndex: 3,
                   }}
                 >
                   <div
                     style={{
+                      width: 44,
+                      height: 44,
+                      margin: '0 auto',
+                      borderRadius: '50%',
+                      border: `2px solid ${color}`,
+                      background: 'rgba(6,12,24,0.92)',
+                      boxShadow: glow ? `0 0 22px ${color}` : `0 0 14px ${color}99`,
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 4,
-                      fontSize: 10,
-                      fontWeight: 800,
-                      color: PLANET_STATUS_COLOR[p.status],
+                      justifyContent: 'center',
                     }}
                   >
-                    <Icon size={11} />
-                    {p.label}
+                    <Icon size={18} color={color} strokeWidth={2.25} />
                   </div>
-                  <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 2 }}>{p.metricLabel}</div>
+                  <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: '#E2E8F0', lineHeight: 1.1 }}>
+                    {planet.label}
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 2 }}>{planet.orbitValue}</div>
                 </button>
               );
             })}
           </div>
-          {activePlanetId && planetById(planets, activePlanetId)?.href && (
-            <button
-              type="button"
-              style={{ ...actionBtn, marginTop: 12 }}
-              onClick={() => {
-                const href = planetById(planets, activePlanetId)?.href;
-                if (href) navigate(href);
-              }}
-            >
-              Open {planetById(planets, activePlanetId)?.label}
-            </button>
-          )}
           {!loading && loadMs != null && (
-            <div style={{ marginTop: 10, fontSize: 10, color: '#64748B' }}>
+            <div style={{ textAlign: 'center', marginTop: 4, fontSize: 10, color: '#64748B' }}>
               {requestCount} requests · {loadMs} ms
             </div>
           )}
         </section>
 
+        {/* RIGHT */}
         <aside style={panelStyle}>
           <SectionTitle>Zava · speaking</SectionTitle>
           {!cardsLoadOk ? (
             <Muted>Couldn&apos;t load signals — use Retry on the left.</Muted>
           ) : activeCard ? (
-            <div style={{ ...cardStyle, borderColor: 'rgba(167,139,250,0.45)' }}>
-              <div style={{ fontSize: 11, color: '#A78BFA', fontWeight: 700, marginBottom: 6 }}>Current update</div>
-              <strong style={{ fontSize: 15 }}>{activeCard.title}</strong>
-              <div style={{ fontSize: 18, fontWeight: 800, margin: '8px 0 6px' }}>
+            <div style={{ ...cardStyle, borderColor: 'rgba(94,234,212,0.35)', boxShadow: '0 0 24px rgba(45,212,191,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#5EEAD4' }}>
+                  {speakModule} ({activeIndex} OF {speakable.length || 1})
+                </span>
+                <Waveform compact />
+              </div>
+              <strong style={{ fontSize: 16, display: 'block', lineHeight: 1.3 }}>{activeCard.title}</strong>
+              <div style={{ fontSize: 20, fontWeight: 800, margin: '10px 0 8px', color: '#F8FAFC' }}>
                 {signalFigure(activeCard) || companyAmount(activeCard.money)}
               </div>
-              <p style={{ fontSize: 12, color: '#94A3B8', margin: '0 0 12px' }}>{signalWhy(activeCard.why)}</p>
-              <button type="button" style={actionBtn} onClick={() => navigate(activeCard.href || '/agent')}>
-                {activeCard.action || 'Open'}
-              </button>
+              <p style={{ fontSize: 12, color: '#94A3B8', margin: '0 0 14px', lineHeight: 1.45 }}>
+                {signalWhy(activeCard.why)}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" style={tealBtn} onClick={() => navigate(activeCard.href || '/agent')}>
+                  {activeCard.action || 'Open'}
+                </button>
+                <button type="button" style={ghostBtn} onClick={nextUpdate} disabled={speakable.length < 2}>
+                  Next update
+                </button>
+              </div>
             </div>
           ) : (
             <Muted>{loading ? 'Loading…' : 'No updates yet.'}</Muted>
           )}
 
-          <SectionTitle style={{ marginTop: 20 }}>Coming up</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SectionTitle style={{ marginTop: 22 }}>Coming up</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {(upcoming.length === 0 || !cardsLoadOk) && <Muted>—</Muted>}
             {cardsLoadOk &&
-              upcoming.map((card) => (
-                <button
-                  key={card.id}
-                  type="button"
-                  onClick={() => setActiveCardId(card.id)}
-                  style={{
-                    ...cardStyle,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    width: '100%',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>{card.title}</div>
-                  <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 4 }}>{signalFigure(card)}</div>
-                </button>
-              ))}
+              upcoming.map((card) => {
+                const color =
+                  String(card.priority).toLowerCase() === 'urgent'
+                    ? PLANET_STATUS_COLOR.needs_you
+                    : String(card.priority).toLowerCase() === 'today'
+                      ? PLANET_STATUS_COLOR.watch
+                      : PLANET_STATUS_COLOR.info;
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => setActiveCardId(card.id)}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'flex-start',
+                      textAlign: 'left',
+                      background: 'transparent',
+                      border: 'none',
+                      borderBottom: '1px solid rgba(148,163,184,0.1)',
+                      padding: '10px 0',
+                      cursor: 'pointer',
+                      color: '#E2E8F0',
+                      width: '100%',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: color,
+                        boxShadow: `0 0 8px ${color}`,
+                        marginTop: 5,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>
+                      <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
+                        {card.module ? String(card.module).replace(/^\w/, (c) => c.toUpperCase()) : 'Update'}
+                      </span>
+                      <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                        {card.title}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
           </div>
         </aside>
       </div>
 
-      <section style={{ ...panelStyle, marginTop: 16, position: 'relative' }}>
-        <SectionTitle>Today · 6 AM – 6 PM</SectionTitle>
+      {/* Timeline */}
+      <section style={{ ...panelStyle, marginTop: 14, position: 'relative' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+          <SectionTitle style={{ marginBottom: 0 }}>Today · 6 AM to 6 PM</SectionTitle>
+          {nowMinute >= 360 && nowMinute <= 1080 && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#5EEAD4', fontFamily: 'ui-monospace, monospace' }}>
+              {formatNowLabel(now)}
+            </span>
+          )}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, 1fr)',
+            fontSize: 10,
+            color: '#64748B',
+            marginLeft: 64,
+            marginBottom: 6,
+            fontFamily: 'ui-monospace, monospace',
+          }}
+        >
+          {['6 AM', '8', '10', '12', '2 PM', '4', '6 PM'].map((t) => (
+            <span key={t}>{t}</span>
+          ))}
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 10 }}>
           {(['money', 'goods', 'team'] as TimelineLaneId[]).map((lane) => {
             const laneEvents = timeline.filter((e) => e.lane === lane);
             const timed = laneEvents.filter((e) => e.minuteOfDay != null);
             const undated = laneEvents.filter((e) => e.timeNotRecorded);
+            const dotColor =
+              lane === 'money' ? '#34D399' : lane === 'goods' ? '#60A5FA' : '#A78BFA';
             return (
               <div key={lane} style={{ display: 'contents' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', paddingTop: 6 }}>{laneLabel(lane)}</div>
-                <div style={{ marginBottom: 10 }}>
-                  <div
-                    style={{
-                      position: 'relative',
-                      height: 44,
-                      borderRadius: 10,
-                      background: 'rgba(15,23,42,0.65)',
-                      border: '1px solid rgba(148,163,184,0.12)',
-                    }}
-                  >
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', paddingTop: 10 }}>{laneLabel(lane)}</div>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={trackStyle}>
                     {nowMinute >= 360 && nowMinute <= 1080 && (
                       <div
                         style={{
                           position: 'absolute',
                           left: `${((nowMinute - 360) / 720) * 100}%`,
-                          top: 0,
-                          bottom: 0,
+                          top: -4,
+                          bottom: -4,
                           width: 2,
-                          background: '#F472B6',
-                          boxShadow: '0 0 10px #F472B6',
+                          background: '#5EEAD4',
+                          boxShadow: '0 0 12px #5EEAD4',
+                          zIndex: 2,
                         }}
                       />
                     )}
@@ -695,10 +692,11 @@ export default function NexusPage() {
                             height: 10,
                             borderRadius: '50%',
                             border: ev.expected ? '1.5px dashed #94A3B8' : 'none',
-                            background: ev.expected ? 'transparent' : '#60A5FA',
-                            boxShadow: ev.expected ? 'none' : '0 0 8px #60A5FA',
+                            background: ev.expected ? 'transparent' : dotColor,
+                            boxShadow: ev.expected ? 'none' : `0 0 10px ${dotColor}`,
                             cursor: ev.href ? 'pointer' : 'default',
                             padding: 0,
+                            zIndex: 3,
                           }}
                         />
                       );
@@ -739,36 +737,36 @@ export default function NexusPage() {
         @media (max-width: 1100px) {
           .zava-nexus-grid { grid-template-columns: 1fr !important; }
         }
+        @keyframes zavaWave {
+          0%, 100% { transform: scaleY(0.35); }
+          50% { transform: scaleY(1); }
+        }
       `}</style>
     </div>
   );
 }
 
-const panelStyle: CSSProperties = {
-  background: 'rgba(8, 14, 26, 0.72)',
-  border: '1px solid rgba(148,163,184,0.14)',
-  borderRadius: 20,
-  padding: 18,
-  backdropFilter: 'blur(10px)',
-};
-
-const cardStyle: CSSProperties = {
-  background: 'rgba(15,23,42,0.7)',
-  border: '1px solid rgba(148,163,184,0.16)',
-  borderRadius: 14,
-  padding: '12px 12px',
-};
-
-const actionBtn: CSSProperties = {
-  border: 'none',
-  borderRadius: 10,
-  padding: '8px 12px',
-  background: '#4F8EF7',
-  color: '#fff',
-  fontWeight: 700,
-  fontSize: 12,
-  cursor: 'pointer',
-};
+function Waveform({ compact }: { compact?: boolean }) {
+  const bars = compact ? 8 : 16;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: compact ? 14 : 18 }} aria-hidden>
+      {Array.from({ length: bars }, (_, i) => (
+        <span
+          key={i}
+          style={{
+            width: 2,
+            height: '100%',
+            borderRadius: 1,
+            background: '#5EEAD4',
+            opacity: 0.55 + (i % 3) * 0.1,
+            transformOrigin: 'center',
+            animation: `zavaWave ${0.7 + (i % 5) * 0.12}s ease-in-out ${i * 0.05}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function SectionTitle({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
@@ -791,3 +789,136 @@ function SectionTitle({ children, style }: { children: ReactNode; style?: CSSPro
 function Muted({ children }: { children: ReactNode }) {
   return <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>{children}</div>;
 }
+
+const rootStyle: CSSProperties = {
+  minHeight: '100%',
+  position: 'relative',
+  overflow: 'hidden',
+  color: '#E8EEF9',
+  padding: '16px 18px 28px',
+  fontFamily: 'ui-sans-serif, system-ui, Segoe UI, sans-serif',
+  background: '#030712',
+};
+
+const starsStyle: CSSProperties = {
+  pointerEvents: 'none',
+  position: 'absolute',
+  inset: 0,
+  opacity: 0.45,
+  backgroundImage:
+    'radial-gradient(1px 1px at 8% 18%, #fff 0, transparent 2px), radial-gradient(1px 1px at 22% 72%, #cbd5e1 0, transparent 2px), radial-gradient(1px 1px at 48% 12%, #fff 0, transparent 2px), radial-gradient(1px 1px at 66% 44%, #94a3b8 0, transparent 2px), radial-gradient(1.5px 1.5px at 82% 78%, #fff 0, transparent 2px), radial-gradient(1px 1px at 91% 28%, #e2e8f0 0, transparent 2px)',
+};
+
+const nebulaStyle: CSSProperties = {
+  pointerEvents: 'none',
+  position: 'absolute',
+  inset: 0,
+  background:
+    'radial-gradient(ellipse 55% 40% at 50% 42%, rgba(79,110,200,0.22) 0%, transparent 70%), radial-gradient(ellipse 40% 30% at 70% 60%, rgba(124,58,237,0.12) 0%, transparent 65%)',
+};
+
+const headerStyle: CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  flexWrap: 'wrap',
+  marginBottom: 14,
+};
+
+const logoOrbStyle: CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: '50%',
+  background: 'radial-gradient(circle at 35% 30%, #E9D5FF, #4F8EF7 60%, #1E3A5F)',
+  boxShadow: '0 0 18px rgba(99,102,241,0.65)',
+};
+
+const dashLinkStyle: CSSProperties = {
+  fontSize: 12,
+  color: '#93C5FD',
+  fontWeight: 600,
+  textDecoration: 'none',
+  border: '1px solid rgba(148,163,184,0.25)',
+  borderRadius: 999,
+  padding: '4px 10px',
+};
+
+const gridStyle: CSSProperties = {
+  position: 'relative',
+  display: 'grid',
+  gridTemplateColumns: 'minmax(240px, 0.95fr) minmax(360px, 1.35fr) minmax(240px, 0.95fr)',
+  gap: 14,
+  alignItems: 'stretch',
+};
+
+const panelStyle: CSSProperties = {
+  background: 'rgba(8, 14, 28, 0.55)',
+  border: '1px solid rgba(148,163,184,0.14)',
+  borderRadius: 18,
+  padding: 16,
+  backdropFilter: 'blur(14px)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+};
+
+const cardStyle: CSSProperties = {
+  background: 'rgba(10,18,34,0.75)',
+  border: '1px solid rgba(148,163,184,0.16)',
+  borderRadius: 14,
+  padding: '12px 12px',
+};
+
+const voicePanelStyle: CSSProperties = {
+  ...cardStyle,
+  borderColor: 'rgba(52,211,153,0.25)',
+};
+
+const transcriptStyle: CSSProperties = {
+  fontSize: 12,
+  color: '#CBD5E1',
+  lineHeight: 1.45,
+};
+
+const whoStyle: CSSProperties = {
+  fontWeight: 800,
+  fontSize: 10,
+  letterSpacing: '0.12em',
+  color: '#5EEAD4',
+  marginRight: 6,
+};
+
+const primaryBtn: CSSProperties = {
+  border: 'none',
+  borderRadius: 10,
+  padding: '8px 12px',
+  background: '#22C55E',
+  color: '#04120a',
+  fontWeight: 800,
+  fontSize: 12,
+  cursor: 'pointer',
+};
+
+const tealBtn: CSSProperties = {
+  ...primaryBtn,
+  background: '#2DD4BF',
+};
+
+const ghostBtn: CSSProperties = {
+  border: '1px solid rgba(148,163,184,0.35)',
+  borderRadius: 10,
+  padding: '8px 12px',
+  background: 'transparent',
+  color: '#CBD5E1',
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: 'pointer',
+};
+
+const trackStyle: CSSProperties = {
+  position: 'relative',
+  height: 40,
+  borderRadius: 10,
+  background: 'rgba(15,23,42,0.65)',
+  border: '1px solid rgba(148,163,184,0.12)',
+};

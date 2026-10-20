@@ -36,7 +36,10 @@ export type NexusPlanet = {
   label: string;
   href: string;
   status: PlanetStatus;
+  /** Longer label for tooltips / list rows. */
   metricLabel: string;
+  /** Short value under the orbit icon (design: "$7,118", "6 low"). */
+  orbitValue: string;
   connected: boolean;
 };
 
@@ -162,16 +165,22 @@ export type PlanetInputs = {
 
 function metricForSource<T>(
   src: SourceResult<T>,
-  whenOk: (value: T) => string,
+  whenOk: (value: T) => { label: string; orbit: string },
   unavailableLabel = 'Not connected yet',
-): { connected: boolean; statusBase: PlanetStatus; metricLabel: string } {
+): { connected: boolean; statusBase: PlanetStatus; metricLabel: string; orbitValue: string } {
   if (src.state === 'error') {
-    return { connected: false, statusBase: 'error', metricLabel: "Couldn't load" };
+    return { connected: false, statusBase: 'error', metricLabel: "Couldn't load", orbitValue: '—' };
   }
   if (src.state === 'unavailable') {
-    return { connected: false, statusBase: 'offline', metricLabel: unavailableLabel };
+    return {
+      connected: false,
+      statusBase: 'offline',
+      metricLabel: unavailableLabel,
+      orbitValue: '—',
+    };
   }
-  return { connected: true, statusBase: 'good', metricLabel: whenOk(src.value) };
+  const both = whenOk(src.value);
+  return { connected: true, statusBase: 'good', metricLabel: both.label, orbitValue: both.orbit };
 }
 
 export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
@@ -185,12 +194,18 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
     }
   }
 
-  const collections = metricForSource(input.owedToUs, (v) => `Owed $${Math.round(v).toLocaleString('en-US')}`);
-  const purchase = metricForSource(
-    input.openPoCount,
-    (v) => `${v} open PO${v === 1 ? '' : 's'}`,
-  );
-  const inventory = metricForSource(input.lowStockCount, (v) => `${v} low stock`);
+  const collections = metricForSource(input.owedToUs, (v) => ({
+    label: `Owed $${Math.round(v).toLocaleString('en-US')}`,
+    orbit: `$${Math.round(v).toLocaleString('en-US')}`,
+  }));
+  const purchase = metricForSource(input.openPoCount, (v) => ({
+    label: `${v} open PO${v === 1 ? '' : 's'}`,
+    orbit: String(v),
+  }));
+  const inventory = metricForSource(input.lowStockCount, (v) => ({
+    label: `${v} low stock`,
+    orbit: `${v} low`,
+  }));
   let vansOk: SourceResult<{ online: number; total: number }>;
   if (input.vansTotal.state === 'ok' && input.vansOnline.state === 'ok') {
     vansOk = {
@@ -202,25 +217,29 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
   } else {
     vansOk = { state: 'unavailable' };
   }
-  const delivery = metricForSource(
-    vansOk,
-    (v) => `${v.online}/${v.total} vans live`,
-  );
-  const expenses = metricForSource(input.pendingExpenses, (v) => `${v} pending`);
+  const delivery = metricForSource(vansOk, (v) => ({
+    label: `${v.online}/${v.total} vans live`,
+    orbit: `${v.online}/${v.total}`,
+  }));
+  const expenses = metricForSource(input.pendingExpenses, (v) => ({
+    label: `${v} pending`,
+    orbit: String(v),
+  }));
 
   // Sales: no date-filtered invoice list — open the module; status from cards only.
   const salesMetric =
     input.invoiceCountToday.state === 'ok'
-      ? metricForSource(
-          input.invoiceCountToday,
-          (v) => `${v} invoice${v === 1 ? '' : 's'} today`,
-        )
+      ? metricForSource(input.invoiceCountToday, (v) => ({
+          label: `${v} invoice${v === 1 ? '' : 's'} today`,
+          orbit: String(v),
+        }))
       : input.invoiceCountToday.state === 'error'
-        ? metricForSource(input.invoiceCountToday, () => '')
+        ? metricForSource(input.invoiceCountToday, () => ({ label: '', orbit: '—' }))
         : {
             connected: true,
             statusBase: 'good' as PlanetStatus,
             metricLabel: 'Open sales',
+            orbitValue: '·',
           };
 
   const collectionsStatus =
@@ -247,6 +266,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
           ? byPlanet.get('sales') || 'good'
           : 'offline',
       metricLabel: salesMetric.metricLabel,
+      orbitValue: salesMetric.orbitValue,
     },
     {
       id: 'collections',
@@ -255,6 +275,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       connected: collections.connected,
       status: collections.statusBase === 'error' ? 'error' : collections.connected ? collectionsStatus : 'offline',
       metricLabel: collections.metricLabel,
+      orbitValue: collections.orbitValue,
     },
     {
       id: 'purchase',
@@ -268,6 +289,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             ? byPlanet.get('purchase') || 'good'
             : 'offline',
       metricLabel: purchase.metricLabel,
+      orbitValue: purchase.orbitValue,
     },
     {
       id: 'inventory',
@@ -283,6 +305,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
                 : byPlanet.get('inventory') || 'good')
             : 'offline',
       metricLabel: inventory.metricLabel,
+      orbitValue: inventory.orbitValue,
     },
     {
       id: 'delivery',
@@ -296,6 +319,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             ? byPlanet.get('delivery') || 'good'
             : 'offline',
       metricLabel: delivery.metricLabel,
+      orbitValue: delivery.orbitValue,
     },
     {
       id: 'finance',
@@ -304,6 +328,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       connected: input.cardsLoadOk,
       status: input.cardsLoadOk ? byPlanet.get('finance') || 'good' : 'error',
       metricLabel: financeLabel,
+      orbitValue: input.cardsLoadOk ? (byPlanet.has('finance') ? '!' : 'OK') : '—',
     },
     {
       id: 'expenses',
@@ -319,6 +344,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
                 : byPlanet.get('expenses') || 'good')
             : 'offline',
       metricLabel: expenses.metricLabel,
+      orbitValue: expenses.orbitValue,
     },
     {
       id: 'payroll',
@@ -327,6 +353,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       connected: false,
       status: 'offline',
       metricLabel: 'Not connected yet',
+      orbitValue: '—',
     },
     {
       id: 'ai_team',
@@ -335,6 +362,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       connected: false,
       status: 'offline',
       metricLabel: 'Not connected yet',
+      orbitValue: '—',
     },
     {
       id: 'reports',
@@ -343,6 +371,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       connected: input.cardsLoadOk,
       status: input.cardsLoadOk ? byPlanet.get('reports') || 'good' : 'error',
       metricLabel: reportsLabel,
+      orbitValue: input.cardsLoadOk ? '···' : '—',
     },
   ];
 
@@ -532,7 +561,9 @@ export const PLANET_STATUS_COLOR: Record<PlanetStatus, string> = {
   error: '#F87171',
 };
 
+/** Clockwise from 12 o'clock — matches docs/design/zava/11_nexus.jpg */
 export const PLANET_RING_ORDER: PlanetId[] = [
+  'reports',
   'sales',
   'collections',
   'purchase',
@@ -542,5 +573,4 @@ export const PLANET_RING_ORDER: PlanetId[] = [
   'expenses',
   'payroll',
   'ai_team',
-  'reports',
 ];
