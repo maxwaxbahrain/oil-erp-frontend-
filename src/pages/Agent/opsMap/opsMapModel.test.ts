@@ -3,16 +3,28 @@ import { describe, expect, it } from 'vitest';
 import {
   applyArBalances,
   buildOpsVans,
+  opsChipPresentation,
   parseGpsLocation,
   pickOpsInsight,
+  routeLineProgress,
   routePolylines,
   routeSegments,
   shouldShowVansError,
   stopsForVisitDay,
   todayVisitDay,
+  vanLabelForStop,
   vanPingLabel,
-  vanRouteProgress,
 } from './opsMapModel';
+import type { NexusPlanet } from '../nexus/nexusModel';
+
+const baseVan = {
+  driverName: 'A',
+  status: 'moving' as const,
+  position: null,
+  recordedAt: null,
+  pingLabel: 'No data',
+  hasPingToday: false,
+};
 
 describe('opsMapModel', () => {
   it('parses usable gps_location and rejects junk', () => {
@@ -81,10 +93,10 @@ describe('opsMapModel', () => {
 
   it('route lines only between known points; missing coords break the chain', () => {
     const lines = routePolylines([
-      { customerId: 1, name: 'A', visited: false, position: { lat: 1, lng: 1 }, owed: 0, lineName: null },
-      { customerId: 2, name: 'B', visited: false, position: null, owed: 0, lineName: null },
-      { customerId: 3, name: 'C', visited: false, position: { lat: 2, lng: 2 }, owed: 0, lineName: null },
-      { customerId: 4, name: 'D', visited: false, position: { lat: 3, lng: 3 }, owed: 0, lineName: null },
+      { customerId: 1, name: 'A', visited: false, position: { lat: 1, lng: 1 }, owed: 0, lineName: null, vanId: null },
+      { customerId: 2, name: 'B', visited: false, position: null, owed: 0, lineName: null, vanId: null },
+      { customerId: 3, name: 'C', visited: false, position: { lat: 2, lng: 2 }, owed: 0, lineName: null, vanId: null },
+      { customerId: 4, name: 'D', visited: false, position: { lat: 3, lng: 3 }, owed: 0, lineName: null, vanId: null },
     ]);
     expect(lines).toEqual([[{ lat: 2, lng: 2 }, { lat: 3, lng: 3 }]]);
   });
@@ -98,6 +110,7 @@ describe('opsMapModel', () => {
         position: { lat: 1, lng: 1 },
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
       {
         customerId: 2,
@@ -106,6 +119,7 @@ describe('opsMapModel', () => {
         position: { lat: 2, lng: 2 },
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
       {
         customerId: 3,
@@ -114,6 +128,7 @@ describe('opsMapModel', () => {
         position: { lat: 3, lng: 3 },
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
       {
         customerId: 4,
@@ -122,6 +137,7 @@ describe('opsMapModel', () => {
         position: { lat: 4, lng: 4 },
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
       {
         customerId: 5,
@@ -130,6 +146,7 @@ describe('opsMapModel', () => {
         position: null,
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
       {
         customerId: 6,
@@ -138,13 +155,13 @@ describe('opsMapModel', () => {
         position: { lat: 5, lng: 5 },
         owed: 0,
         lineName: 'East',
+        vanId: null,
       },
     ]);
     expect(segs).toHaveLength(2);
     expect(segs[0].dashed).toBe(false);
     expect(segs[0].points).toHaveLength(2);
     expect(segs[1].dashed).toBe(true);
-    // Bridge from last visited → remaining (real coords only)
     expect(segs[1].points).toEqual([
       { lat: 2, lng: 2 },
       { lat: 3, lng: 3 },
@@ -152,88 +169,93 @@ describe('opsMapModel', () => {
     ]);
   });
 
-  it('van route progress matches line stops without inventing late status', () => {
-    const vans = [
+  it('progress is per route line — van V1 must NOT match line V10 or Route 12', () => {
+    const progress = routeLineProgress([
       {
-        vanId: '1',
-        vanNumber: 'Van 1',
-        driverName: 'A',
-        status: 'moving' as const,
+        customerId: 1,
+        name: 'A',
+        visited: true,
         position: null,
-        recordedAt: null,
-        pingLabel: 'No data',
-        hasPingToday: false,
-      },
-    ];
-    const progress = vanRouteProgress(
-      [
-        {
-          customerId: 1,
-          name: 'A',
-          visited: true,
-          position: null,
-          owed: 0,
-          lineName: 'Van 1',
-        },
-        {
-          customerId: 2,
-          name: 'B',
-          visited: false,
-          position: null,
-          owed: 0,
-          lineName: 'Van 1',
-        },
-        {
-          customerId: 3,
-          name: 'C',
-          visited: false,
-          position: null,
-          owed: 0,
-          lineName: 'Van 1',
-        },
-      ],
-      vans,
-    );
-    expect(progress[0].done).toBe(1);
-    expect(progress[0].total).toBe(3);
-  });
-
-  it('insight only when overdue > 0', () => {
-    const stops = [
-      {
-        customerId: 9,
-        name: 'Gamma Garage',
-        visited: false,
-        position: { lat: 26, lng: 50 },
-        owed: 7118,
-        lineName: 'VAN-01',
+        owed: 0,
+        lineName: 'V10',
+        vanId: null,
       },
       {
-        customerId: 10,
-        name: 'Paid Up',
+        customerId: 2,
+        name: 'B',
         visited: false,
         position: null,
         owed: 0,
-        lineName: null,
+        lineName: 'V10',
+        vanId: null,
       },
-    ];
-    const vans = [
       {
-        vanId: '1',
-        vanNumber: 'VAN-01',
-        driverName: 'A',
-        status: 'moving' as const,
-        position: { lat: 26, lng: 50 },
-        recordedAt: null,
-        pingLabel: 'No data',
-        hasPingToday: false,
+        customerId: 3,
+        name: 'C',
+        visited: false,
+        position: null,
+        owed: 0,
+        lineName: 'Route 12',
+        vanId: null,
       },
-    ];
-    const insight = pickOpsInsight(stops, vans);
-    expect(insight?.customerName).toBe('Gamma Garage');
+    ]);
+    expect(progress.map((p) => p.lineLabel).sort()).toEqual(['Route 12', 'V10']);
+    expect(progress.find((p) => p.lineLabel === 'V10')).toMatchObject({ done: 1, total: 2 });
+    expect(progress.find((p) => p.lineLabel === 'Route 12')).toMatchObject({ done: 0, total: 1 });
+
+    const vans = [{ ...baseVan, vanId: 'v1', vanNumber: 'V1' }];
+    const stopV10 = {
+      customerId: 1,
+      name: 'A',
+      visited: false,
+      position: null,
+      owed: 100,
+      lineName: 'V10',
+      vanId: null as string | null,
+    };
+    expect(vanLabelForStop(stopV10, vans)).toBeNull();
+    expect(vanLabelForStop({ ...stopV10, lineName: 'Route 12' }, vans)).toBeNull();
+    expect(pickOpsInsight([stopV10], vans)?.vanLabel).toBeNull();
+  });
+
+  it('exact van_id link names the van; no link → insight has no van name', () => {
+    const vans = [{ ...baseVan, vanId: 'van-99', vanNumber: 'VAN-99' }];
+    const withLink = {
+      customerId: 9,
+      name: 'Gamma Garage',
+      visited: false,
+      position: { lat: 26, lng: 50 },
+      owed: 7118,
+      lineName: 'VAN-01',
+      vanId: 'van-99',
+    };
+    const noLink = { ...withLink, vanId: null, lineName: 'VAN-01' };
+
+    expect(pickOpsInsight([withLink], vans)?.vanLabel).toBe('VAN-99');
+    expect(pickOpsInsight([noLink], vans)?.vanLabel).toBeNull();
+    expect(pickOpsInsight([noLink], vans)?.customerName).toBe('Gamma Garage');
+    // No vans[0] fallback when fleet exists but no van_id on stop
+    expect(pickOpsInsight([noLink], vans)?.vanLabel).not.toBe('VAN-99');
+    expect(pickOpsInsight([{ ...noLink, owed: 0 }], vans)).toBeNull();
+  });
+
+  it('insight only when owed > 0 (wording uses owe, not overdue aging)', () => {
+    const insight = pickOpsInsight(
+      [
+        {
+          customerId: 9,
+          name: 'Gamma Garage',
+          visited: false,
+          position: null,
+          owed: 7118,
+          lineName: null,
+          vanId: null,
+        },
+      ],
+      [],
+    );
     expect(insight?.amount).toBe(7118);
-    expect(insight?.vanLabel).toBe('VAN-01');
-    expect(pickOpsInsight(stops.map((s) => ({ ...s, owed: 0 })), vans)).toBeNull();
+    expect(insight?.vanLabel).toBeNull();
   });
 
   it('ar-summary balances override route week balance for insight', () => {
@@ -257,6 +279,7 @@ describe('opsMapModel', () => {
       },
       1,
     );
+    expect(stops[0].vanId).toBeNull();
     const withAr = applyArBalances(stops, [{ id: 5, balance: 250 }]);
     expect(withAr[0].owed).toBe(250);
     expect(pickOpsInsight(withAr, [])?.amount).toBe(250);
@@ -270,5 +293,28 @@ describe('opsMapModel', () => {
   it('API-failure state: locations fail → show error, not empty success', () => {
     expect(shouldShowVansError(false)).toBe(true);
     expect(shouldShowVansError(true)).toBe(false);
+  });
+
+  it('chips: source fails → no status color; loading → grey', () => {
+    const goodPlanet: NexusPlanet = {
+      id: 'collections',
+      label: 'Collections',
+      href: '/finance/collections',
+      status: 'needs_you',
+      metricLabel: 'Owed $7,118',
+      orbitValue: '$7,118',
+      connected: true,
+    };
+    expect(opsChipPresentation(goodPlanet, 'error')).toEqual({
+      blurb: "Couldn't load",
+      dotColor: null,
+    });
+    expect(opsChipPresentation(undefined, 'error').dotColor).toBeNull();
+    expect(opsChipPresentation(goodPlanet, 'loading').dotColor).toBe('#64748B');
+    expect(opsChipPresentation(goodPlanet, 'ok').dotColor).toBeTruthy();
+    expect(opsChipPresentation({ ...goodPlanet, status: 'error' }, 'ok')).toEqual({
+      blurb: "Couldn't load",
+      dotColor: null,
+    });
   });
 });

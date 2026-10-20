@@ -1,9 +1,20 @@
 /**
  * Zava Ops Map Phase 2 — pure adapters over existing van / route / AR data.
- * No invented coordinates, late/ETA, or driver messages.
+ * No invented coordinates, late/ETA, driver messages, or van↔line name guessing.
+ *
+ * Van ↔ route link: none in current APIs. Route week / customers expose
+ * `line_name` (string) only; `vans` has no assigned route; no `van_id` on
+ * route templates. Optional `van_id` on a stop is used only with exact id match
+ * when/if the API adds it.
  */
 
 import { deriveVanLiveStatus, type VanLiveStatus } from '../../../lib/vanLiveStatus';
+import {
+  PLANET_STATUS_COLOR,
+  type NexusPlanet,
+  type PlanetId,
+  type PlanetStatus,
+} from '../nexus/nexusModel';
 
 export type LatLng = { lat: number; lng: number };
 
@@ -28,10 +39,13 @@ export type OpsStop = {
   /** Ledger closing from ar-summary when available; else null. */
   owed: number | null;
   lineName: string | null;
+  /** Exact van id from API when present — never inferred from line_name. */
+  vanId: string | null;
 };
 
 export type OpsInsight = {
-  vanLabel: string;
+  /** Only set when stop.vanId exactly matches a fleet van id. */
+  vanLabel: string | null;
   customerId: number;
   customerName: string;
   amount: number;
@@ -174,6 +188,8 @@ export function stopsForVisitDay(
         visited?: boolean;
         balance?: number;
         line_name?: string | null;
+        /** Present only if API adds a real assignment — never guessed client-side. */
+        van_id?: string | number | null;
       }>;
     }>;
   } | null,
@@ -182,14 +198,20 @@ export function stopsForVisitDay(
   if (week == null || visitDay == null) return [];
   const day = week.days.find((d) => d.visit_day === visitDay);
   if (!day) return [];
-  return day.customers.map((c) => ({
-    customerId: c.customer_id,
-    name: c.name,
-    visited: Boolean(c.visited),
-    position: parseGpsLocation(c.gps_location),
-    owed: c.balance != null && Number.isFinite(Number(c.balance)) ? Number(c.balance) : null,
-    lineName: c.line_name ?? null,
-  }));
+  return day.customers.map((c) => {
+    const rawVan = c.van_id;
+    const vanId =
+      rawVan != null && String(rawVan).trim() !== '' ? String(rawVan).trim() : null;
+    return {
+      customerId: c.customer_id,
+      name: c.name,
+      visited: Boolean(c.visited),
+      position: parseGpsLocation(c.gps_location),
+      owed: c.balance != null && Number.isFinite(Number(c.balance)) ? Number(c.balance) : null,
+      lineName: c.line_name ?? null,
+      vanId,
+    };
+  });
 }
 
 /** Prefer ar-summary per_customer balance (same source as dashboard / customer AR). */
@@ -236,7 +258,7 @@ export type OpsRouteSegment = {
 
 function lineKeyForStop(stop: OpsStop): string {
   const raw = (stop.lineName || '').trim();
-  return raw || 'route';
+  return raw || '__unnamed__';
 }
 
 /**
@@ -298,74 +320,68 @@ export function routeSegments(stops: OpsStop[]): OpsRouteSegment[] {
   return out;
 }
 
-export type VanRouteProgress = {
-  vanId: string;
+export type RouteLineProgress = {
+  lineKey: string;
   lineLabel: string;
   done: number;
   total: number;
   color: string;
 };
 
-/** Per-van stop progress from today's route lines (no invented late/ETA). */
-export function vanRouteProgress(stops: OpsStop[], vans: OpsVanRow[]): VanRouteProgress[] {
-  const byLine = new Map<string, OpsStop[]>();
+/**
+ * Progress per route line_name (real field on customers / route week).
+ * Does not attach progress to vans — no van↔line link in existing data.
+ */
+export function routeLineProgress(stops: OpsStop[]): RouteLineProgress[] {
+  const groups = new Map<string, OpsStop[]>();
   for (const stop of stops) {
-    const key = lineKeyForStop(stop).toLowerCase();
-    const list = byLine.get(key) || [];
+    const key = lineKeyForStop(stop);
+    const list = groups.get(key) || [];
     list.push(stop);
-    byLine.set(key, list);
+    groups.set(key, list);
   }
 
-  return vans.map((van, i) => {
-    const vn = van.vanNumber.toLowerCase();
-    let matched: OpsStop[] = [];
-    for (const [key, list] of byLine) {
-      if (key === 'route') continue;
-      if (key === vn || key.includes(vn) || vn.includes(key)) {
-        matched = list;
-        break;
-      }
-    }
-    return {
-      vanId: van.vanId,
-      lineLabel: matched[0]?.lineName || van.vanNumber,
-      done: matched.filter((s) => s.visited).length,
-      total: matched.length,
+  let i = 0;
+  const rows: RouteLineProgress[] = [];
+  for (const [lineKey, list] of groups) {
+    rows.push({
+      lineKey,
+      lineLabel: lineKey === '__unnamed__' ? 'No line name' : lineKey,
+      done: list.filter((s) => s.visited).length,
+      total: list.length,
       color: OPS_ROUTE_COLORS[i % OPS_ROUTE_COLORS.length],
-    };
-  });
+    });
+    i += 1;
+  }
+  return rows.sort((a, b) => a.lineLabel.localeCompare(b.lineLabel));
+}
+
+/**
+ * Exact van_id match only — never van_number / line_name includes() guessing.
+ */
+export function vanLabelForStop(stop: OpsStop, vans: OpsVanRow[]): string | null {
+  if (!stop.vanId) return null;
+  const match = vans.find((v) => v.vanId === stop.vanId);
+  return match ? match.vanNumber : null;
 }
 
 /**
  * Insight only when a today stop has owed > 0 (from AR).
+ * Names a van only with exact stop.vanId → fleet id. No vans[0] fallback.
  * Does not message the driver — Open customer / Dismiss only.
  */
 export function pickOpsInsight(
   stops: OpsStop[],
   vans: OpsVanRow[],
 ): OpsInsight | null {
-  const overdue = stops
+  const owing = stops
     .filter((s) => s.owed != null && s.owed > 0.005)
     .sort((a, b) => (b.owed || 0) - (a.owed || 0));
-  const pick = overdue[0];
+  const pick = owing[0];
   if (!pick || pick.owed == null) return null;
 
-  let vanLabel = 'Today’s route';
-  if (pick.lineName) {
-    const match = vans.find(
-      (v) =>
-        v.vanNumber.toLowerCase() === pick.lineName!.toLowerCase() ||
-        v.vanNumber.toLowerCase().includes(pick.lineName!.toLowerCase()) ||
-        pick.lineName!.toLowerCase().includes(v.vanNumber.toLowerCase()),
-    );
-    if (match) vanLabel = match.vanNumber;
-    else vanLabel = pick.lineName;
-  } else if (vans[0]) {
-    vanLabel = vans[0].vanNumber;
-  }
-
   return {
-    vanLabel,
+    vanLabel: vanLabelForStop(pick, vans),
     customerId: pick.customerId,
     customerName: pick.name,
     amount: pick.owed,
@@ -378,24 +394,47 @@ export function shouldShowVansError(locationsRequestOk: boolean): boolean {
   return !locationsRequestOk;
 }
 
-/** Bottom module strip — look matches design; blurbs stay generic (no invented counts). */
+/** Bottom module strip — labels/hrefs only; status comes from Nexus buildPlanets. */
 export const OPS_MODULE_CHIPS: Array<{
+  planetId: PlanetId;
   label: string;
   href: string;
-  blurb: string;
-  tone: 'ok' | 'warn' | 'alert' | 'info';
 }> = [
-  { label: 'Sales', href: '/sales/dashboard', blurb: 'Orders & invoices', tone: 'ok' },
-  { label: 'Collections', href: '/finance/collections', blurb: 'Outstanding balances', tone: 'alert' },
-  { label: 'Inventory', href: '/products', blurb: 'Stock on hand', tone: 'warn' },
-  { label: 'Finance', href: '/finance/dashboard', blurb: 'Ledger & cash', tone: 'alert' },
-  { label: 'Expenses', href: '/finance/expenses', blurb: 'Approvals & spend', tone: 'info' },
-  { label: 'Reports', href: '/finance/financial-statement', blurb: 'Statements & P&L', tone: 'ok' },
+  { planetId: 'sales', label: 'Sales', href: '/sales/dashboard' },
+  { planetId: 'collections', label: 'Collections', href: '/finance/collections' },
+  { planetId: 'inventory', label: 'Inventory', href: '/products' },
+  { planetId: 'finance', label: 'Finance', href: '/finance/dashboard' },
+  { planetId: 'expenses', label: 'Expenses', href: '/finance/expenses' },
+  { planetId: 'reports', label: 'Reports', href: '/finance/financial-statement' },
 ];
 
-export const CHIP_TONE_COLOR: Record<'ok' | 'warn' | 'alert' | 'info', string> = {
-  ok: '#22C55E',
-  warn: '#F97316',
-  alert: '#EF4444',
-  info: '#38BDF8',
+export type OpsChipLoadState = 'loading' | 'ok' | 'error';
+
+export type OpsChipPresentation = {
+  blurb: string;
+  /** Null = no status color (source failed). Grey when still loading. */
+  dotColor: string | null;
 };
+
+/**
+ * Chip status from Nexus planets. Fail → "Couldn't load" + no color.
+ * Not loaded yet → neutral grey. Never uses hardcoded alert/warn tones.
+ */
+export function opsChipPresentation(
+  planet: NexusPlanet | undefined,
+  loadState: OpsChipLoadState,
+): OpsChipPresentation {
+  if (loadState === 'error') {
+    return { blurb: "Couldn't load", dotColor: null };
+  }
+  if (loadState === 'loading') {
+    return { blurb: '…', dotColor: '#64748B' };
+  }
+  if (!planet || planet.status === 'error') {
+    return { blurb: "Couldn't load", dotColor: null };
+  }
+  return {
+    blurb: planet.metricLabel,
+    dotColor: PLANET_STATUS_COLOR[planet.status as PlanetStatus],
+  };
+}

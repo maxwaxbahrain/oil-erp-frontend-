@@ -4,24 +4,38 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import { DivIcon, Icon, type LatLngExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import api from '../../../api/axios';
 import { useVisiblePolling } from '../../../hooks/useVisiblePolling';
 import { isStaging } from '../../../config/appEnv';
-import { getVanLocations, getVans, type Van, type VanLocation } from '../../../services/api';
+import { getProducts, getVanLocations, getVans, type Van, type VanLocation } from '../../../services/api';
 import { getRouteWeek, type RouteWeekResponse } from '../../../services/routeService';
 import { getArSummary } from '../../../services/customerService';
-import { vanStatusColor, vanStatusLabel } from '../../../lib/vanLiveStatus';
+import { getPurchaseOrders } from '../../../services/purchasesService';
+import { getExpenseStats } from '../../../services/expenseService';
+import { deriveVanLiveStatus, vanStatusColor, vanStatusLabel } from '../../../lib/vanLiveStatus';
+import { dashboardLowStockAlertCount } from '../../../utils/dashboardLowStock';
 import {
-  CHIP_TONE_COLOR,
+  buildPlanets,
+  countOpenPurchaseOrders,
+  owedToUsFromArSummary,
+  type NexusPlanet,
+  type NexusSignalCard,
+  type PlanetInputs,
+  type SourceResult,
+} from '../nexus/nexusModel';
+import {
   OPS_MODULE_CHIPS,
   OPS_ROUTE_COLORS,
   applyArBalances,
   buildOpsVans,
+  opsChipPresentation,
   pickOpsInsight,
+  routeLineProgress,
   routeSegments,
   shouldShowVansError,
   stopsForVisitDay,
   todayVisitDay,
-  vanRouteProgress,
+  type OpsChipLoadState,
   type OpsInsight,
   type OpsStop,
   type OpsVanRow,
@@ -32,6 +46,16 @@ const DEFAULT_CENTER: LatLngExpression = [26.2235, 50.5876];
 const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
+function okResult<T>(value: T): SourceResult<T> {
+  return { state: 'ok', value };
+}
+function errResult<T = number>(): SourceResult<T> {
+  return { state: 'error' };
+}
+function unavailableResult<T = number>(): SourceResult<T> {
+  return { state: 'unavailable' };
+}
+
 function escapeHtml(s: string) {
   return s
     .replace(/&/g, '&amp;')
@@ -40,12 +64,11 @@ function escapeHtml(s: string) {
     .replace(/"/g, '&quot;');
 }
 
-/** Floating van pill — matches design labels; status is moving/stopped/offline only. */
+/** Floating van pill — status is moving/stopped/offline only; no invented stop progress. */
 function createVanPillIcon(opts: {
   color: string;
   vanNumber: string;
   statusLabel: string;
-  progress: string;
   selected: boolean;
 }) {
   const scale = opts.selected ? 1.06 : 1;
@@ -71,17 +94,16 @@ function createVanPillIcon(opts: {
       </span>
       <span style="display:flex;flex-direction:column;gap:2px;">
         <span style="letter-spacing:0.02em;">${escapeHtml(opts.vanNumber)}</span>
-        <span style="display:flex;gap:8px;font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">
-          <span style="color:${opts.color}">${escapeHtml(opts.statusLabel)}</span>
-          <span style="color:#94A3B8">${escapeHtml(opts.progress)}</span>
+        <span style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:${opts.color}">
+          ${escapeHtml(opts.statusLabel)}
         </span>
       </span>
     </div>`;
   return new DivIcon({
     className: 'zava-van-pill',
     html,
-    iconSize: [150, 40],
-    iconAnchor: [75, 20],
+    iconSize: [130, 40],
+    iconAnchor: [65, 20],
     popupAnchor: [0, -18],
   });
 }
@@ -112,6 +134,16 @@ function MapFocus({ target }: { target: { lat: number; lng: number } | null }) {
   return null;
 }
 
+const EMPTY_PLANET_INPUTS: Omit<PlanetInputs, 'cards' | 'cardsLoadOk'> = {
+  owedToUs: unavailableResult(),
+  openPoCount: unavailableResult(),
+  lowStockCount: unavailableResult(),
+  vansOnline: unavailableResult(),
+  vansTotal: unavailableResult(),
+  pendingExpenses: unavailableResult(),
+  invoiceCountToday: unavailableResult(),
+};
+
 export default function OpsMapPage() {
   const navigate = useNavigate();
   const [locations, setLocations] = useState<VanLocation[]>([]);
@@ -124,18 +156,30 @@ export default function OpsMapPage() {
   const [focusTarget, setFocusTarget] = useState<{ lat: number; lng: number } | null>(null);
   const [dismissedInsightKey, setDismissedInsightKey] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [cards, setCards] = useState<NexusSignalCard[]>([]);
+  const [cardsLoadOk, setCardsLoadOk] = useState(false);
+  const [chipLoadState, setChipLoadState] = useState<OpsChipLoadState>('loading');
+  const [planetInputs, setPlanetInputs] = useState(EMPTY_PLANET_INPUTS);
 
   const load = useCallback(async (silent = false) => {
     if (!isStaging) return;
-    if (!silent) setLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setChipLoadState('loading');
+    }
     setNow(new Date());
     const settled = await Promise.allSettled([
       getVanLocations(),
       getVans(),
       getRouteWeek(),
       getArSummary(),
+      api.get<{ cards: NexusSignalCard[] }>('/api/agent/signals'),
+      api.get<{ data_health?: NexusSignalCard[] }>('/api/agent/data-health'),
+      getPurchaseOrders(),
+      getProducts(),
+      getExpenseStats(),
     ]);
-    const [locS, vansS, weekS, arS] = settled;
+    const [locS, vansS, weekS, arS, signalsS, healthS, posS, productsS, expensesS] = settled;
 
     setVansError(shouldShowVansError(locS.status === 'fulfilled'));
     if (locS.status === 'fulfilled') {
@@ -153,6 +197,49 @@ export default function OpsMapPage() {
     if (arS.status === 'fulfilled' && Array.isArray(arS.value.per_customer)) {
       setArRows(arS.value.per_customer.map((r) => ({ id: r.id, balance: r.balance })));
     }
+
+    const signalsOk = signalsS.status === 'fulfilled';
+    const healthOk = healthS.status === 'fulfilled';
+    const loadOk = signalsOk && healthOk;
+    setCardsLoadOk(loadOk);
+    // Per-chip color comes from buildPlanets (error → no color). Never hardcode tones.
+    setChipLoadState('ok');
+
+    const signalCards =
+      signalsOk && Array.isArray(signalsS.value.data?.cards) ? signalsS.value.data.cards : [];
+    const healthCards =
+      healthOk && Array.isArray(healthS.value.data?.data_health)
+        ? healthS.value.data.data_health
+        : [];
+    setCards(loadOk ? [...signalCards, ...healthCards] : []);
+
+    const locList =
+      locS.status === 'fulfilled' && Array.isArray(locS.value) ? locS.value : [];
+    setPlanetInputs({
+      owedToUs:
+        arS.status === 'fulfilled'
+          ? okResult(owedToUsFromArSummary(arS.value) ?? 0)
+          : errResult(),
+      openPoCount:
+        posS.status === 'fulfilled' ? okResult(countOpenPurchaseOrders(posS.value)) : errResult(),
+      lowStockCount:
+        productsS.status === 'fulfilled'
+          ? okResult(dashboardLowStockAlertCount(productsS.value))
+          : errResult(),
+      vansOnline:
+        locS.status === 'fulfilled'
+          ? okResult(
+              locList.filter((v) => deriveVanLiveStatus(v.recorded_at, v.speed) !== 'offline').length,
+            )
+          : errResult(),
+      vansTotal: locS.status === 'fulfilled' ? okResult(locList.length) : errResult(),
+      pendingExpenses:
+        expensesS.status === 'fulfilled'
+          ? okResult(Number(expensesS.value.pending_approval_count || 0))
+          : errResult(),
+      invoiceCountToday: unavailableResult(),
+    });
+
     if (!silent) setLoading(false);
   }, []);
 
@@ -177,8 +264,22 @@ export default function OpsMapPage() {
   const mappedStops = useMemo(() => stops.filter((s) => s.position), [stops]);
   const unmappedStops = useMemo(() => stops.filter((s) => !s.position), [stops]);
   const segments = useMemo(() => routeSegments(stops), [stops]);
-  const progress = useMemo(() => vanRouteProgress(stops, vans), [stops, vans]);
-  const progressByVan = useMemo(() => new Map(progress.map((p) => [p.vanId, p])), [progress]);
+  const lineProgress = useMemo(() => routeLineProgress(stops), [stops]);
+
+  const planets = useMemo(
+    () =>
+      buildPlanets({
+        cards,
+        cardsLoadOk,
+        ...planetInputs,
+      }),
+    [cards, cardsLoadOk, planetInputs],
+  );
+  const planetById = useMemo(() => {
+    const m = new Map<string, NexusPlanet>();
+    for (const p of planets) m.set(p.id, p);
+    return m;
+  }, [planets]);
 
   const insight: OpsInsight | null = useMemo(() => {
     const pick = pickOpsInsight(stops, vans);
@@ -278,9 +379,6 @@ export default function OpsMapPage() {
               .filter((v) => v.position)
               .map((v) => {
                 const color = vanStatusColor(v.status);
-                const prog = progressByVan.get(v.vanId);
-                const progressLabel =
-                  prog && prog.total > 0 ? `${prog.done}/${prog.total}` : '—';
                 return (
                   <Marker
                     key={v.vanId}
@@ -289,7 +387,6 @@ export default function OpsMapPage() {
                       color,
                       vanNumber: v.vanNumber,
                       statusLabel: vanStatusLabel(v.status),
-                      progress: progressLabel,
                       selected: selectedVanId === v.vanId,
                     })}
                     eventHandlers={{ click: () => selectVan(v) }}
@@ -309,7 +406,6 @@ export default function OpsMapPage() {
         )}
       </div>
 
-      {/* Top chrome */}
       <div style={topBar}>
         <Link to="/agent/nexus" style={backLink}>
           <ArrowLeft size={14} /> Nexus
@@ -322,7 +418,6 @@ export default function OpsMapPage() {
         </button>
       </div>
 
-      {/* Insight — Open customer / Dismiss only (no driver message) */}
       {insight && !vansError && (
         <div className="zava-ops-insight" style={insightCard}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -332,8 +427,17 @@ export default function OpsMapPage() {
             </div>
           </div>
           <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#E8EEF9' }}>
-            <strong>{insight.vanLabel}</strong> visits <strong>{insight.customerName}</strong> today. They owe{' '}
-            <strong>${Math.round(insight.amount).toLocaleString('en-US')}</strong>. Ask the driver to collect?
+            {insight.vanLabel ? (
+              <>
+                <strong>{insight.vanLabel}</strong> visits <strong>{insight.customerName}</strong> today. They owe{' '}
+                <strong>${Math.round(insight.amount).toLocaleString('en-US')}</strong>. Ask the driver to collect?
+              </>
+            ) : (
+              <>
+                <strong>{insight.customerName}</strong> is on today&apos;s route. They owe{' '}
+                <strong>${Math.round(insight.amount).toLocaleString('en-US')}</strong>. Ask the driver to collect?
+              </>
+            )}
           </p>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button type="button" style={outlineTealBtn} onClick={() => navigate(insight.href)}>
@@ -350,7 +454,6 @@ export default function OpsMapPage() {
         </div>
       )}
 
-      {/* Vans today */}
       <aside className="zava-ops-side" style={sidePanel}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 800 }}>Vans today</div>
@@ -360,17 +463,15 @@ export default function OpsMapPage() {
         </div>
 
         {loading && <p style={{ color: '#64748B', fontSize: 12 }}>Loading…</p>}
-        {!loading && !vansError && vans.length === 0 && (
-          <p style={{ color: '#64748B', fontSize: 12 }}>No vans in the fleet list.</p>
-        )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto', flex: 1 }}>
-          {vans.map((v, i) => {
-            const color = progressByVan.get(v.vanId)?.color || OPS_ROUTE_COLORS[i % OPS_ROUTE_COLORS.length];
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflow: 'auto', flex: 1 }}>
+          {/* Live vans — status/ping only (no route progress without a real van_id link) */}
+          {!loading && !vansError && vans.length === 0 && (
+            <p style={{ color: '#64748B', fontSize: 12 }}>No vans in the fleet list.</p>
+          )}
+          {vans.map((v) => {
             const statusColor = vanStatusColor(v.status);
-            const prog = progressByVan.get(v.vanId);
             const selected = selectedVanId === v.vanId;
-            const pct = prog && prog.total > 0 ? Math.round((prog.done / prog.total) * 100) : 0;
             return (
               <button
                 key={v.vanId}
@@ -378,77 +479,111 @@ export default function OpsMapPage() {
                 onClick={() => selectVan(v)}
                 style={{
                   ...vanRow,
-                  borderColor: selected ? `${color}99` : 'transparent',
-                  boxShadow: selected ? `0 0 0 1px ${color}55` : 'none',
+                  borderColor: selected ? `${statusColor}99` : 'transparent',
+                  boxShadow: selected ? `0 0 0 1px ${statusColor}55` : 'none',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ textAlign: 'left', minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, fontSize: 13 }}>
-                      {v.vanNumber}
-                      {prog?.lineLabel && prog.lineLabel !== v.vanNumber ? (
-                        <span style={{ color: '#94A3B8', fontWeight: 600 }}> · {prog.lineLabel}</span>
-                      ) : null}
-                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>{v.vanNumber}</div>
                     <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>{v.driverName}</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 800, color: statusColor }}>
-                      {prog && prog.total > 0 ? `${prog.done} OF ${prog.total}` : vanStatusLabel(v.status)}
+                      {vanStatusLabel(v.status)}
                     </div>
                     <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>{v.pingLabel}</div>
                   </div>
                 </div>
-                <div style={progressTrack}>
-                  <div
-                    style={{
-                      width: `${pct}%`,
-                      height: '100%',
-                      borderRadius: 999,
-                      background: color,
-                      boxShadow: `0 0 10px ${color}`,
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 6, fontSize: 10, color: '#64748B', textAlign: 'left' }}>
-                  {vanStatusLabel(v.status)}
-                  {!v.position ? ' · No map location' : ''}
-                </div>
               </button>
             );
           })}
-        </div>
 
-        {unmappedStops.length > 0 && (
-          <div style={{ marginTop: 14, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', color: '#7C8DB5' }}>
-              NO MAP LOCATION
+          {/* Progress per route line_name — real field, not van name matching */}
+          {lineProgress.length > 0 && (
+            <div style={{ marginTop: 8, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', color: '#7C8DB5', marginBottom: 10 }}>
+                ROUTES TODAY
+              </div>
+              {lineProgress.map((line) => {
+                const pct = line.total > 0 ? Math.round((line.done / line.total) * 100) : 0;
+                return (
+                  <div key={line.lineKey} style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 13, textAlign: 'left' }}>{line.lineLabel}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: line.color }}>
+                        {line.done} OF {line.total}
+                      </div>
+                    </div>
+                    <div style={progressTrack}>
+                      <div
+                        style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          borderRadius: 999,
+                          background: line.color,
+                          boxShadow: `0 0 10px ${line.color}`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, maxHeight: 110, overflow: 'auto' }}>
-              {unmappedStops.map((s) => (
-                <li key={s.customerId} style={{ fontSize: 12, color: '#CBD5E1', padding: '3px 0' }}>
-                  {s.name}
-                  <span style={{ color: '#64748B' }}> · {s.visited ? 'visited' : 'remaining'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          )}
+
+          {unmappedStops.length > 0 && (
+            <div style={{ marginTop: 4, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', color: '#7C8DB5' }}>
+                NO MAP LOCATION
+              </div>
+              <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, maxHeight: 110, overflow: 'auto' }}>
+                {unmappedStops.map((s) => (
+                  <li key={s.customerId} style={{ fontSize: 12, color: '#CBD5E1', padding: '3px 0' }}>
+                    {s.name}
+                    <span style={{ color: '#64748B' }}> · {s.visited ? 'visited' : 'remaining'}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </aside>
 
-      {/* Module chips — design strip */}
       <nav style={chipsRow} aria-label="Modules">
-        {OPS_MODULE_CHIPS.map((c) => (
-          <Link key={c.label} to={c.href} style={chip}>
-            <span style={{ ...chipDot, background: CHIP_TONE_COLOR[c.tone], boxShadow: `0 0 8px ${CHIP_TONE_COLOR[c.tone]}` }} />
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-              <span style={{ fontWeight: 800, fontSize: 12, color: '#E2E8F0' }}>{c.label}</span>
-              <span style={{ fontSize: 10, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {c.blurb}
+        {OPS_MODULE_CHIPS.map((c) => {
+          const planet = planetById.get(c.planetId);
+          const presentation = opsChipPresentation(planet, chipLoadState);
+          return (
+            <Link key={c.label} to={c.href} style={chip}>
+              {presentation.dotColor ? (
+                <span
+                  style={{
+                    ...chipDot,
+                    background: presentation.dotColor,
+                    boxShadow: `0 0 8px ${presentation.dotColor}`,
+                  }}
+                />
+              ) : (
+                <span style={{ ...chipDot, background: 'transparent', border: '1px solid #475569' }} />
+              )}
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                <span style={{ fontWeight: 800, fontSize: 12, color: '#E2E8F0' }}>{c.label}</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: presentation.dotColor ? '#94A3B8' : '#F87171',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {presentation.blurb}
+                </span>
               </span>
-            </span>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </nav>
 
       <style>{`
@@ -607,6 +742,7 @@ const progressTrack: CSSProperties = {
   borderRadius: 999,
   background: 'rgba(148,163,184,0.18)',
   overflow: 'hidden',
+  marginTop: 6,
 };
 
 const chipsRow: CSSProperties = {
