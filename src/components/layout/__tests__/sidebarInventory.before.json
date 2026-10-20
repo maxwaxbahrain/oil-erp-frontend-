@@ -1540,7 +1540,7 @@
           "head": "Dashboard",
           "group": null,
           "label": "Zava",
-          "route": "/agent"
+          "route": "/agent/nexus"
         },
         {
           "kind": "head",
@@ -2158,7 +2158,7 @@
           "head": "Dashboard",
           "group": null,
           "label": "Zava",
-          "route": "/agent"
+          "route": "/agent/nexus"
         },
         {
           "kind": "head",
@@ -2671,7 +2671,7 @@
           "head": "Dashboard",
           "group": null,
           "label": "Zava",
-          "route": "/agent"
+          "route": "/agent/nexus"
         },
         {
           "kind": "head",

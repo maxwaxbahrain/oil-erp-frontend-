@@ -4,6 +4,7 @@ import { Loader2, Lock, User } from 'lucide-react';
 import PasswordInput from '../components/ui/PasswordInput';
 import { useAuth } from '../contexts/AuthContext';
 import { isStaging } from '../config/appEnv';
+import { postLoginHomePath } from '../config/stagingHome';
 
 function responseDetail(err: unknown): string | undefined {
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -34,7 +35,7 @@ function loginErrorMessage(err: unknown, fallback: string): string {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +46,7 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
 
   if (!isLoading && isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={postLoginHomePath(user?.role)} replace />;
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -53,8 +54,8 @@ export default function LoginPage() {
     setError('');
     setSubmitting(true);
     try {
-      await login(username.trim(), password, rememberMe);
-      navigate('/', { replace: true });
+      const nextUser = await login(username.trim(), password, rememberMe);
+      navigate(postLoginHomePath(nextUser.role), { replace: true });
     } catch (err) {
       setError(loginErrorMessage(err, 'Invalid username or password'));
     } finally {

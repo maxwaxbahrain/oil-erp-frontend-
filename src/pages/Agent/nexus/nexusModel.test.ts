@@ -1,0 +1,169 @@
+import { describe, expect, it } from 'vitest';
+
+import { dashboardLowStockAlertCount } from '../../../utils/dashboardLowStock';
+import {
+  businessHealthScore,
+  buildPlanets,
+  buildTimelineEvents,
+  countOpenPurchaseOrders,
+  hasRealTimestamp,
+  owedToUsFromArSummary,
+  type SourceResult,
+} from './nexusModel';
+
+const ok = <T>(value: T): SourceResult<T> => ({ state: 'ok', value });
+const err = <T = number>(): SourceResult<T> => ({ state: 'error' });
+const none = <T = number>(): SourceResult<T> => ({ state: 'unavailable' });
+
+describe('nexusModel', () => {
+  it('health score (Beta): urgent −12, today −6, fyi −2, clamped, unique by id', () => {
+    expect(businessHealthScore([], true)).toBe(100);
+    expect(
+      businessHealthScore(
+        [
+          { id: 'a', title: '', why: '', action: '', money: 0, priority: 'urgent', href: '/' },
+          { id: 'b', title: '', why: '', action: '', money: 0, priority: 'today', href: '/' },
+          { id: 'c', title: '', why: '', action: '', money: 0, priority: 'fyi', href: '/' },
+        ],
+        true,
+      ),
+    ).toBe(100 - 12 - 6 - 2);
+    expect(
+      businessHealthScore(
+        [
+          { id: 'a', title: '', why: '', action: '', money: 0, priority: 'urgent', href: '/' },
+          { id: 'a', title: '', why: '', action: '', money: 0, priority: 'urgent', href: '/' },
+        ],
+        true,
+      ),
+    ).toBe(88);
+  });
+
+  it('signals fail → no health score (not 100)', () => {
+    expect(
+      businessHealthScore(
+        [{ id: 'a', title: '', why: '', action: '', money: 0, priority: 'fyi', href: '/' }],
+        false,
+      ),
+    ).toBeNull();
+    expect(businessHealthScore([], false)).toBeNull();
+  });
+
+  it('owed_to_us matches ar-summary / dashboard source field', () => {
+    expect(owedToUsFromArSummary({ owed_to_us: 7118.25, total_outstanding: 999 })).toBe(7118.25);
+    expect(owedToUsFromArSummary({ total_outstanding: 150 })).toBe(150);
+    expect(owedToUsFromArSummary(null)).toBeNull();
+  });
+
+  it('ar-summary fail → Collections shows Couldn\'t load', () => {
+    const planets = buildPlanets({
+      cards: [],
+      cardsLoadOk: true,
+      owedToUs: err(),
+      openPoCount: ok(0),
+      lowStockCount: ok(0),
+      vansOnline: ok(0),
+      vansTotal: ok(0),
+      pendingExpenses: ok(0),
+      invoiceCountToday: none(),
+    });
+    expect(planets.find((p) => p.id === 'collections')?.metricLabel).toBe("Couldn't load");
+    expect(planets.find((p) => p.id === 'collections')?.status).toBe('error');
+  });
+
+  it('data-health/signals fail → Finance/Reports do not say Books quiet', () => {
+    const planets = buildPlanets({
+      cards: [],
+      cardsLoadOk: false,
+      owedToUs: ok(0),
+      openPoCount: ok(0),
+      lowStockCount: ok(0),
+      vansOnline: ok(0),
+      vansTotal: ok(0),
+      pendingExpenses: ok(0),
+      invoiceCountToday: none(),
+    });
+    expect(planets.find((p) => p.id === 'finance')?.metricLabel).toBe("Couldn't load");
+    expect(planets.find((p) => p.id === 'reports')?.metricLabel).toBe("Couldn't load");
+  });
+
+  it('Nexus low-stock count === dashboard source value', () => {
+    const products = [
+      { current_stock: 3 },
+      { current_stock: 12 },
+      { current_stock: 40 },
+    ];
+    const dashboardValue = dashboardLowStockAlertCount(products);
+    const planets = buildPlanets({
+      cards: [],
+      cardsLoadOk: true,
+      owedToUs: ok(0),
+      openPoCount: ok(0),
+      lowStockCount: ok(dashboardValue),
+      vansOnline: ok(0),
+      vansTotal: ok(0),
+      pendingExpenses: ok(0),
+      invoiceCountToday: none(),
+    });
+    expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe(`${dashboardValue} low stock`);
+    expect(dashboardValue).toBe(2);
+  });
+
+  it('open PO count excludes draft/rejected/completed/paid', () => {
+    expect(
+      countOpenPurchaseOrders([
+        { status: 'Pending' },
+        { status: 'Approved' },
+        { status: 'Draft' },
+        { status: 'Rejected' },
+        { status: 'Completed' },
+        { status: 'Paid' },
+        { status: 'GRN' },
+      ]),
+    ).toBe(3);
+  });
+
+  it('marks Payroll and AI & Team offline; Purchase uses open PO count', () => {
+    const planets = buildPlanets({
+      cards: [],
+      cardsLoadOk: true,
+      owedToUs: ok(100),
+      openPoCount: ok(4),
+      lowStockCount: ok(2),
+      vansOnline: ok(1),
+      vansTotal: ok(3),
+      pendingExpenses: ok(0),
+      invoiceCountToday: none(),
+    });
+    expect(planets.find((p) => p.id === 'payroll')?.metricLabel).toBe('Not connected yet');
+    expect(planets.find((p) => p.id === 'ai_team')?.status).toBe('offline');
+    expect(planets.find((p) => p.id === 'purchase')?.metricLabel).toBe('4 open POs');
+    expect(planets.find((p) => p.id === 'collections')?.metricLabel).toContain('100');
+  });
+
+  it('hasRealTimestamp rejects date-only and midnight', () => {
+    expect(hasRealTimestamp('2026-10-19')).toBe(false);
+    expect(hasRealTimestamp('2026-10-19T00:00:00')).toBe(false);
+    expect(hasRealTimestamp('2026-10-19T09:15:00')).toBe(true);
+  });
+
+  it('timeline: date-only stays off the axis; timed events keep clock position', () => {
+    const now = new Date('2026-10-19T10:00:00');
+    const events = buildTimelineEvents({
+      now,
+      payments: [
+        { id: 1, payment_date: '2026-10-19', created_at: '2026-10-19T09:15:00', customer_name: 'Ada' },
+        { id: 2, payment_date: '2026-10-19', created_at: '2026-10-19T00:00:00', customer_name: 'NoTime' },
+      ],
+      deliveryNotes: [{ id: 3, delivery_date: '2026-10-19', dn_number: 'DN-1' }],
+      leaveRequests: [{ id: 4, startDate: '2026-10-19', status: 'approved', employeeName: 'Sam' }],
+    });
+    const timed = events.find((e) => e.id === 'pay-1');
+    expect(timed?.minuteOfDay).toBe(9 * 60 + 15);
+    expect(timed?.timeNotRecorded).toBeFalsy();
+    expect(events.find((e) => e.id === 'pay-2')?.timeNotRecorded).toBe(true);
+    expect(events.find((e) => e.id === 'pay-2')?.minuteOfDay).toBeNull();
+    expect(events.find((e) => e.id === 'dn-3')?.timeNotRecorded).toBe(true);
+    expect(events.find((e) => e.id === 'leave-4')?.timeNotRecorded).toBe(true);
+  });
+});

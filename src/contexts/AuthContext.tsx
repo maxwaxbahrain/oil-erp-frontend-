@@ -37,7 +37,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<AuthUser>;
   logout: () => void;
   hasRole: (...roles: AuthRole[]) => boolean;
 }
@@ -134,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.access_token);
     setUser(nextUser);
     loadTenantProfile();
+    return nextUser;
   }, []);
 
   const hasRole = useCallback(

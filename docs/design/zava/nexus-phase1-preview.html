@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zava Nexus · Phase 1 preview</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, Segoe UI, sans-serif;
+      color: #E8EEF9;
+      background: radial-gradient(ellipse at 50% 30%, #12203a 0%, #070d18 45%, #04080f 100%);
+      padding: 20px;
+    }
+    .top { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .eyebrow { font-size:11px; letter-spacing:.18em; color:#7C8DB5; text-transform:uppercase; }
+    h1 { margin:4px 0 0; font-size:22px; font-weight:800; }
+    .dash {
+      display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px;
+      border:1px solid rgba(148,163,184,.35); color:#CBD5E1; font-size:13px; font-weight:600; text-decoration:none;
+    }
+    .grid { display:grid; grid-template-columns:minmax(220px,1fr) minmax(320px,1.4fr) minmax(220px,1fr); gap:16px; }
+    .panel {
+      background:rgba(8,14,26,.72); border:1px solid rgba(148,163,184,.14); border-radius:20px; padding:18px;
+      backdrop-filter:blur(10px);
+    }
+    .title { font-size:11px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:#7C8DB5; margin-bottom:10px; }
+    .card { background:rgba(15,23,42,.7); border:1px solid rgba(148,163,184,.16); border-radius:14px; padding:12px; margin-bottom:10px; }
+    .btn { border:none; border-radius:10px; padding:8px 12px; background:#4F8EF7; color:#fff; font-weight:700; font-size:12px; }
+    .muted { font-size:12px; color:#64748B; }
+    .center { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:420px; position:relative; }
+    .ring-wrap { position:relative; width:320px; height:320px; max-width:100%; }
+    .orb {
+      width:72px; height:72px; margin:0 auto 10px; border-radius:50%;
+      background:radial-gradient(circle at 35% 30%, #C4B5FD, #4F8EF7 55%, #1E3A5F);
+      box-shadow:0 0 40px rgba(99,102,241,.55); display:flex; align-items:center; justify-content:center;
+      font-size:28px;
+    }
+    .health { text-align:center; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:150px; }
+    .planet {
+      position:absolute; width:48px; height:48px; border-radius:50%; transform:translate(-50%,-50%);
+      background:rgba(8,15,28,.95); color:#E2E8F0; font-size:9px; font-weight:800;
+      display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+    }
+    .metrics { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; width:100%; margin-top:18px; }
+    .metric { text-align:left; background:rgba(15,23,42,.55); border-radius:10px; padding:8px; border:1px solid rgba(100,116,139,.4); }
+    .metric b { display:block; font-size:10px; }
+    .metric span { display:block; font-size:10px; color:#94A3B8; margin-top:2px; }
+    .lane { display:grid; grid-template-columns:64px 1fr; gap:10px; margin-top:8px; }
+    .track { position:relative; height:44px; border-radius:10px; background:rgba(15,23,42,.65); border:1px solid rgba(148,163,184,.12); }
+    .now { position:absolute; left:55%; top:0; bottom:0; width:2px; background:#F472B6; box-shadow:0 0 10px #F472B6; }
+    @media (max-width:1100px){ .grid{grid-template-columns:1fr;} .metrics{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div class="eyebrow">Zava · Nexus</div>
+      <h1>Welcome back, Admin</h1>
+    </div>
+    <a class="dash" href="#">Go to dashboard →</a>
+  </div>
+  <div class="grid">
+    <aside class="panel">
+      <div class="title">Voice link</div>
+      <div class="card" style="border-color:rgba(79,142,247,.25);background:rgba(79,142,247,.08)">
+        <strong style="font-size:13px">Idle</strong>
+        <div class="muted">Open Talk to speak — Phase 1 keeps the current mic.</div>
+      </div>
+      <div class="title" style="margin-top:22px">Needs you · 1</div>
+      <div class="card">
+        <strong style="font-size:13px">Collections need attention</strong>
+        <p class="muted">Open balances waiting on follow-up</p>
+        <button class="btn">Open collections</button>
+      </div>
+    </aside>
+    <section class="panel center">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 320 320" width="100%" height="100%" style="position:absolute;inset:0">
+          <circle cx="160" cy="160" r="118" fill="none" stroke="rgba(148,163,184,0.15)" stroke-width="10" />
+          <circle cx="160" cy="160" r="118" fill="none" stroke="#4F8EF7" stroke-width="10"
+            stroke-dasharray="608 741" stroke-linecap="round" transform="rotate(-90 160 160)" />
+        </svg>
+        <div class="planet" style="left:160px;top:42px;border:2px solid #34D399">Sales</div>
+        <div class="planet" style="left:255px;top:72px;border:2px solid #60A5FA">Coll.</div>
+        <div class="planet" style="left:298px;top:140px;border:2px solid #34D399">Purch.</div>
+        <div class="planet" style="left:285px;top:220px;border:2px solid #FBBF24">Inv.</div>
+        <div class="planet" style="left:220px;top:275px;border:2px solid #34D399">Deliv.</div>
+        <div class="planet" style="left:100px;top:275px;border:2px solid #34D399">Fin.</div>
+        <div class="planet" style="left:35px;top:220px;border:2px solid #FBBF24">Exp.</div>
+        <div class="planet" style="left:22px;top:140px;border:2px solid #64748B;background:rgba(30,41,59,.85)">Pay</div>
+        <div class="planet" style="left:65px;top:72px;border:2px solid #64748B;background:rgba(30,41,59,.85)">AI</div>
+        <div class="planet" style="left:160px;top:278px;border:2px solid #34D399">Rep.</div>
+        <div class="health">
+          <div class="orb">◎</div>
+          <div style="font-size:11px;color:#94A3B8;letter-spacing:.12em;text-transform:uppercase">Business health · Beta</div>
+          <div style="font-size:36px;font-weight:900">82</div>
+          <div style="font-size:12px;color:#A5B4C8;margin-top:4px">1 needs you</div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><b style="color:#34D399">Sales</b><span>5 invoices today</span></div>
+        <div class="metric"><b style="color:#60A5FA">Collections</b><span>Owed $7,118</span></div>
+        <div class="metric"><b style="color:#34D399">Purchase</b><span>4 open POs</span></div>
+        <div class="metric"><b style="color:#FBBF24">Inventory</b><span>2 low stock</span></div>
+        <div class="metric"><b style="color:#64748B">Payroll</b><span>Not connected yet</span></div>
+      </div>
+    </section>
+    <aside class="panel">
+      <div class="title">Zava · speaking</div>
+      <div class="card" style="border-color:rgba(167,139,250,.45)">
+        <div style="font-size:11px;color:#A78BFA;font-weight:700;margin-bottom:6px">Current update</div>
+        <strong style="font-size:15px">Collections need attention</strong>
+        <div style="font-size:18px;font-weight:800;margin:8px 0 6px">$7,118.25</div>
+        <p class="muted">Open balances waiting on follow-up</p>
+        <button class="btn">Open collections</button>
+      </div>
+      <div class="title" style="margin-top:20px">Coming up</div>
+      <div class="card"><div style="font-size:12px;font-weight:700">Low stock watch</div><div class="muted">Today</div></div>
+    </aside>
+  </div>
+  <section class="panel" style="margin-top:16px">
+    <div class="title">Today · 6 AM – 6 PM</div>
+    <div class="lane"><div class="muted" style="font-weight:800;color:#94A3B8">Money</div><div class="track"><div class="now"></div><span style="position:absolute;left:12px;top:14px;font-size:12px;color:#64748B">—</span></div></div>
+    <div class="lane"><div class="muted" style="font-weight:800;color:#94A3B8">Goods</div><div class="track"><div class="now"></div><span style="position:absolute;left:12px;top:14px;font-size:12px;color:#64748B">—</span></div></div>
+    <div class="lane"><div class="muted" style="font-weight:800;color:#94A3B8">Team</div><div class="track"><div class="now"></div><span style="position:absolute;left:12px;top:14px;font-size:12px;color:#64748B">—</span></div></div>
+  </section>
+</body>
+</html>
