@@ -4,68 +4,122 @@
   <meta charset="utf-8" />
   <title>Zava Ops Map · Phase 2 preview</title>
   <style>
-    body { margin:0; background:#030712; color:#E8EEF9; font-family:system-ui,sans-serif; padding:16px; }
-    .wrap { display:grid; grid-template-columns:1fr 320px; gap:12px; min-height:520px; }
-    .map { position:relative; border-radius:18px; border:1px solid rgba(148,163,184,.14); background:
-      radial-gradient(ellipse at 40% 40%, #1a3a4a 0%, #0a1220 60%); overflow:hidden; min-height:520px; }
-    .insight { position:absolute; top:14px; left:14px; max-width:320px; padding:14px; border-radius:14px;
-      background:rgba(8,16,32,.92); border:1px solid rgba(45,212,191,.35); z-index:2; }
-    .insight b { color:#5EEAD4; font-size:10px; letter-spacing:.14em; }
-    .route { position:absolute; inset:20% 15% 25% 20%; border:2px solid #2DD4BF; border-radius:40% 60% 50% 50%;
-      opacity:.7; box-shadow:0 0 20px #2DD4BF66; }
-    .van { position:absolute; width:36px; height:36px; border-radius:50%; background:#16A34A; color:#fff;
-      display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800;
-      box-shadow:0 0 16px #16A34A; }
-    .side { border-radius:18px; border:1px solid rgba(148,163,184,.14); background:rgba(8,14,28,.72); padding:14px; }
-    .van-row { display:flex; gap:10px; align-items:center; padding:10px; border-radius:12px;
-      border:1px solid rgba(148,163,184,.16); margin-bottom:8px; background:rgba(10,18,34,.8); }
-    .dot { width:10px; height:10px; border-radius:50%; }
-    .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px; }
-    .chip { padding:6px 12px; border-radius:999px; border:1px solid rgba(148,163,184,.2); font-size:11px; font-weight:700; color:#CBD5E1; }
-    .chip.on { border-color:rgba(45,212,191,.55); color:#5EEAD4; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:#030712; color:#E8EEF9; font-family:ui-sans-serif,system-ui,sans-serif; height:100vh; overflow:hidden; }
+    .map {
+      position:absolute; inset:0;
+      background:
+        linear-gradient(180deg, rgba(5,10,20,.2), rgba(5,10,20,.55)),
+        repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(56,120,180,.12) 28px),
+        repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(56,120,180,.12) 28px),
+        radial-gradient(ellipse at 50% 110%, #0b1f3a 0%, #050a14 55%);
+    }
+    .river {
+      position:absolute; left:-10%; right:-10%; bottom:8%; height:22%;
+      background: radial-gradient(ellipse at 50% 0%, #0a2744 0%, transparent 70%);
+      border-top: 2px solid rgba(30,80,140,.35);
+      filter: blur(0.5px);
+    }
+    .depot {
+      position:absolute; left:48%; top:42%; width:28px; height:28px; margin:-14px;
+      border-radius:8px; background:#0b1220; border:2px solid #2DD4BF;
+      box-shadow:0 0 22px #2DD4BFAA; display:flex; align-items:center; justify-content:center; color:#2DD4BF; font-size:12px;
+    }
+    .route { position:absolute; border:none; height:3px; border-radius:999px; transform-origin:left center; }
+    .r1 { left:48%; top:42%; width:220px; background:#2DD4BF; box-shadow:0 0 12px #2DD4BF; transform:rotate(-28deg); }
+    .r1d { left:calc(48% + 190px); top:calc(42% - 100px); width:90px; border-top:3px dashed #2DD4BF; box-shadow:0 0 10px #2DD4BF66; transform:rotate(-28deg); height:0; }
+    .r2 { left:48%; top:42%; width:200px; background:#F97316; box-shadow:0 0 12px #F97316; transform:rotate(38deg); }
+    .r2d { left:calc(48% + 155px); top:calc(42% + 118px); width:100px; border-top:3px dashed #F97316; height:0; transform:rotate(38deg); }
+    .r3 { left:48%; top:42%; width:170px; background:#2DD4BF; box-shadow:0 0 12px #2DD4BF; transform:rotate(160deg); }
+    .pill {
+      position:absolute; display:inline-flex; align-items:center; gap:8px; padding:6px 12px 6px 8px;
+      border-radius:999px; background:rgba(6,12,24,.92); font:700 11px/1.1 system-ui; white-space:nowrap;
+    }
+    .p1 { left:58%; top:28%; border:1px solid #2DD4BF; box-shadow:0 0 18px #2DD4BF88; }
+    .p2 { left:62%; top:58%; border:1px solid #F97316; box-shadow:0 0 18px #F9731688; }
+    .p3 { left:28%; top:52%; border:1px solid #2DD4BF; box-shadow:0 0 18px #2DD4BF88; }
+    .sub { display:flex; gap:8px; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; margin-top:2px; }
+    .top { position:absolute; z-index:2; top:14px; left:16px; right:16px; display:flex; align-items:center; gap:12px; }
+    .back { padding:6px 10px; border-radius:999px; background:rgba(6,12,24,.7); border:1px solid rgba(148,163,184,.2); font-size:12px; color:#93C5FD; }
+    .live { margin-left:auto; font-size:11px; font-weight:800; letter-spacing:.14em; color:#CBD5E1; }
+    .insight {
+      position:absolute; z-index:2; top:56px; left:16px; width:360px; padding:16px; border-radius:16px;
+      background:rgba(8,12,28,.88); border:1px solid rgba(167,139,250,.35);
+      box-shadow:0 12px 40px rgba(0,0,0,.5), 0 0 40px rgba(99,102,241,.12);
+    }
+    .orb { width:22px; height:22px; border-radius:50%; background:conic-gradient(from 210deg,#22D3EE,#A78BFA,#F472B6,#22D3EE); box-shadow:0 0 16px rgba(167,139,250,.7); }
+    .side {
+      position:absolute; z-index:2; top:56px; right:16px; width:300px; padding:16px; border-radius:16px;
+      background:rgba(8,12,28,.88); border:1px solid rgba(148,163,184,.18); box-shadow:0 12px 40px rgba(0,0,0,.45);
+    }
+    .bar { height:4px; border-radius:999px; background:rgba(148,163,184,.18); overflow:hidden; margin-top:6px; }
+    .bar > i { display:block; height:100%; border-radius:999px; }
+    .chips { position:absolute; z-index:2; left:16px; right:16px; bottom:16px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+    .chip {
+      display:inline-flex; align-items:center; gap:10px; padding:10px 14px; border-radius:14px;
+      border:1px solid rgba(148,163,184,.18); background:rgba(8,12,28,.88); max-width:220px;
+    }
+    .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    button { cursor:pointer; }
   </style>
 </head>
 <body>
-  <header style="display:flex;justify-content:space-between;margin-bottom:12px">
-    <div><div style="font-size:11px;letter-spacing:.16em;color:#7C8DB5">ZAVA · OPS MAP</div>
-      <h1 style="margin:0;font-size:20px">Vans & today's route</h1></div>
-  </header>
-  <div class="wrap">
-    <section class="map">
-      <div class="insight">
-        <b>ZAVA INSIGHT</b>
-        <p style="font-size:13px;line-height:1.45"><strong>VAN-01</strong> visits <strong>Gamma Garage</strong> today.
-          They owe <strong>$7,118</strong>. Ask the driver to collect?</p>
-        <button style="background:#2DD4BF;border:none;border-radius:10px;padding:8px 12px;font-weight:800;margin-right:8px">Open customer</button>
-        <button style="background:transparent;border:1px solid #64748B;border-radius:10px;padding:8px 12px;color:#CBD5E1">Dismiss</button>
-      </div>
-      <div class="route"></div>
-      <div class="van" style="left:35%;top:42%">V1</div>
-      <div class="van" style="left:55%;top:58%;background:#D97706;box-shadow:0 0 16px #D97706">V2</div>
-    </section>
-    <aside class="side">
-      <div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#7C8DB5;margin-bottom:12px">VANS TODAY</div>
-      <div class="van-row"><span class="dot" style="background:#16A34A;box-shadow:0 0 10px #16A34A"></span>
-        <div><div style="font-weight:800">VAN-01</div><div style="font-size:11px;color:#94A3B8">Ahmed</div></div>
-        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#16A34A;font-weight:700">Moving</div>
-          <div style="color:#64748B">Last update 2 min ago</div></div></div>
-      <div class="van-row"><span class="dot" style="background:#D97706"></span>
-        <div><div style="font-weight:800">VAN-02</div><div style="font-size:11px;color:#94A3B8">Omar</div></div>
-        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#D97706;font-weight:700">Stopped</div>
-          <div style="color:#64748B">Last update 8 min ago</div></div></div>
-      <div class="van-row"><span class="dot" style="background:#6B7280"></span>
-        <div><div style="font-weight:800">VAN-03</div><div style="font-size:11px;color:#94A3B8">Yusuf</div></div>
-        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#6B7280;font-weight:700">Offline</div>
-          <div style="color:#64748B">No location today</div></div></div>
-      <div style="margin-top:16px;font-size:11px;font-weight:800;letter-spacing:.14em;color:#7C8DB5">NO MAP LOCATION</div>
-      <div style="font-size:12px;color:#CBD5E1;margin-top:8px">Coastal Auto · remaining</div>
-    </aside>
+  <div class="map">
+    <div class="river"></div>
+    <div class="route r1"></div><div class="route r1d"></div>
+    <div class="route r2"></div><div class="route r2d"></div>
+    <div class="route r3"></div>
+    <div class="depot">▣</div>
+    <div class="pill p1"><span>Van 1</span><div><div class="sub"><span style="color:#2DD4BF">MOVING</span><span style="color:#94A3B8">5/7</span></div></div></div>
+    <div class="pill p2"><span>Van 2</span><div><div class="sub"><span style="color:#F97316">STOPPED</span><span style="color:#94A3B8">4/6</span></div></div></div>
+    <div class="pill p3"><span>Van 3</span><div><div class="sub"><span style="color:#2DD4BF">MOVING</span><span style="color:#94A3B8">3/4</span></div></div></div>
   </div>
+
+  <div class="top">
+    <span class="back">← Nexus</span>
+    <span class="live">LIVE MAP · 3 VANS · 17 STOPS LEFT</span>
+  </div>
+
+  <div class="insight">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span class="orb"></span>
+      <div style="font-size:10px;font-weight:800;letter-spacing:.16em;color:#C4B5FD">ZAVA · AN IDEA FOR YOU</div>
+    </div>
+    <p style="margin:0;font-size:14px;line-height:1.5">
+      <strong>Van 2</strong> visits <strong>Gamma Garage</strong> today. They owe <strong>$7,118</strong>. Ask the driver to collect?
+    </p>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button style="border:1px solid #2DD4BF;border-radius:10px;padding:8px 12px;background:transparent;color:#5EEAD4;font-weight:800;font-size:12px">Open customer</button>
+      <button style="border:none;background:transparent;color:#94A3B8;font-weight:700;font-size:12px;padding:8px 4px">Dismiss</button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div style="display:flex;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:15px;font-weight:800">Vans today</div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:.1em;color:#94A3B8">12 OF 17 DONE</div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between"><strong>Van 1 · Route East</strong><span style="color:#2DD4BF;font-weight:800;font-size:11px">5 OF 7</span></div>
+      <div class="bar"><i style="width:71%;background:#2DD4BF;box-shadow:0 0 10px #2DD4BF"></i></div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between"><strong>Van 2 · Route North</strong><span style="color:#F97316;font-weight:800;font-size:11px">4 OF 6</span></div>
+      <div class="bar"><i style="width:66%;background:#F97316;box-shadow:0 0 10px #F97316"></i></div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between"><strong>Van 3 · Route West</strong><span style="color:#2DD4BF;font-weight:800;font-size:11px">3 OF 4</span></div>
+      <div class="bar"><i style="width:75%;background:#2DD4BF;box-shadow:0 0 10px #2DD4BF"></i></div>
+    </div>
+  </aside>
+
   <nav class="chips">
-    <span class="chip">Sales</span><span class="chip">Collections</span><span class="chip">Purchase</span>
-    <span class="chip">Inventory</span><span class="chip on">Delivery</span><span class="chip">Finance</span>
-    <span class="chip">Expenses</span><span class="chip">Payroll</span><span class="chip">AI & Team</span>
-    <span class="chip">Reports</span><span class="chip">Nexus</span>
+    <a class="chip"><span class="dot" style="background:#22C55E;box-shadow:0 0 8px #22C55E"></span><span><b>Sales</b><div style="font-size:10px;color:#94A3B8">Orders & invoices</div></span></a>
+    <a class="chip"><span class="dot" style="background:#EF4444;box-shadow:0 0 8px #EF4444"></span><span><b>Collections</b><div style="font-size:10px;color:#94A3B8">Outstanding balances</div></span></a>
+    <a class="chip"><span class="dot" style="background:#F97316;box-shadow:0 0 8px #F97316"></span><span><b>Inventory</b><div style="font-size:10px;color:#94A3B8">Stock on hand</div></span></a>
+    <a class="chip"><span class="dot" style="background:#EF4444;box-shadow:0 0 8px #EF4444"></span><span><b>Finance</b><div style="font-size:10px;color:#94A3B8">Ledger & cash</div></span></a>
+    <a class="chip"><span class="dot" style="background:#38BDF8;box-shadow:0 0 8px #38BDF8"></span><span><b>Expenses</b><div style="font-size:10px;color:#94A3B8">Approvals & spend</div></span></a>
+    <a class="chip"><span class="dot" style="background:#22C55E;box-shadow:0 0 8px #22C55E"></span><span><b>Reports</b><div style="font-size:10px;color:#94A3B8">Statements & P&L</div></span></a>
   </nav>
 </body>
 </html>

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
-import { Icon, type LatLngExpression } from 'leaflet';
+import { DivIcon, Icon, type LatLngExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft, MapPin, RefreshCw, Truck } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useVisiblePolling } from '../../../hooks/useVisiblePolling';
 import { isStaging } from '../../../config/appEnv';
 import { getVanLocations, getVans, type Van, type VanLocation } from '../../../services/api';
@@ -11,14 +11,17 @@ import { getRouteWeek, type RouteWeekResponse } from '../../../services/routeSer
 import { getArSummary } from '../../../services/customerService';
 import { vanStatusColor, vanStatusLabel } from '../../../lib/vanLiveStatus';
 import {
+  CHIP_TONE_COLOR,
   OPS_MODULE_CHIPS,
+  OPS_ROUTE_COLORS,
   applyArBalances,
   buildOpsVans,
   pickOpsInsight,
-  routePolylines,
+  routeSegments,
   shouldShowVansError,
   stopsForVisitDay,
   todayVisitDay,
+  vanRouteProgress,
   type OpsInsight,
   type OpsStop,
   type OpsVanRow,
@@ -29,37 +32,75 @@ const DEFAULT_CENTER: LatLngExpression = [26.2235, 50.5876];
 const OSM_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-function createDotIcon(color: string, label: string, size = 36) {
-  const r = size / 2 - 4;
-  const cx = size / 2;
-  const cy = size / 2;
-  const svg = `
-    <svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" stroke="#fff" stroke-width="2"
-        style="filter:drop-shadow(0 0 6px ${color})"/>
-      <text x="${cx}" y="${cy + 4}" font-size="10" font-weight="700" text-anchor="middle" fill="#fff">${label.slice(0, 3)}</text>
-    </svg>`;
-  return new Icon({
-    iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
-    iconSize: [size, size],
-    iconAnchor: [cx, cy],
-    popupAnchor: [0, -cy],
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Floating van pill — matches design labels; status is moving/stopped/offline only. */
+function createVanPillIcon(opts: {
+  color: string;
+  vanNumber: string;
+  statusLabel: string;
+  progress: string;
+  selected: boolean;
+}) {
+  const scale = opts.selected ? 1.06 : 1;
+  const html = `
+    <div style="
+      transform:scale(${scale});
+      display:inline-flex;align-items:center;gap:8px;
+      padding:6px 12px 6px 8px;border-radius:999px;
+      background:rgba(6,12,24,0.92);
+      border:1px solid ${opts.color};
+      box-shadow:0 0 18px ${opts.color}88, 0 8px 24px rgba(0,0,0,0.45);
+      color:#E8EEF9;font:700 11px/1.1 ui-sans-serif,system-ui,sans-serif;
+      white-space:nowrap;pointer-events:auto;
+    ">
+      <span style="
+        width:22px;height:22px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;
+        background:${opts.color}33;
+      ">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${opts.color}" stroke-width="2.2">
+          <path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7V10z"/><circle cx="7" cy="17" r="1.6" fill="${opts.color}"/>
+          <circle cx="17" cy="17" r="1.6" fill="${opts.color}"/>
+        </svg>
+      </span>
+      <span style="display:flex;flex-direction:column;gap:2px;">
+        <span style="letter-spacing:0.02em;">${escapeHtml(opts.vanNumber)}</span>
+        <span style="display:flex;gap:8px;font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">
+          <span style="color:${opts.color}">${escapeHtml(opts.statusLabel)}</span>
+          <span style="color:#94A3B8">${escapeHtml(opts.progress)}</span>
+        </span>
+      </span>
+    </div>`;
+  return new DivIcon({
+    className: 'zava-van-pill',
+    html,
+    iconSize: [150, 40],
+    iconAnchor: [75, 20],
+    popupAnchor: [0, -18],
   });
 }
 
-function createStopIcon(visited: boolean) {
-  const color = visited ? '#64748B' : '#F59E0B';
+function createStopIcon(opts: { visited: boolean; owed: boolean; color: string }) {
+  const fill = opts.visited ? '#64748B' : opts.owed ? '#EF4444' : opts.color;
+  const size = opts.owed ? 16 : 12;
   const svg = `
-    <svg width="22" height="28" xmlns="http://www.w3.org/2000/svg">
-      <path d="M11 0C5.5 0 1 4.5 1 10c0 7 10 18 10 18s10-11 10-18C21 4.5 16.5 0 11 0z"
-        fill="${color}" stroke="#fff" stroke-width="1.5"/>
-      <circle cx="11" cy="10" r="3.5" fill="#fff"/>
+    <svg width="${size + 8}" height="${size + 8}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${(size + 8) / 2}" cy="${(size + 8) / 2}" r="${size / 2}"
+        fill="${fill}" stroke="#0B1220" stroke-width="2"
+        style="filter:drop-shadow(0 0 6px ${fill})"/>
+      <circle cx="${(size + 8) / 2}" cy="${(size + 8) / 2}" r="${size / 4}" fill="#061018"/>
     </svg>`;
   return new Icon({
     iconUrl: `data:image/svg+xml;base64,${btoa(svg)}`,
-    iconSize: [22, 28],
-    iconAnchor: [11, 28],
-    popupAnchor: [0, -28],
+    iconSize: [size + 8, size + 8],
+    iconAnchor: [(size + 8) / 2, (size + 8) / 2],
+    popupAnchor: [0, -(size / 2)],
   });
 }
 
@@ -135,7 +176,9 @@ export default function OpsMapPage() {
 
   const mappedStops = useMemo(() => stops.filter((s) => s.position), [stops]);
   const unmappedStops = useMemo(() => stops.filter((s) => !s.position), [stops]);
-  const lines = useMemo(() => routePolylines(stops), [stops]);
+  const segments = useMemo(() => routeSegments(stops), [stops]);
+  const progress = useMemo(() => vanRouteProgress(stops, vans), [stops, vans]);
+  const progressByVan = useMemo(() => new Map(progress.map((p) => [p.vanId, p])), [progress]);
 
   const insight: OpsInsight | null = useMemo(() => {
     const pick = pickOpsInsight(stops, vans);
@@ -170,244 +213,272 @@ export default function OpsMapPage() {
   }
 
   const done = stops.filter((s) => s.visited).length;
-  const remaining = stops.length - done;
+  const remaining = Math.max(0, stops.length - done);
+  const liveVans = vans.filter((v) => v.hasPingToday).length;
 
   return (
     <div style={rootStyle}>
-      <div aria-hidden style={starsStyle} />
-
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/agent/nexus" style={backLink}>
-            <ArrowLeft size={14} /> Nexus
-          </Link>
-          <div>
-            <div style={{ fontSize: 11, letterSpacing: '0.16em', color: '#7C8DB5', textTransform: 'uppercase' }}>
-              Zava · Ops Map
-            </div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Vans & today&apos;s route</h1>
+      <div className="zava-ops-map" style={mapLayer}>
+        {vansError ? (
+          <div style={errorOverlay}>
+            <p style={{ fontWeight: 800, marginBottom: 10, fontSize: 16 }}>Couldn&apos;t load vans</p>
+            <button type="button" style={primaryBtn} onClick={() => void load()}>
+              Retry
+            </button>
           </div>
-        </div>
-        <button type="button" style={ghostBtn} onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={14} /> Refresh
-        </button>
-      </header>
-
-      <div className="zava-ops-grid" style={gridStyle}>
-        {/* Map */}
-        <section style={mapPanel}>
-          {insight && (
-            <div style={insightCard}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#5EEAD4', marginBottom: 8 }}>
-                ZAVA INSIGHT
-              </div>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: '#E2E8F0' }}>
-                <strong>{insight.vanLabel}</strong> visits <strong>{insight.customerName}</strong> today. They owe{' '}
-                <strong>${Math.round(insight.amount).toLocaleString('en-US')}</strong>. Ask the driver to collect?
-              </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button type="button" style={tealBtn} onClick={() => navigate(insight.href)}>
-                  Open customer
-                </button>
-                <button
-                  type="button"
-                  style={ghostBtn}
-                  onClick={() => setDismissedInsightKey(`${insight.customerId}:${insight.amount}`)}
+        ) : (
+          <MapContainer
+            center={mapCenter}
+            zoom={11}
+            zoomControl={false}
+            attributionControl
+            style={{ height: '100%', width: '100%', background: '#050a14' }}
+          >
+            <TileLayer attribution={OSM_ATTR} url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <MapFocus target={focusTarget} />
+            {segments.map((seg, i) => (
+              <Polyline
+                key={`seg-${seg.lineKey}-${i}`}
+                positions={seg.points.map((p) => [p.lat, p.lng] as LatLngExpression)}
+                pathOptions={{
+                  color: seg.color,
+                  weight: seg.dashed ? 3 : 4,
+                  opacity: seg.dashed ? 0.75 : 0.95,
+                  dashArray: seg.dashed ? '8 10' : undefined,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  className: 'zava-ops-route',
+                }}
+              />
+            ))}
+            {mappedStops.map((s, i) => {
+              const color = OPS_ROUTE_COLORS[i % OPS_ROUTE_COLORS.length];
+              const owed = s.owed != null && s.owed > 0.005;
+              return (
+                <Marker
+                  key={`stop-${s.customerId}`}
+                  position={[s.position!.lat, s.position!.lng]}
+                  icon={createStopIcon({ visited: s.visited, owed, color })}
                 >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          )}
-
-          {vansError ? (
-            <div style={errorOverlay}>
-              <p style={{ fontWeight: 700, marginBottom: 10 }}>Couldn&apos;t load vans</p>
-              <button type="button" style={tealBtn} onClick={() => void load()}>
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div className="zava-ops-map" style={{ position: 'absolute', inset: 0 }}>
-              <MapContainer
-                center={mapCenter}
-                zoom={11}
-                className="h-full w-full"
-                style={{ height: '100%', width: '100%', background: '#0a1220' }}
-              >
-                <TileLayer attribution={OSM_ATTR} url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <MapFocus target={focusTarget} />
-                {lines.map((line, i) => (
-                  <Polyline
-                    key={`line-${i}`}
-                    positions={line.map((p) => [p.lat, p.lng] as LatLngExpression)}
-                    pathOptions={{
-                      color: '#2DD4BF',
-                      weight: 3,
-                      opacity: 0.85,
-                      className: 'zava-ops-route',
-                    }}
-                  />
-                ))}
-                {mappedStops.map((s) => (
+                  <Popup>
+                    <div style={{ minWidth: 160 }}>
+                      <strong>{s.name}</strong>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>{s.visited ? 'Visited' : 'Remaining'}</div>
+                      {owed && (
+                        <div style={{ fontSize: 12, color: '#FCA5A5' }}>
+                          Owes ${Math.round(s.owed!).toLocaleString('en-US')}
+                        </div>
+                      )}
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
+            {vans
+              .filter((v) => v.position)
+              .map((v) => {
+                const color = vanStatusColor(v.status);
+                const prog = progressByVan.get(v.vanId);
+                const progressLabel =
+                  prog && prog.total > 0 ? `${prog.done}/${prog.total}` : '—';
+                return (
                   <Marker
-                    key={`stop-${s.customerId}`}
-                    position={[s.position!.lat, s.position!.lng]}
-                    icon={createStopIcon(s.visited)}
+                    key={v.vanId}
+                    position={[v.position!.lat, v.position!.lng]}
+                    icon={createVanPillIcon({
+                      color,
+                      vanNumber: v.vanNumber,
+                      statusLabel: vanStatusLabel(v.status),
+                      progress: progressLabel,
+                      selected: selectedVanId === v.vanId,
+                    })}
+                    eventHandlers={{ click: () => selectVan(v) }}
                   >
                     <Popup>
-                      <div style={{ minWidth: 160 }}>
-                        <strong>{s.name}</strong>
-                        <div style={{ fontSize: 12, marginTop: 4 }}>{s.visited ? 'Visited' : 'Remaining'}</div>
-                        {s.owed != null && s.owed > 0.005 && (
-                          <div style={{ fontSize: 12, color: '#B45309' }}>
-                            Owes ${Math.round(s.owed).toLocaleString('en-US')}
-                          </div>
-                        )}
+                      <div style={{ minWidth: 180 }}>
+                        <strong>{v.vanNumber}</strong>
+                        <div>{v.driverName}</div>
+                        <div style={{ color, fontWeight: 700, marginTop: 4 }}>{vanStatusLabel(v.status)}</div>
+                        <div style={{ fontSize: 12, color: '#94A3B8' }}>{v.pingLabel}</div>
                       </div>
                     </Popup>
                   </Marker>
-                ))}
-                {vans
-                  .filter((v) => v.position)
-                  .map((v) => {
-                    const color = vanStatusColor(v.status);
-                    return (
-                      <Marker
-                        key={v.vanId}
-                        position={[v.position!.lat, v.position!.lng]}
-                        icon={createDotIcon(color, v.vanNumber, selectedVanId === v.vanId ? 42 : 36)}
-                        eventHandlers={{ click: () => selectVan(v) }}
-                      >
-                        <Popup>
-                          <div style={{ minWidth: 180 }}>
-                            <strong>{v.vanNumber}</strong>
-                            <div>{v.driverName}</div>
-                            <div style={{ color, fontWeight: 700, marginTop: 4 }}>{vanStatusLabel(v.status)}</div>
-                            <div style={{ fontSize: 12, color: '#64748B' }}>{v.pingLabel}</div>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    );
-                  })}
-              </MapContainer>
-            </div>
-          )}
-        </section>
-
-        {/* Right: Vans today */}
-        <aside style={sidePanel}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={sectionTitle}>Vans today</div>
-            <span style={{ fontSize: 11, color: '#94A3B8' }}>
-              {done}/{stops.length || 0} stops · {remaining} left
-            </span>
-          </div>
-
-          {loading && <p style={{ color: '#64748B', fontSize: 12 }}>Loading…</p>}
-          {!loading && !vansError && vans.length === 0 && (
-            <p style={{ color: '#64748B', fontSize: 12 }}>No vans in the fleet list.</p>
-          )}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflow: 'auto', flex: 1 }}>
-            {vans.map((v) => {
-              const color = vanStatusColor(v.status);
-              const selected = selectedVanId === v.vanId;
-              return (
-                <button
-                  key={v.vanId}
-                  type="button"
-                  onClick={() => selectVan(v)}
-                  style={{
-                    ...vanCard,
-                    borderColor: selected ? color : 'rgba(148,163,184,0.16)',
-                    boxShadow: selected ? `0 0 16px ${color}44` : 'none',
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: '50%',
-                        background: color,
-                        boxShadow: `0 0 10px ${color}`,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div style={{ textAlign: 'left', minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{v.vanNumber}</div>
-                      <div style={{ fontSize: 11, color: '#94A3B8' }}>{v.driverName}</div>
-                    </div>
-                    <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color }}>{vanStatusLabel(v.status)}</div>
-                      <div style={{ fontSize: 10, color: '#64748B' }}>{v.pingLabel}</div>
-                    </div>
-                  </div>
-                  {!v.position && (
-                    <div style={{ marginTop: 6, fontSize: 10, color: '#94A3B8' }}>
-                      <MapPin size={10} style={{ display: 'inline', marginRight: 4 }} />
-                      Van dot only when a ping has coordinates
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {unmappedStops.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={sectionTitle}>No map location</div>
-              <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, maxHeight: 140, overflow: 'auto' }}>
-                {unmappedStops.map((s) => (
-                  <li key={s.customerId} style={{ fontSize: 12, color: '#CBD5E1', padding: '4px 0' }}>
-                    {s.name}
-                    <span style={{ color: '#64748B' }}> · {s.visited ? 'visited' : 'remaining'}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </aside>
+                );
+              })}
+          </MapContainer>
+        )}
       </div>
 
-      {/* Module chips */}
+      {/* Top chrome */}
+      <div style={topBar}>
+        <Link to="/agent/nexus" style={backLink}>
+          <ArrowLeft size={14} /> Nexus
+        </Link>
+        <div style={liveBadge}>
+          LIVE MAP · {liveVans || vans.length} VANS · {remaining} STOPS LEFT
+        </div>
+        <button type="button" style={ghostIconBtn} onClick={() => void load()} disabled={loading} aria-label="Refresh">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* Insight — Open customer / Dismiss only (no driver message) */}
+      {insight && !vansError && (
+        <div className="zava-ops-insight" style={insightCard}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={insightOrb} aria-hidden />
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', color: '#C4B5FD' }}>
+              ZAVA · AN IDEA FOR YOU
+            </div>
+          </div>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#E8EEF9' }}>
+            <strong>{insight.vanLabel}</strong> visits <strong>{insight.customerName}</strong> today. They owe{' '}
+            <strong>${Math.round(insight.amount).toLocaleString('en-US')}</strong>. Ask the driver to collect?
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <button type="button" style={outlineTealBtn} onClick={() => navigate(insight.href)}>
+              Open customer
+            </button>
+            <button
+              type="button"
+              style={textBtn}
+              onClick={() => setDismissedInsightKey(`${insight.customerId}:${insight.amount}`)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Vans today */}
+      <aside className="zava-ops-side" style={sidePanel}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>Vans today</div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', color: '#94A3B8' }}>
+            {done} OF {stops.length || 0} DONE
+          </div>
+        </div>
+
+        {loading && <p style={{ color: '#64748B', fontSize: 12 }}>Loading…</p>}
+        {!loading && !vansError && vans.length === 0 && (
+          <p style={{ color: '#64748B', fontSize: 12 }}>No vans in the fleet list.</p>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto', flex: 1 }}>
+          {vans.map((v, i) => {
+            const color = progressByVan.get(v.vanId)?.color || OPS_ROUTE_COLORS[i % OPS_ROUTE_COLORS.length];
+            const statusColor = vanStatusColor(v.status);
+            const prog = progressByVan.get(v.vanId);
+            const selected = selectedVanId === v.vanId;
+            const pct = prog && prog.total > 0 ? Math.round((prog.done / prog.total) * 100) : 0;
+            return (
+              <button
+                key={v.vanId}
+                type="button"
+                onClick={() => selectVan(v)}
+                style={{
+                  ...vanRow,
+                  borderColor: selected ? `${color}99` : 'transparent',
+                  boxShadow: selected ? `0 0 0 1px ${color}55` : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <div style={{ textAlign: 'left', minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>
+                      {v.vanNumber}
+                      {prog?.lineLabel && prog.lineLabel !== v.vanNumber ? (
+                        <span style={{ color: '#94A3B8', fontWeight: 600 }}> · {prog.lineLabel}</span>
+                      ) : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>{v.driverName}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: statusColor }}>
+                      {prog && prog.total > 0 ? `${prog.done} OF ${prog.total}` : vanStatusLabel(v.status)}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>{v.pingLabel}</div>
+                  </div>
+                </div>
+                <div style={progressTrack}>
+                  <div
+                    style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      borderRadius: 999,
+                      background: color,
+                      boxShadow: `0 0 10px ${color}`,
+                    }}
+                  />
+                </div>
+                <div style={{ marginTop: 6, fontSize: 10, color: '#64748B', textAlign: 'left' }}>
+                  {vanStatusLabel(v.status)}
+                  {!v.position ? ' · No map location' : ''}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {unmappedStops.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', color: '#7C8DB5' }}>
+              NO MAP LOCATION
+            </div>
+            <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0, maxHeight: 110, overflow: 'auto' }}>
+              {unmappedStops.map((s) => (
+                <li key={s.customerId} style={{ fontSize: 12, color: '#CBD5E1', padding: '3px 0' }}>
+                  {s.name}
+                  <span style={{ color: '#64748B' }}> · {s.visited ? 'visited' : 'remaining'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </aside>
+
+      {/* Module chips — design strip */}
       <nav style={chipsRow} aria-label="Modules">
         {OPS_MODULE_CHIPS.map((c) => (
-          <Link
-            key={c.label}
-            to={c.href}
-            style={{
-              ...chip,
-              borderColor: c.href === '/agent/ops-map' ? 'rgba(45,212,191,0.55)' : 'rgba(148,163,184,0.2)',
-              color: c.href === '/agent/ops-map' ? '#5EEAD4' : '#CBD5E1',
-            }}
-          >
-            {c.label === 'Delivery' ? <Truck size={12} /> : null}
-            {c.label}
+          <Link key={c.label} to={c.href} style={chip}>
+            <span style={{ ...chipDot, background: CHIP_TONE_COLOR[c.tone], boxShadow: `0 0 8px ${CHIP_TONE_COLOR[c.tone]}` }} />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+              <span style={{ fontWeight: 800, fontSize: 12, color: '#E2E8F0' }}>{c.label}</span>
+              <span style={{ fontSize: 10, color: '#94A3B8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {c.blurb}
+              </span>
+            </span>
           </Link>
         ))}
       </nav>
 
       <style>{`
         .zava-ops-map .leaflet-container {
-          filter: grayscale(0.35) brightness(0.72) contrast(1.15) saturate(0.75);
-          background: #0a1220 !important;
+          filter: grayscale(0.45) brightness(0.55) contrast(1.25) saturate(0.55) hue-rotate(190deg);
+          background: #050a14 !important;
         }
         .zava-ops-map .leaflet-control-attribution {
-          background: rgba(6,12,24,.75) !important;
-          color: #94a3b8 !important;
+          background: rgba(6,12,24,.7) !important;
+          color: #64748b !important;
+          font-size: 10px !important;
         }
-        .zava-ops-map .leaflet-control-attribution a { color: #93c5fd !important; }
+        .zava-ops-map .leaflet-control-attribution a { color: #64748b !important; }
         .zava-ops-map .leaflet-popup-content-wrapper {
-          background: #0f1a2e;
+          background: #0b1220;
           color: #e2e8f0;
           border-radius: 12px;
+          border: 1px solid rgba(45,212,191,0.25);
         }
-        .zava-ops-map .leaflet-popup-tip { background: #0f1a2e; }
-        @media (max-width: 1000px) {
-          .zava-ops-grid { grid-template-columns: 1fr !important; }
-          .zava-ops-grid > section { min-height: 420px !important; }
+        .zava-ops-map .leaflet-popup-tip { background: #0b1220; }
+        .zava-ops-map .leaflet-marker-icon.zava-van-pill {
+          background: transparent !important;
+          border: none !important;
+        }
+        .zava-ops-map .zava-ops-route {
+          filter: drop-shadow(0 0 4px currentColor);
+        }
+        @media (max-width: 900px) {
+          .zava-ops-side { width: min(100%, 320px) !important; max-height: 42vh !important; top: auto !important; bottom: 88px !important; }
+          .zava-ops-insight { max-width: calc(100% - 24px) !important; }
         }
       `}</style>
     </div>
@@ -415,106 +486,160 @@ export default function OpsMapPage() {
 }
 
 const rootStyle: CSSProperties = {
-  minHeight: '100%',
   position: 'relative',
+  height: '100%',
+  minHeight: '100vh',
+  overflow: 'hidden',
   background: '#030712',
   color: '#E8EEF9',
-  padding: '16px 18px 20px',
   fontFamily: 'ui-sans-serif, system-ui, Segoe UI, sans-serif',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
 };
 
-const starsStyle: CSSProperties = {
-  pointerEvents: 'none',
+const mapLayer: CSSProperties = {
   position: 'absolute',
   inset: 0,
-  opacity: 0.35,
-  backgroundImage:
-    'radial-gradient(1px 1px at 12% 20%, #fff 0, transparent 2px), radial-gradient(1px 1px at 70% 40%, #cbd5e1 0, transparent 2px), radial-gradient(1px 1px at 40% 80%, #fff 0, transparent 2px)',
 };
 
-const headerStyle: CSSProperties = {
-  position: 'relative',
+const topBar: CSSProperties = {
+  position: 'absolute',
+  zIndex: 600,
+  top: 14,
+  left: 16,
+  right: 16,
   display: 'flex',
-  justifyContent: 'space-between',
   alignItems: 'center',
   gap: 12,
-  flexWrap: 'wrap',
+  pointerEvents: 'none',
 };
 
 const backLink: CSSProperties = {
+  pointerEvents: 'auto',
   display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
   color: '#93C5FD',
   fontSize: 12,
-  fontWeight: 600,
+  fontWeight: 700,
   textDecoration: 'none',
+  padding: '6px 10px',
+  borderRadius: 999,
+  background: 'rgba(6,12,24,0.7)',
+  border: '1px solid rgba(148,163,184,0.2)',
 };
 
-const gridStyle: CSSProperties = {
-  position: 'relative',
-  display: 'grid',
-  gridTemplateColumns: '1fr minmax(280px, 340px)',
-  gap: 12,
-  flex: 1,
-  minHeight: 520,
-};
-
-const mapPanel: CSSProperties = {
-  position: 'relative',
-  borderRadius: 18,
-  overflow: 'hidden',
-  border: '1px solid rgba(148,163,184,0.14)',
-  background: '#0a1220',
-  minHeight: 520,
-};
-
-const sidePanel: CSSProperties = {
-  position: 'relative',
-  borderRadius: 18,
-  border: '1px solid rgba(148,163,184,0.14)',
-  background: 'rgba(8,14,28,0.72)',
-  padding: 14,
-  display: 'flex',
-  flexDirection: 'column',
-  backdropFilter: 'blur(12px)',
-  maxHeight: '70vh',
-};
-
-const sectionTitle: CSSProperties = {
+const liveBadge: CSSProperties = {
+  marginLeft: 'auto',
   fontSize: 11,
   fontWeight: 800,
   letterSpacing: '0.14em',
-  textTransform: 'uppercase',
-  color: '#7C8DB5',
+  color: '#CBD5E1',
+  textShadow: '0 0 12px rgba(0,0,0,0.8)',
 };
 
-const vanCard: CSSProperties = {
-  textAlign: 'left',
-  width: '100%',
-  background: 'rgba(10,18,34,0.8)',
-  border: '1px solid rgba(148,163,184,0.16)',
-  borderRadius: 12,
-  padding: '10px 12px',
-  color: '#E2E8F0',
+const ghostIconBtn: CSSProperties = {
+  pointerEvents: 'auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 34,
+  height: 34,
+  borderRadius: 999,
+  border: '1px solid rgba(148,163,184,0.25)',
+  background: 'rgba(6,12,24,0.7)',
+  color: '#CBD5E1',
   cursor: 'pointer',
 };
 
 const insightCard: CSSProperties = {
   position: 'absolute',
-  zIndex: 500,
-  top: 14,
-  left: 14,
-  maxWidth: 340,
-  padding: 14,
+  zIndex: 600,
+  top: 56,
+  left: 16,
+  width: 360,
+  maxWidth: 'calc(100% - 360px)',
+  padding: 16,
+  borderRadius: 16,
+  background: 'rgba(8,12,28,0.88)',
+  border: '1px solid rgba(167,139,250,0.35)',
+  boxShadow: '0 12px 40px rgba(0,0,0,0.5), 0 0 40px rgba(99,102,241,0.12)',
+  backdropFilter: 'blur(14px)',
+};
+
+const insightOrb: CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: '50%',
+  background: 'conic-gradient(from 210deg, #22D3EE, #A78BFA, #F472B6, #22D3EE)',
+  boxShadow: '0 0 16px rgba(167,139,250,0.7)',
+  flexShrink: 0,
+};
+
+const sidePanel: CSSProperties = {
+  position: 'absolute',
+  zIndex: 600,
+  top: 56,
+  right: 16,
+  width: 300,
+  maxHeight: 'calc(100% - 150px)',
+  padding: 16,
+  borderRadius: 16,
+  background: 'rgba(8,12,28,0.88)',
+  border: '1px solid rgba(148,163,184,0.18)',
+  boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+  backdropFilter: 'blur(14px)',
+  display: 'flex',
+  flexDirection: 'column',
+};
+
+const vanRow: CSSProperties = {
+  textAlign: 'left',
+  width: '100%',
+  background: 'transparent',
+  border: '1px solid transparent',
+  borderRadius: 12,
+  padding: '8px 6px',
+  color: '#E2E8F0',
+  cursor: 'pointer',
+};
+
+const progressTrack: CSSProperties = {
+  height: 4,
+  borderRadius: 999,
+  background: 'rgba(148,163,184,0.18)',
+  overflow: 'hidden',
+};
+
+const chipsRow: CSSProperties = {
+  position: 'absolute',
+  zIndex: 600,
+  left: 16,
+  right: 16,
+  bottom: 16,
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+  justifyContent: 'center',
+};
+
+const chip: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '10px 14px',
   borderRadius: 14,
-  background: 'rgba(8,16,32,0.92)',
-  border: '1px solid rgba(45,212,191,0.35)',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-  backdropFilter: 'blur(10px)',
+  border: '1px solid rgba(148,163,184,0.18)',
+  background: 'rgba(8,12,28,0.88)',
+  backdropFilter: 'blur(12px)',
+  textDecoration: 'none',
+  maxWidth: 220,
+  boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+};
+
+const chipDot: CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  flexShrink: 0,
 };
 
 const errorOverlay: CSSProperties = {
@@ -529,10 +654,10 @@ const errorOverlay: CSSProperties = {
   color: '#E2E8F0',
 };
 
-const tealBtn: CSSProperties = {
+const primaryBtn: CSSProperties = {
   border: 'none',
   borderRadius: 10,
-  padding: '8px 12px',
+  padding: '8px 14px',
   background: '#2DD4BF',
   color: '#042f2e',
   fontWeight: 800,
@@ -540,38 +665,23 @@ const tealBtn: CSSProperties = {
   cursor: 'pointer',
 };
 
-const ghostBtn: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  border: '1px solid rgba(148,163,184,0.35)',
+const outlineTealBtn: CSSProperties = {
+  border: '1px solid #2DD4BF',
   borderRadius: 10,
   padding: '8px 12px',
   background: 'transparent',
-  color: '#CBD5E1',
-  fontWeight: 700,
+  color: '#5EEAD4',
+  fontWeight: 800,
   fontSize: 12,
   cursor: 'pointer',
 };
 
-const chipsRow: CSSProperties = {
-  position: 'relative',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 8,
-  justifyContent: 'center',
-  paddingTop: 4,
-};
-
-const chip: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  padding: '6px 12px',
-  borderRadius: 999,
-  border: '1px solid rgba(148,163,184,0.2)',
-  background: 'rgba(8,14,28,0.65)',
-  fontSize: 11,
+const textBtn: CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: '#94A3B8',
   fontWeight: 700,
-  textDecoration: 'none',
+  fontSize: 12,
+  cursor: 'pointer',
+  padding: '8px 4px',
 };

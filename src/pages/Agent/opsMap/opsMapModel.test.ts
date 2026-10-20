@@ -6,10 +6,12 @@ import {
   parseGpsLocation,
   pickOpsInsight,
   routePolylines,
+  routeSegments,
   shouldShowVansError,
   stopsForVisitDay,
   todayVisitDay,
   vanPingLabel,
+  vanRouteProgress,
 } from './opsMapModel';
 
 describe('opsMapModel', () => {
@@ -85,6 +87,115 @@ describe('opsMapModel', () => {
       { customerId: 4, name: 'D', visited: false, position: { lat: 3, lng: 3 }, owed: 0, lineName: null },
     ]);
     expect(lines).toEqual([[{ lat: 2, lng: 2 }, { lat: 3, lng: 3 }]]);
+  });
+
+  it('route segments: dashed for remaining, solid for visited; no invented coords', () => {
+    const segs = routeSegments([
+      {
+        customerId: 1,
+        name: 'A',
+        visited: true,
+        position: { lat: 1, lng: 1 },
+        owed: 0,
+        lineName: 'East',
+      },
+      {
+        customerId: 2,
+        name: 'B',
+        visited: true,
+        position: { lat: 2, lng: 2 },
+        owed: 0,
+        lineName: 'East',
+      },
+      {
+        customerId: 3,
+        name: 'C',
+        visited: false,
+        position: { lat: 3, lng: 3 },
+        owed: 0,
+        lineName: 'East',
+      },
+      {
+        customerId: 4,
+        name: 'D',
+        visited: false,
+        position: { lat: 4, lng: 4 },
+        owed: 0,
+        lineName: 'East',
+      },
+      {
+        customerId: 5,
+        name: 'Gap',
+        visited: false,
+        position: null,
+        owed: 0,
+        lineName: 'East',
+      },
+      {
+        customerId: 6,
+        name: 'E',
+        visited: false,
+        position: { lat: 5, lng: 5 },
+        owed: 0,
+        lineName: 'East',
+      },
+    ]);
+    expect(segs).toHaveLength(2);
+    expect(segs[0].dashed).toBe(false);
+    expect(segs[0].points).toHaveLength(2);
+    expect(segs[1].dashed).toBe(true);
+    // Bridge from last visited → remaining (real coords only)
+    expect(segs[1].points).toEqual([
+      { lat: 2, lng: 2 },
+      { lat: 3, lng: 3 },
+      { lat: 4, lng: 4 },
+    ]);
+  });
+
+  it('van route progress matches line stops without inventing late status', () => {
+    const vans = [
+      {
+        vanId: '1',
+        vanNumber: 'Van 1',
+        driverName: 'A',
+        status: 'moving' as const,
+        position: null,
+        recordedAt: null,
+        pingLabel: 'No data',
+        hasPingToday: false,
+      },
+    ];
+    const progress = vanRouteProgress(
+      [
+        {
+          customerId: 1,
+          name: 'A',
+          visited: true,
+          position: null,
+          owed: 0,
+          lineName: 'Van 1',
+        },
+        {
+          customerId: 2,
+          name: 'B',
+          visited: false,
+          position: null,
+          owed: 0,
+          lineName: 'Van 1',
+        },
+        {
+          customerId: 3,
+          name: 'C',
+          visited: false,
+          position: null,
+          owed: 0,
+          lineName: 'Van 1',
+        },
+      ],
+      vans,
+    );
+    expect(progress[0].done).toBe(1);
+    expect(progress[0].total).toBe(3);
   });
 
   it('insight only when overdue > 0', () => {

@@ -223,6 +223,119 @@ export function routePolylines(stops: OpsStop[]): LatLng[][] {
   return lines;
 }
 
+/** Glowing route palette — cycles per line, no status meaning beyond identity. */
+export const OPS_ROUTE_COLORS = ['#2DD4BF', '#F97316', '#38BDF8', '#A78BFA', '#F472B6'] as const;
+
+export type OpsRouteSegment = {
+  points: LatLng[];
+  /** Remaining stops ahead → dashed; visited chain → solid. */
+  dashed: boolean;
+  color: string;
+  lineKey: string;
+};
+
+function lineKeyForStop(stop: OpsStop): string {
+  const raw = (stop.lineName || '').trim();
+  return raw || 'route';
+}
+
+/**
+ * Polylines grouped by route line. Only real coords; missing GPS breaks the chain.
+ * Visited consecutive = solid; remaining consecutive = dashed.
+ */
+export function routeSegments(stops: OpsStop[]): OpsRouteSegment[] {
+  const groups = new Map<string, OpsStop[]>();
+  for (const stop of stops) {
+    const key = lineKeyForStop(stop);
+    const list = groups.get(key) || [];
+    list.push(stop);
+    groups.set(key, list);
+  }
+
+  const out: OpsRouteSegment[] = [];
+  let colorIdx = 0;
+  for (const [lineKey, group] of groups) {
+    const color = OPS_ROUTE_COLORS[colorIdx % OPS_ROUTE_COLORS.length];
+    colorIdx += 1;
+
+    let bucket: OpsStop[] = [];
+    const flush = () => {
+      if (bucket.length < 2) {
+        bucket = [];
+        return;
+      }
+      const allVisited = bucket.every((s) => s.visited);
+      out.push({
+        points: bucket.map((s) => s.position!),
+        dashed: !allVisited,
+        color,
+        lineKey,
+      });
+      bucket = [];
+    };
+
+    for (const stop of group) {
+      if (!stop.position) {
+        flush();
+        continue;
+      }
+      if (bucket.length === 0) {
+        bucket.push(stop);
+        continue;
+      }
+      const prev = bucket[bucket.length - 1];
+      if (prev.visited !== stop.visited) {
+        const bridge = prev;
+        flush();
+        // Keep a real-coord bridge so the line continues; mark remaining as dashed.
+        bucket = [bridge, stop];
+      } else {
+        bucket.push(stop);
+      }
+    }
+    flush();
+  }
+  return out;
+}
+
+export type VanRouteProgress = {
+  vanId: string;
+  lineLabel: string;
+  done: number;
+  total: number;
+  color: string;
+};
+
+/** Per-van stop progress from today's route lines (no invented late/ETA). */
+export function vanRouteProgress(stops: OpsStop[], vans: OpsVanRow[]): VanRouteProgress[] {
+  const byLine = new Map<string, OpsStop[]>();
+  for (const stop of stops) {
+    const key = lineKeyForStop(stop).toLowerCase();
+    const list = byLine.get(key) || [];
+    list.push(stop);
+    byLine.set(key, list);
+  }
+
+  return vans.map((van, i) => {
+    const vn = van.vanNumber.toLowerCase();
+    let matched: OpsStop[] = [];
+    for (const [key, list] of byLine) {
+      if (key === 'route') continue;
+      if (key === vn || key.includes(vn) || vn.includes(key)) {
+        matched = list;
+        break;
+      }
+    }
+    return {
+      vanId: van.vanId,
+      lineLabel: matched[0]?.lineName || van.vanNumber,
+      done: matched.filter((s) => s.visited).length,
+      total: matched.length,
+      color: OPS_ROUTE_COLORS[i % OPS_ROUTE_COLORS.length],
+    };
+  });
+}
+
 /**
  * Insight only when a today stop has owed > 0 (from AR).
  * Does not message the driver — Open customer / Dismiss only.
@@ -265,16 +378,24 @@ export function shouldShowVansError(locationsRequestOk: boolean): boolean {
   return !locationsRequestOk;
 }
 
-export const OPS_MODULE_CHIPS: Array<{ label: string; href: string }> = [
-  { label: 'Sales', href: '/sales/dashboard' },
-  { label: 'Collections', href: '/finance/collections' },
-  { label: 'Purchase', href: '/purchases' },
-  { label: 'Inventory', href: '/products' },
-  { label: 'Delivery', href: '/agent/ops-map' },
-  { label: 'Finance', href: '/finance/dashboard' },
-  { label: 'Expenses', href: '/finance/expenses' },
-  { label: 'Payroll', href: '/finance/payroll' },
-  { label: 'AI & Team', href: '/ai/hub' },
-  { label: 'Reports', href: '/finance/financial-statement' },
-  { label: 'Nexus', href: '/agent/nexus' },
+/** Bottom module strip — look matches design; blurbs stay generic (no invented counts). */
+export const OPS_MODULE_CHIPS: Array<{
+  label: string;
+  href: string;
+  blurb: string;
+  tone: 'ok' | 'warn' | 'alert' | 'info';
+}> = [
+  { label: 'Sales', href: '/sales/dashboard', blurb: 'Orders & invoices', tone: 'ok' },
+  { label: 'Collections', href: '/finance/collections', blurb: 'Outstanding balances', tone: 'alert' },
+  { label: 'Inventory', href: '/products', blurb: 'Stock on hand', tone: 'warn' },
+  { label: 'Finance', href: '/finance/dashboard', blurb: 'Ledger & cash', tone: 'alert' },
+  { label: 'Expenses', href: '/finance/expenses', blurb: 'Approvals & spend', tone: 'info' },
+  { label: 'Reports', href: '/finance/financial-statement', blurb: 'Statements & P&L', tone: 'ok' },
 ];
+
+export const CHIP_TONE_COLOR: Record<'ok' | 'warn' | 'alert' | 'info', string> = {
+  ok: '#22C55E',
+  warn: '#F97316',
+  alert: '#EF4444',
+  info: '#38BDF8',
+};
