@@ -148,6 +148,7 @@ import VoiceCoachingRules from '../pages/Voice/CoachingRules';
 import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
 import AgentPage from '../pages/Agent/AgentPage';
 import NexusPage from '../pages/Agent/nexus/NexusPage';
+import OpsMapPage from '../pages/Agent/opsMap/OpsMapPage';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments } from '../pages/Marketing/MarketingPages';
@@ -422,6 +423,7 @@ export const AppRoutes = () => {
             <Route path="/settings/credit-sources" element={<CreditDataSources />} />
             {isStaging && <Route path="/agent" element={<AgentPage />} />}
             {isStaging && <Route path="/agent/nexus" element={<NexusPage />} />}
+            {isStaging && <Route path="/agent/ops-map" element={<OpsMapPage />} />}
             </Route>
 
             {/* Premium / AI — internal staff only (production lock retained) */}

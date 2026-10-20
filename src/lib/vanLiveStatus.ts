@@ -7,9 +7,10 @@ const MOVING_SPEED_MS = 1;
 export function deriveVanLiveStatus(
   recordedAt: string | null | undefined,
   speedMs: number | null | undefined,
+  nowMs: number = Date.now(),
 ): VanLiveStatus {
   if (!recordedAt) return 'offline';
-  const ageMinutes = (Date.now() - new Date(recordedAt).getTime()) / 60000;
+  const ageMinutes = (nowMs - new Date(recordedAt).getTime()) / 60000;
   if (ageMinutes > OFFLINE_THRESHOLD_MINUTES) return 'offline';
   if ((speedMs ?? 0) > MOVING_SPEED_MS) return 'moving';
   return 'stopped';
