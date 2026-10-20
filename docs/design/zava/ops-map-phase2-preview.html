@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Zava Ops Map · Phase 2 preview</title>
+  <style>
+    body { margin:0; background:#030712; color:#E8EEF9; font-family:system-ui,sans-serif; padding:16px; }
+    .wrap { display:grid; grid-template-columns:1fr 320px; gap:12px; min-height:520px; }
+    .map { position:relative; border-radius:18px; border:1px solid rgba(148,163,184,.14); background:
+      radial-gradient(ellipse at 40% 40%, #1a3a4a 0%, #0a1220 60%); overflow:hidden; min-height:520px; }
+    .insight { position:absolute; top:14px; left:14px; max-width:320px; padding:14px; border-radius:14px;
+      background:rgba(8,16,32,.92); border:1px solid rgba(45,212,191,.35); z-index:2; }
+    .insight b { color:#5EEAD4; font-size:10px; letter-spacing:.14em; }
+    .route { position:absolute; inset:20% 15% 25% 20%; border:2px solid #2DD4BF; border-radius:40% 60% 50% 50%;
+      opacity:.7; box-shadow:0 0 20px #2DD4BF66; }
+    .van { position:absolute; width:36px; height:36px; border-radius:50%; background:#16A34A; color:#fff;
+      display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800;
+      box-shadow:0 0 16px #16A34A; }
+    .side { border-radius:18px; border:1px solid rgba(148,163,184,.14); background:rgba(8,14,28,.72); padding:14px; }
+    .van-row { display:flex; gap:10px; align-items:center; padding:10px; border-radius:12px;
+      border:1px solid rgba(148,163,184,.16); margin-bottom:8px; background:rgba(10,18,34,.8); }
+    .dot { width:10px; height:10px; border-radius:50%; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:12px; }
+    .chip { padding:6px 12px; border-radius:999px; border:1px solid rgba(148,163,184,.2); font-size:11px; font-weight:700; color:#CBD5E1; }
+    .chip.on { border-color:rgba(45,212,191,.55); color:#5EEAD4; }
+  </style>
+</head>
+<body>
+  <header style="display:flex;justify-content:space-between;margin-bottom:12px">
+    <div><div style="font-size:11px;letter-spacing:.16em;color:#7C8DB5">ZAVA · OPS MAP</div>
+      <h1 style="margin:0;font-size:20px">Vans & today's route</h1></div>
+  </header>
+  <div class="wrap">
+    <section class="map">
+      <div class="insight">
+        <b>ZAVA INSIGHT</b>
+        <p style="font-size:13px;line-height:1.45"><strong>VAN-01</strong> visits <strong>Gamma Garage</strong> today.
+          They owe <strong>$7,118</strong>. Ask the driver to collect?</p>
+        <button style="background:#2DD4BF;border:none;border-radius:10px;padding:8px 12px;font-weight:800;margin-right:8px">Open customer</button>
+        <button style="background:transparent;border:1px solid #64748B;border-radius:10px;padding:8px 12px;color:#CBD5E1">Dismiss</button>
+      </div>
+      <div class="route"></div>
+      <div class="van" style="left:35%;top:42%">V1</div>
+      <div class="van" style="left:55%;top:58%;background:#D97706;box-shadow:0 0 16px #D97706">V2</div>
+    </section>
+    <aside class="side">
+      <div style="font-size:11px;font-weight:800;letter-spacing:.14em;color:#7C8DB5;margin-bottom:12px">VANS TODAY</div>
+      <div class="van-row"><span class="dot" style="background:#16A34A;box-shadow:0 0 10px #16A34A"></span>
+        <div><div style="font-weight:800">VAN-01</div><div style="font-size:11px;color:#94A3B8">Ahmed</div></div>
+        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#16A34A;font-weight:700">Moving</div>
+          <div style="color:#64748B">Last update 2 min ago</div></div></div>
+      <div class="van-row"><span class="dot" style="background:#D97706"></span>
+        <div><div style="font-weight:800">VAN-02</div><div style="font-size:11px;color:#94A3B8">Omar</div></div>
+        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#D97706;font-weight:700">Stopped</div>
+          <div style="color:#64748B">Last update 8 min ago</div></div></div>
+      <div class="van-row"><span class="dot" style="background:#6B7280"></span>
+        <div><div style="font-weight:800">VAN-03</div><div style="font-size:11px;color:#94A3B8">Yusuf</div></div>
+        <div style="margin-left:auto;text-align:right;font-size:11px"><div style="color:#6B7280;font-weight:700">Offline</div>
+          <div style="color:#64748B">No location today</div></div></div>
+      <div style="margin-top:16px;font-size:11px;font-weight:800;letter-spacing:.14em;color:#7C8DB5">NO MAP LOCATION</div>
+      <div style="font-size:12px;color:#CBD5E1;margin-top:8px">Coastal Auto · remaining</div>
+    </aside>
+  </div>
+  <nav class="chips">
+    <span class="chip">Sales</span><span class="chip">Collections</span><span class="chip">Purchase</span>
+    <span class="chip">Inventory</span><span class="chip on">Delivery</span><span class="chip">Finance</span>
+    <span class="chip">Expenses</span><span class="chip">Payroll</span><span class="chip">AI & Team</span>
+    <span class="chip">Reports</span><span class="chip">Nexus</span>
+  </nav>
+</body>
+</html>

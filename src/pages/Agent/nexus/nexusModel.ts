@@ -310,7 +310,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
     {
       id: 'delivery',
       label: 'Delivery',
-      href: '/logistics/tracking',
+      href: '/agent/ops-map',
       connected: delivery.connected,
       status:
         delivery.statusBase === 'error'
