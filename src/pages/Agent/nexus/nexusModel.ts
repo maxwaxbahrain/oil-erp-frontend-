@@ -126,7 +126,7 @@ function statusFromPriority(priority: string): PlanetStatus {
   return 'info';
 }
 
-function moduleToPlanet(module: string | undefined): PlanetId | null {
+export function moduleToPlanet(module: string | undefined): PlanetId | null {
   const m = String(module || '').toLowerCase();
   if (m === 'sales') return 'sales';
   if (m === 'collections' || m === 'customers') return 'collections';
