@@ -21,12 +21,17 @@ import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetrics';
 import { outstandingTotals } from '../../utils/outstandingTotals';
 import {
-    formatLowStockHeadline,
     formatLowStockTileValue,
     summarizeLowStock,
     topLowStockAlerts,
     type ProductsLoadState,
 } from '../../utils/lowStock';
+import {
+    dashTileSub,
+    formatDashCountTile,
+    formatDashMoneyTile,
+    type DashLoadState,
+} from '../../utils/dashboardTileDisplay';
 import { livePayments } from '../../utils/paymentVoid';
 import { formatLocalDate, isSameLocalMonth, parseLocalDate, parseStoredTimestamp } from '../../utils/dates';
 import { localIsoDate } from '../../utils/localDate';
@@ -82,17 +87,23 @@ export default function Dashboard() {
 
     // Data state (preserved from previous build) ────────────────
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [invoicesLoad, setInvoicesLoad] = useState<DashLoadState>('loading');
     const [products, setProducts] = useState<Product[]>([]);
     const [productsLoad, setProductsLoad] = useState<ProductsLoadState>('loading');
     const [salesOrdersData, setSalesOrdersData] = useState<any[]>([]);
+    const [salesOrdersLoad, setSalesOrdersLoad] = useState<DashLoadState>('loading');
     const [vansData, setVansData] = useState<any[]>([]);
+    const [vansLoad, setVansLoad] = useState<DashLoadState>('loading');
     const [paymentsData, setPaymentsData] = useState<any[]>([]);
+    const [paymentsLoad, setPaymentsLoad] = useState<DashLoadState>('loading');
     // DASH-4b — honest "Active customers" from GET /customers/stats
     // (is_active AND has a non-cancelled invoice), not the total count.
     const [customerStats, setCustomerStats] = useState<CustomerStats | null>(null);
     const [customersData, setCustomersData] = useState<any[]>([]);
+    const [customersLoad, setCustomersLoad] = useState<DashLoadState>('loading');
     // DASH-3 — authoritative Outstanding AR from GET /customers/ar-summary.
     const [arSummary, setArSummary] = useState<ArSummary | null>(null);
+    const [arLoad, setArLoad] = useState<DashLoadState>('loading');
     const [newCustomersThisMonth, setNewCustomersThisMonth] = useState(0);
     // DASH-5(B) — posted GL revenue (ties to P&L), shown ALONGSIDE the invoiced
     // document totals. null = GL not set up / unavailable → displays "—".
@@ -125,22 +136,38 @@ export default function Dashboard() {
         return () => window.removeEventListener('resize', update);
     }, []);
 
-    // ── Data loader (preserved business logic) ─────────────────
+    // ── Data loader — settle each source; never swallow into [] for KPI tiles ─
     async function loadDashboardData() {
         setRefreshing(true);
+        const keepOk = (prev: DashLoadState): DashLoadState => (prev === 'ok' ? 'ok' : 'loading');
+        setInvoicesLoad(keepOk);
         setProductsLoad((prev) => (prev === 'ok' ? 'ok' : 'loading'));
+        setSalesOrdersLoad(keepOk);
+        setVansLoad(keepOk);
+        setPaymentsLoad(keepOk);
+        setCustomersLoad(keepOk);
+        setArLoad(keepOk);
         try {
-            const [inv, prodResult, orders, vans, customers, pays, pos, ar, stats, glBs, glPlMtd, glPlYtd] = await Promise.all([
-                getInvoices().catch(() => []),
+            type ListOk<T> = { ok: true; data: T[] };
+            type ListFail = { ok: false; data: [] };
+            const settleList = <T,>(p: Promise<T[]>): Promise<ListOk<T> | ListFail> =>
+                p
+                    .then((rows): ListOk<T> => ({ ok: true, data: Array.isArray(rows) ? rows : [] }))
+                    .catch((): ListFail => ({ ok: false, data: [] }));
+
+            const [inv, prodResult, orders, vans, customers, pays, pos, arResult, stats, glBs, glPlMtd, glPlYtd] = await Promise.all([
+                settleList(getInvoices()),
                 getProductsStrict()
                     .then((p): { ok: true; products: Product[] } => ({ ok: true, products: Array.isArray(p) ? p : [] }))
                     .catch((): { ok: false; products: Product[] } => ({ ok: false, products: [] })),
-                getSalesOrders().catch(() => []),
-                getVans().catch(() => []),
-                getCustomers().catch(() => []),
-                getCustomerPayments().catch(() => []),
+                settleList(getSalesOrders()),
+                settleList(getVans()),
+                settleList(getCustomers()),
+                settleList(getCustomerPayments()),
                 getPurchaseOrders().catch(() => []),
-                getArSummary().catch(() => null), // non-fatal: fall back to client-side calc
+                getArSummary()
+                    .then((a): { ok: true; data: ArSummary } => ({ ok: true, data: a }))
+                    .catch((): { ok: false; data: null } => ({ ok: false, data: null })),
                 getCustomerStats().catch(() => null), // non-fatal: "Active" shows "—" if unavailable
                 // DASH-5(B) — GL revenue (posted P&L). Balance sheet drives the
                 // "is GL set up?" guard, matching FinancialStatement/ProfitabilityReports.
@@ -150,7 +177,9 @@ export default function Dashboard() {
             ]);
             setProducts(prodResult.products);
             setProductsLoad(prodResult.ok ? 'ok' : 'failed');
-            setArSummary(ar);
+            // Owed math still uses ar-summary when present; null keeps capped invoice fallback.
+            setArSummary(arResult.data);
+            setArLoad(arResult.ok ? 'ok' : 'failed');
             setCustomerStats(stats);
             // `pos` (purchase orders) still loaded for parity with original;
             // not surfaced in V2 layout but kept so the service call signature
@@ -162,20 +191,27 @@ export default function Dashboard() {
                     ? null
                     : { mtd: glPlMtd ? glPlMtd.revenue : null, ytd: glPlYtd ? glPlYtd.revenue : null },
             );
-            setInvoices(Array.isArray(inv) ? inv : []);
-            setSalesOrdersData(Array.isArray(orders) ? orders : []);
-            setVansData(Array.isArray(vans) ? vans : []);
-            setPaymentsData(Array.isArray(pays) ? pays : []);
-            const custList = Array.isArray(customers) ? customers : [];
+            setInvoices(inv.data);
+            setInvoicesLoad(inv.ok ? 'ok' : 'failed');
+            setSalesOrdersData(orders.data);
+            setSalesOrdersLoad(orders.ok ? 'ok' : 'failed');
+            setVansData(vans.data);
+            setVansLoad(vans.ok ? 'ok' : 'failed');
+            setPaymentsData(pays.data);
+            setPaymentsLoad(pays.ok ? 'ok' : 'failed');
+            const custList = customers.data;
             setCustomersData(custList);
+            setCustomersLoad(customers.ok ? 'ok' : 'failed');
 
             const now = new Date();
-            const thisMonth = custList.filter((c: any) => {
-                if (isImportedCustomer(c)) return false;
-                const d = parseStoredTimestamp(c.created_at);
-                if (!d) return false;
-                return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-            }).length;
+            const thisMonth = customers.ok
+                ? custList.filter((c: any) => {
+                    if (isImportedCustomer(c)) return false;
+                    const d = parseStoredTimestamp(c.created_at);
+                    if (!d) return false;
+                    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+                }).length
+                : 0;
             setNewCustomersThisMonth(thisMonth);
             setDataError(false);
         } catch {
@@ -424,7 +460,22 @@ export default function Dashboard() {
     const glRevYtdStr = glRevenue && glRevenue.ytd != null ? fmtUsd0(glRevenue.ytd) : '—';
 
     // ── 6-cell stats row data ──────────────────────────────────
+    const retryDash = () => { void loadDashboardData(); };
     const lowStockTileValue = formatLowStockTileValue(productsLoad, lowStockSummary);
+    const invoicedSub = dashTileSub(invoicesLoad, 'gross invoiced');
+    const owedSub = dashTileSub(
+        arLoad,
+        `credits $${creditOutstanding.toLocaleString()} · net $${netReceivable.toLocaleString()}`,
+    );
+    const overdueSub = dashTileSub(
+        invoicesLoad,
+        overdueTotal > 0 ? `${overdueCount} invoices` : 'All clear ✓',
+    );
+    const ordersSub = dashTileSub(salesOrdersLoad, `$${orderValueToday.toLocaleString()} value`);
+    const customersSub = dashTileSub(
+        customersLoad,
+        `${newCustomersThisMonth} new this month`,
+    );
     const statCells: Array<{
         label: string;
         value: string;
@@ -435,27 +486,44 @@ export default function Dashboard() {
     }> = [
         {
             label: 'Invoiced (MTD)',
-            value: `$${totalRevenueMTD.toLocaleString()}`,
-            color: C.green,
-            sub: 'gross invoiced',
+            value: formatDashMoneyTile(invoicesLoad, totalRevenueMTD),
+            color: invoicesLoad !== 'ok' ? C.t2 : C.green,
+            sub: invoicedSub.sub,
+            onRetry: invoicedSub.onRetry ? retryDash : undefined,
         },
         {
             label: 'Owed to us',
-            value: `$${totalOutstanding.toLocaleString()}`,
-            color: totalOutstanding > 0 ? C.amber : C.green,
-            sub: `credits $${creditOutstanding.toLocaleString()} · net $${netReceivable.toLocaleString()}`,
+            value: formatDashMoneyTile(arLoad, totalOutstanding),
+            color:
+                arLoad !== 'ok'
+                    ? C.t2
+                    : totalOutstanding > 0
+                      ? C.amber
+                      : C.green,
+            sub: owedSub.sub,
+            onRetry: owedSub.onRetry ? retryDash : undefined,
         },
         {
             label: 'Overdue Amount',
-            value: `$${overdueTotal.toLocaleString()}`,
-            color: overdueTotal > 0 ? C.red : C.green,
-            sub: overdueTotal > 0 ? `${overdueCount} invoices` : 'All clear ✓',
+            value: formatDashMoneyTile(invoicesLoad, overdueTotal),
+            color:
+                invoicesLoad !== 'ok'
+                    ? C.t2
+                    : overdueTotal > 0
+                      ? C.red
+                      : C.green,
+            sub: overdueSub.sub,
+            onRetry: overdueSub.onRetry ? retryDash : undefined,
         },
         {
             label: 'Orders Today',
-            value: String(ordersToday || recentOrders.filter(o => isToday(o.date)).length),
-            color: C.blue,
-            sub: `$${orderValueToday.toLocaleString()} value`,
+            value: formatDashCountTile(
+                salesOrdersLoad,
+                ordersToday || recentOrders.filter(o => isToday(o.date)).length,
+            ),
+            color: salesOrdersLoad !== 'ok' ? C.t2 : C.blue,
+            sub: ordersSub.sub,
+            onRetry: ordersSub.onRetry ? retryDash : undefined,
         },
         {
             label: 'Low Stock Items',
@@ -478,13 +546,14 @@ export default function Dashboard() {
                           : 'All stocked ✓',
             subLink:
                 productsLoad === 'ok' && lowStockSummary.noMinimum > 0 ? '/products' : undefined,
-            onRetry: productsLoad === 'failed' ? () => { void loadDashboardData(); } : undefined,
+            onRetry: productsLoad === 'failed' ? retryDash : undefined,
         },
         {
             label: 'Active Customers',
             value: customerStats ? customerStats.active_customers.toLocaleString() : '—',
             color: C.blue,
-            sub: `${newCustomersThisMonth} new this month`,
+            sub: customersSub.sub,
+            onRetry: customersSub.onRetry ? retryDash : undefined,
         },
     ];
 
@@ -632,7 +701,10 @@ export default function Dashboard() {
                             {cell.label}
                         </div>
                         <div style={{
-                            fontSize: cell.label === 'Low Stock Items' ? 12 : 18,
+                            fontSize:
+                                cell.label === 'Low Stock Items' || cell.value === "Couldn't load"
+                                    ? 12
+                                    : 18,
                             fontWeight: 700,
                             lineHeight: 1.2,
                             marginBottom: 2,
@@ -702,18 +774,18 @@ export default function Dashboard() {
                             <span style={{ fontSize: 10, color: C.t2 }}>live</span>
                         </div>
                         {[
-                            { label: 'Invoiced this month',  value: `$${totalRevenueMTD.toLocaleString()}`,    color: C.green },
+                            { label: 'Invoiced this month',  value: formatDashMoneyTile(invoicesLoad, totalRevenueMTD), color: invoicesLoad !== 'ok' ? C.t2 : C.green },
                             { label: 'Revenue MTD (GL)',     value: glRevMtdStr,                               color: C.green },
                             { label: 'Revenue YTD (GL)',     value: glRevYtdStr,                               color: C.green },
-                            { label: 'Owed to us',           value: `$${totalOutstanding.toLocaleString()}`,   color: C.amber },
-                            { label: 'Customer credits',     value: `$${creditOutstanding.toLocaleString()}`, color: C.blue },
-                            { label: 'Net receivable',       value: `$${netReceivable.toLocaleString()}`,     color: C.amber },
-                            { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
-                            { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
+                            { label: 'Owed to us',           value: formatDashMoneyTile(arLoad, totalOutstanding), color: arLoad !== 'ok' ? C.t2 : C.amber },
+                            { label: 'Customer credits',     value: formatDashMoneyTile(arLoad, creditOutstanding), color: arLoad !== 'ok' ? C.t2 : C.blue },
+                            { label: 'Net receivable',       value: formatDashMoneyTile(arLoad, netReceivable), color: arLoad !== 'ok' ? C.t2 : C.amber },
+                            { label: 'Cash collected today', value: formatDashMoneyTile(paymentsLoad, cashCollectedToday), color: paymentsLoad !== 'ok' ? C.t2 : C.green },
+                            { label: 'Pending orders',       value: formatDashCountTile(salesOrdersLoad, pendingOrderCount), color: salesOrdersLoad !== 'ok' ? C.t2 : C.blue },
                             { label: 'Active customers',     value: customerStats ? customerStats.active_customers.toLocaleString() : '—', color: C.blue  },
-                            { label: 'Low stock alerts',     value: formatLowStockHeadline(lowStockSummary),   color: lowStockSummary.alertCount > 0 ? C.amber : C.green },
-                            { label: 'Overdue invoices',     value: String(overdueCount),                       color: overdueCount > 0 ? C.red : C.green },
-                            { label: 'Van routes today',     value: String(vansData.length),                    color: C.blue  },
+                            { label: 'Low stock alerts',     value: formatLowStockTileValue(productsLoad, lowStockSummary), color: productsLoad !== 'ok' ? C.t2 : (lowStockSummary.alertCount > 0 ? C.amber : C.green) },
+                            { label: 'Overdue invoices',     value: formatDashCountTile(invoicesLoad, overdueCount), color: invoicesLoad !== 'ok' ? C.t2 : (overdueCount > 0 ? C.red : C.green) },
+                            { label: 'Van routes today',     value: formatDashCountTile(vansLoad, vansData.length), color: vansLoad !== 'ok' ? C.t2 : C.blue },
                         ].map((row, i, arr) => (
                             <div key={row.label} style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
