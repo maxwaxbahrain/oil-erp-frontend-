@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Calendar } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
 import {
-    getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getCustomerPayments,
+    getCustomers, getInvoices, getProductsStrict, getSalesOrders, getVans, getCustomerPayments,
     type Invoice, type Product,
 } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -22,8 +22,10 @@ import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetr
 import { outstandingTotals } from '../../utils/outstandingTotals';
 import {
     formatLowStockHeadline,
+    formatLowStockTileValue,
     summarizeLowStock,
     topLowStockAlerts,
+    type ProductsLoadState,
 } from '../../utils/lowStock';
 import { livePayments } from '../../utils/paymentVoid';
 import { formatLocalDate, isSameLocalMonth, parseLocalDate, parseStoredTimestamp } from '../../utils/dates';
@@ -81,6 +83,7 @@ export default function Dashboard() {
     // Data state (preserved from previous build) ────────────────
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [productsLoad, setProductsLoad] = useState<ProductsLoadState>('loading');
     const [salesOrdersData, setSalesOrdersData] = useState<any[]>([]);
     const [vansData, setVansData] = useState<any[]>([]);
     const [paymentsData, setPaymentsData] = useState<any[]>([]);
@@ -125,10 +128,13 @@ export default function Dashboard() {
     // ── Data loader (preserved business logic) ─────────────────
     async function loadDashboardData() {
         setRefreshing(true);
+        setProductsLoad((prev) => (prev === 'ok' ? 'ok' : 'loading'));
         try {
-            const [inv, prod, orders, vans, customers, pays, pos, ar, stats, glBs, glPlMtd, glPlYtd] = await Promise.all([
+            const [inv, prodResult, orders, vans, customers, pays, pos, ar, stats, glBs, glPlMtd, glPlYtd] = await Promise.all([
                 getInvoices().catch(() => []),
-                getProducts().catch(() => []),
+                getProductsStrict()
+                    .then((p): { ok: true; products: Product[] } => ({ ok: true, products: Array.isArray(p) ? p : [] }))
+                    .catch((): { ok: false; products: Product[] } => ({ ok: false, products: [] })),
                 getSalesOrders().catch(() => []),
                 getVans().catch(() => []),
                 getCustomers().catch(() => []),
@@ -142,6 +148,8 @@ export default function Dashboard() {
                 getGLProfitLoss(monthStartISO(), todayISO()).catch(() => null),
                 getGLProfitLoss(yearStartISO(), todayISO()).catch(() => null),
             ]);
+            setProducts(prodResult.products);
+            setProductsLoad(prodResult.ok ? 'ok' : 'failed');
             setArSummary(ar);
             setCustomerStats(stats);
             // `pos` (purchase orders) still loaded for parity with original;
@@ -155,7 +163,6 @@ export default function Dashboard() {
                     : { mtd: glPlMtd ? glPlMtd.revenue : null, ytd: glPlYtd ? glPlYtd.revenue : null },
             );
             setInvoices(Array.isArray(inv) ? inv : []);
-            setProducts(Array.isArray(prod) ? prod : []);
             setSalesOrdersData(Array.isArray(orders) ? orders : []);
             setVansData(Array.isArray(vans) ? vans : []);
             setPaymentsData(Array.isArray(pays) ? pays : []);
@@ -417,7 +424,15 @@ export default function Dashboard() {
     const glRevYtdStr = glRevenue && glRevenue.ytd != null ? fmtUsd0(glRevenue.ytd) : '—';
 
     // ── 6-cell stats row data ──────────────────────────────────
-    const statCells: Array<{ label: string; value: string; color: string; sub: string; subLink?: string }> = [
+    const lowStockTileValue = formatLowStockTileValue(productsLoad, lowStockSummary);
+    const statCells: Array<{
+        label: string;
+        value: string;
+        color: string;
+        sub: string;
+        subLink?: string;
+        onRetry?: () => void;
+    }> = [
         {
             label: 'Invoiced (MTD)',
             value: `$${totalRevenueMTD.toLocaleString()}`,
@@ -444,15 +459,26 @@ export default function Dashboard() {
         },
         {
             label: 'Low Stock Items',
-            value: formatLowStockHeadline(lowStockSummary),
-            color: lowStockSummary.alertCount > 0 ? C.amber : C.green,
-            sub:
-                lowStockSummary.noMinimum > 0
-                    ? `${lowStockSummary.noMinimum} products have no minimum stock set`
+            value: lowStockTileValue,
+            color:
+                productsLoad === 'failed' || productsLoad === 'loading'
+                    ? C.t2
                     : lowStockSummary.alertCount > 0
-                      ? 'need reorder'
-                      : 'All stocked ✓',
-            subLink: lowStockSummary.noMinimum > 0 ? '/products' : undefined,
+                      ? C.amber
+                      : C.green,
+            sub:
+                productsLoad === 'failed'
+                    ? 'Retry'
+                    : productsLoad === 'loading'
+                      ? 'loading…'
+                      : lowStockSummary.noMinimum > 0
+                        ? `${lowStockSummary.noMinimum} products have no minimum stock set`
+                        : lowStockSummary.alertCount > 0
+                          ? 'need reorder'
+                          : 'All stocked ✓',
+            subLink:
+                productsLoad === 'ok' && lowStockSummary.noMinimum > 0 ? '/products' : undefined,
+            onRetry: productsLoad === 'failed' ? () => { void loadDashboardData(); } : undefined,
         },
         {
             label: 'Active Customers',
@@ -615,7 +641,25 @@ export default function Dashboard() {
                             {cell.value}
                         </div>
                         <div style={{ fontSize: 10, color: C.t2 }}>
-                            {cell.subLink ? (
+                            {cell.onRetry ? (
+                                <button
+                                    type="button"
+                                    onClick={cell.onRetry}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        padding: 0,
+                                        color: C.t2,
+                                        cursor: 'pointer',
+                                        fontSize: 10,
+                                        fontFamily: 'inherit',
+                                        textAlign: 'left',
+                                        textDecoration: 'underline',
+                                    }}
+                                >
+                                    {cell.sub}
+                                </button>
+                            ) : cell.subLink ? (
                                 <button
                                     type="button"
                                     onClick={() => navigate(cell.subLink!)}

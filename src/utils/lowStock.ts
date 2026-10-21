@@ -126,6 +126,18 @@ export function formatLowStockHeadline(summary: Pick<LowStockSummary, 'outOfStoc
   return `${summary.outOfStock} out of stock · ${summary.belowMin} below minimum`;
 }
 
+export type ProductsLoadState = 'loading' | 'ok' | 'failed';
+
+/** KPI tile value — never show a false "0 out of stock" while loading or after a failed fetch. */
+export function formatLowStockTileValue(
+  load: ProductsLoadState,
+  summary: Pick<LowStockSummary, 'outOfStock' | 'belowMin'>,
+): string {
+  if (load === 'loading') return '—';
+  if (load === 'failed') return "Couldn't load stock";
+  return formatLowStockHeadline(summary);
+}
+
 /** Compact strip when one side dominates (still accurate). */
 export function formatLowStockShort(summary: Pick<LowStockSummary, 'outOfStock' | 'belowMin' | 'alertCount'>): string {
   if (summary.alertCount === 0) return '0 low stock';
