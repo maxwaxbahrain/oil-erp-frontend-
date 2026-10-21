@@ -48,6 +48,7 @@ import { getArSummary, type ArSummary } from '../services/customerService';
 import { outstandingTotals } from '../utils/outstandingTotals';
 import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
 import api from '../api/axios';
+import { HandsFreeHeaderChip } from '../pages/Agent/handsFree/HandsFreeProvider';
 
 // Six role dashboards — pill cycles through these; each route must exist.
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
@@ -540,6 +541,8 @@ function App() {
             </button>
             )}
           </div>
+
+          <HandsFreeHeaderChip />
 
           {/* Header-center command bar — search + voice (mic desktop only). */}
           <div

@@ -32,6 +32,7 @@ import {
     stepView,
     VOICE,
 } from './zavaCopy';
+import HandsFreeToggle from './handsFree/HandsFreeToggle';
 
 type Step = { kind: string; name: string; input?: string; output?: string };
 
@@ -1241,6 +1242,7 @@ export default function AgentPage() {
                             </button>
                         </div>
                         {briefingNote && <p className="mt-3 text-sm">{briefingNote}</p>}
+                        <HandsFreeToggle />
                     </div>
                 </div>
             )}
