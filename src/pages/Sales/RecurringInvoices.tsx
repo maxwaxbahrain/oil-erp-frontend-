@@ -3,12 +3,14 @@ import {
     RefreshCw, Plus, Trash2, Play, Pause, Edit2, Search, Bot, Sparkles,
     AlertTriangle, Calendar, Clock, CheckCircle2,
 } from 'lucide-react';
-import { customersOpenForNewDocument, getCustomers, getProducts, type Customer, type Product } from '../../services/api';
+import { customersOpenForNewDocument, getCustomers, getInvoices, getProducts, type Customer, type Invoice, type Product } from '../../services/api';
 import {
     getRecurringInvoices, saveRecurringInvoice, deleteRecurringInvoice,
     runDueRecurringInvoices, createInvoice, type RecurringInvoice,
 } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { formatStoredTimestamp } from '../../utils/dates';
+import { computeRecurringSuggestions } from '../../utils/recurringSuggestions';
 
 /* ── UI tokens (dark redwood) ─────────────────────────────────────────────── */
 const panelStyle: CSSProperties = {
@@ -165,6 +167,7 @@ function advanceNextRunDate(rec: RecurringInvoice): string {
 export default function RecurringInvoices() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [recurring, setRecurring] = useState<RecurringInvoice[]>([]);
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -185,10 +188,11 @@ export default function RecurringInvoices() {
     const currentMonth = today.slice(0, 7);
 
     useEffect(() => {
-        Promise.all([getCustomers(), getProducts()]).then(([c, p]) => {
+        Promise.all([getCustomers(), getProducts(), getInvoices()]).then(([c, p, inv]) => {
             // GET /customers/ returns numeric ids. The <select> value is always a string.
             setCustomers(customersOpenForNewDocument(c.map(row => ({ ...row, id: String(row.id) }))));
             setProducts(p);
+            setInvoices(inv);
             setRecurring(getRecurringInvoices());
         });
     }, []);
@@ -226,18 +230,10 @@ export default function RecurringInvoices() {
         [recurring],
     );
 
-    const aiSuggestions = useMemo(() => {
-        const recurringCustomerIds = new Set(recurring.map(r => r.customerId));
-        return customers
-            .filter(c => !recurringCustomerIds.has(c.id))
-            .slice(0, 3)
-            .map(c => ({
-                id: c.id,
-                name: c.name,
-                reason: 'Regular orders · no recurring schedule yet',
-                amount: products.length > 0 ? products[0].unit_price * 12 : 2400,
-            }));
-    }, [customers, recurring, products]);
+    const { suggestions: aiSuggestions, moreCount } = useMemo(
+        () => computeRecurringSuggestions(customers, invoices, recurring),
+        [customers, invoices, recurring],
+    );
 
     const filtered = useMemo(() => {
         let rows = recurring;
@@ -577,17 +573,21 @@ export default function RecurringInvoices() {
                                         <Bot size={16} style={{ color: '#22C55E' }} />
                                         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>AI suggestions</span>
                                     </div>
-                                    <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(34,197,94,.12)', color: '#86EFAC', border: '1px solid rgba(34,197,94,.28)' }}>
-                                        AI detected {aiSuggestions.length} more customer{aiSuggestions.length !== 1 ? 's' : ''}…
-                                    </span>
+                                    {moreCount > 0 && (
+                                        <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: 'rgba(34,197,94,.12)', color: '#86EFAC', border: '1px solid rgba(34,197,94,.28)' }}>
+                                            {moreCount} more customer{moreCount !== 1 ? 's' : ''} qualify
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 10 }}>
                                     {aiSuggestions.map(s => (
                                         <div key={s.id} style={{ background: '#0a1726', border: '0.5px solid rgba(255,255,255,.06)', borderRadius: 10, padding: '12px 14px' }}>
                                             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 4 }}>{s.name}</div>
-                                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 6 }}>{s.reason}</div>
+                                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 6 }}>
+                                                {s.invoiceCount} invoices · {formatStoredTimestamp(s.firstDate, { month: 'short', year: 'numeric' })}–{formatStoredTimestamp(s.lastDate, { month: 'short', year: 'numeric' })} · no recurring schedule yet
+                                            </div>
                                             <div style={{ fontSize: 11, fontFamily: 'ui-monospace,monospace', color: '#86EFAC', marginBottom: 10 }}>
-                                                ~{formatCurrency(s.amount)}/mo
+                                                ~{formatCurrency(s.monthlyAmount)}/mo
                                             </div>
                                             <button type="button" onClick={() => setupSuggestion(s.id)} style={{ ...ghostBtn, fontSize: 9, padding: '4px 10px', color: '#4F8EF7', border: '1px solid rgba(79,142,247,.28)', background: 'rgba(79,142,247,.08)' }}>
                                                 Set up

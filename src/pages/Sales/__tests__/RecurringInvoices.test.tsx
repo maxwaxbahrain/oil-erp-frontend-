@@ -30,6 +30,7 @@ describe('Recurring invoices form', () => {
 
         vi.spyOn(api, 'getCustomers').mockResolvedValue([customer]);
         vi.spyOn(api, 'getProducts').mockResolvedValue([product]);
+        vi.spyOn(api, 'getInvoices').mockResolvedValue([]);
         vi.spyOn(api, 'getRecurringInvoices').mockReturnValue([]);
         vi.spyOn(api, 'saveRecurringInvoice').mockImplementation(() => {});
         vi.spyOn(window, 'alert').mockImplementation(() => {});
