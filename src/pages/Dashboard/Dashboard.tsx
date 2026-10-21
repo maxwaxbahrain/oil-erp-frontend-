@@ -22,7 +22,7 @@ import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetr
 import { outstandingTotals } from '../../utils/outstandingTotals';
 import { dashboardLowStockAlertCount } from '../../utils/dashboardLowStock';
 import { livePayments } from '../../utils/paymentVoid';
-import { formatLocalDate, isSameLocalMonth, parseLocalDate } from '../../utils/dates';
+import { formatLocalDate, isSameLocalMonth, parseLocalDate, parseStoredTimestamp } from '../../utils/dates';
 import { localIsoDate } from '../../utils/localDate';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
@@ -161,8 +161,8 @@ export default function Dashboard() {
             const now = new Date();
             const thisMonth = custList.filter((c: any) => {
                 if (isImportedCustomer(c)) return false;
-                if (!c.created_at) return false;
-                const d = new Date(c.created_at);
+                const d = parseStoredTimestamp(c.created_at);
+                if (!d) return false;
                 return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
             }).length;
             setNewCustomersThisMonth(thisMonth);

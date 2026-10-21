@@ -3,6 +3,7 @@ import { authFetch } from '../../api/axios';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Zap, RefreshCw } from 'lucide-react';
 import { getCustomers, getInvoices, type Customer } from '../../services/api';
+import { parseStoredTimestamp } from '../../utils/dates';
 
 const API = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -61,7 +62,7 @@ export function CustomerSegments() {
                 {
                     id: 'new', name: '🆕 New Customers', desc: 'Joined in last 90 days', color: 'bg-blue-100 text-blue-700 border-blue-200',
                     criteria: 'Created within 90 days',
-                    customers: custs.filter(c => { const d = new Date(c.created_at || ''); return !isNaN(d.getTime()) && (today.getTime() - d.getTime()) < 90 * 86400000; }).slice(0, 20),
+                    customers: custs.filter(c => { const d = parseStoredTimestamp(c.created_at); return d != null && (today.getTime() - d.getTime()) < 90 * 86400000; }).slice(0, 20),
                 },
                 {
                     id: 'with_email', name: '📧 Has Email', desc: 'Email campaign ready', color: 'bg-indigo-100 text-indigo-700 border-indigo-200',
