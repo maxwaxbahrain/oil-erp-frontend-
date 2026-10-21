@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
-import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
+import { getCreditNotes, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
 import { getCustomerInvoices, type Invoice } from '../../services/api';
 import { formatLocalDate } from '../../utils/dates';
+import { computeCreditNoteTotals, type CreditNoteTotals } from '../../utils/creditNoteTotals';
 
 type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired' | 'cancelled';
 
@@ -117,7 +118,7 @@ export default function CreditNotes() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<FilterTab>('all');
-  const [stats, setStats] = useState<{ totalIssuedThisMonth: number; totalUsed: number; pendingUnused: number; expiringSoon: number } | null>(null);
+  const [stats, setStats] = useState<CreditNoteTotals | null>(null);
 
   // FIX W5-1 — Apply credit-to-invoice modal state.
   const [applyingCN, setApplyingCN] = useState<CreditNote | null>(null);
@@ -132,9 +133,9 @@ export default function CreditNotes() {
   async function load() {
     setLoading(true);
     try {
-      const [notes, st] = await Promise.all([getCreditNotes(), getCreditNoteStats()]);
+      const notes = await getCreditNotes();
       setRows(notes);
-      setStats(st);
+      setStats(computeCreditNoteTotals(notes, new Date()));
     } finally {
       setLoading(false);
     }
@@ -144,9 +145,9 @@ export default function CreditNotes() {
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      const [notes, st] = await Promise.all([getCreditNotes(), getCreditNoteStats()]);
+      const notes = await getCreditNotes();
       setRows(notes);
-      setStats(st);
+      setStats(computeCreditNoteTotals(notes, new Date()));
     } finally {
       setRefreshing(false);
     }
@@ -173,11 +174,6 @@ export default function CreditNotes() {
       return matchesQ && matchesTab;
     });
   }, [rows, query, tab]);
-
-  const nonCancelledNotes = useMemo(
-    () => rows.filter((r) => r.status !== 'cancelled'),
-    [rows],
-  );
 
   const tabCounts = useMemo(() => {
     const now = new Date();
@@ -526,8 +522,8 @@ export default function CreditNotes() {
             {[
               {
                 label: 'Total Issued',
-                value: `$${formatMoney(stats.totalIssuedThisMonth)}`,
-                sub: `${nonCancelledNotes.length} credit note${nonCancelledNotes.length !== 1 ? 's' : ''}`,
+                value: `$${formatMoney(stats.totalIssued)}`,
+                sub: `${stats.issuedCount} credit note${stats.issuedCount !== 1 ? 's' : ''}`,
                 stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)',
                 valueColor: 'var(--color-brand-blue)',
                 subColor: 'var(--color-redwood-text-subtle)',
