@@ -1,9 +1,10 @@
 /**
  * Shared low-stock rules for Dashboard, Nexus, and header alerts.
  *
- * belowMin   = active AND min_stock > 0 AND stock <= min_stock
+ * belowMin   = active AND min_stock > 0 AND stock > 0 AND stock <= min_stock
  * outOfStock = active AND stock <= 0   (even if min_stock is 0)
  * noMinimum  = active AND (min_stock null or 0)
+ * outOfStock and belowMin never overlap; outOfStock + belowMin === alertCount
  */
 
 export type LowStockProductLike = {
@@ -56,9 +57,11 @@ export function productMinStock(p: LowStockProductLike): number | null {
 
 export function isBelowMinimum(p: LowStockProductLike): boolean {
   if (!isActive(p)) return false;
+  const stock = productStock(p);
+  if (stock <= 0) return false; // out-of-stock is a separate bucket
   const min = productMinStock(p);
   if (min == null || min <= 0) return false;
-  return productStock(p) <= min;
+  return stock <= min;
 }
 
 export function isOutOfStock(p: LowStockProductLike): boolean {
@@ -87,7 +90,8 @@ export function summarizeLowStock(products: LowStockProductLike[]): LowStockSumm
     if (minRaw == null || minStock <= 0) noMinimum += 1;
 
     const oos = stock <= 0;
-    const below = minStock > 0 && stock <= minStock;
+    // Exclude OOS from belowMin so buckets never overlap
+    const below = !oos && minStock > 0 && stock <= minStock;
     if (oos) outOfStock += 1;
     if (below) belowMin += 1;
     if (oos || below) {

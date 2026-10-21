@@ -117,12 +117,13 @@ describe('nexusModel', () => {
       pendingExpenses: ok(0),
       invoiceCountToday: none(),
     });
-    // OOS: #1 (min0) + #2 (min5); belowMin: #2 (min5) + #3 (stock3<min10)
+    // OOS: #1 (min0) + #2 (min5); belowMin: #3 only (OOS excluded from belowMin)
     expect(summary.outOfStock).toBe(2);
-    expect(summary.belowMin).toBe(2);
+    expect(summary.belowMin).toBe(1);
     expect(summary.alertCount).toBe(3);
+    expect(summary.outOfStock + summary.belowMin).toBe(summary.alertCount);
     expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe(expected);
-    expect(expected).toBe('2 out of stock · 2 below minimum');
+    expect(expected).toBe('2 out of stock · 1 below minimum');
   });
 
   it('open PO count excludes draft/rejected/completed/paid', () => {

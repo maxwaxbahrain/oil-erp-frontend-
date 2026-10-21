@@ -9,6 +9,10 @@ import {
   topLowStockAlerts,
 } from './lowStock';
 
+function expectBucketsDisjoint(s: ReturnType<typeof summarizeLowStock>) {
+  expect(s.outOfStock + s.belowMin).toBe(s.alertCount);
+}
+
 describe('lowStock shared helper', () => {
   it('does not cap alert count (40 out of stock → 40)', () => {
     const products = Array.from({ length: 40 }, (_, i) => ({
@@ -21,14 +25,17 @@ describe('lowStock shared helper', () => {
     expect(s.outOfStock).toBe(40);
     expect(s.belowMin).toBe(0);
     expect(s.alertCount).toBe(40);
+    expectBucketsDisjoint(s);
     expect(topLowStockAlerts(s, 6)).toHaveLength(6);
   });
 
   it('min_stock=0 and stock 5 is not belowMin', () => {
     const p = { stock: 5, min_stock: 0, is_active: true };
     expect(isBelowMinimum(p)).toBe(false);
-    expect(summarizeLowStock([p]).belowMin).toBe(0);
-    expect(summarizeLowStock([p]).noMinimum).toBe(1);
+    const s = summarizeLowStock([p]);
+    expect(s.belowMin).toBe(0);
+    expect(s.noMinimum).toBe(1);
+    expectBucketsDisjoint(s);
   });
 
   it('stock 0 and min 0 is outOfStock', () => {
@@ -39,12 +46,31 @@ describe('lowStock shared helper', () => {
     expect(s.outOfStock).toBe(1);
     expect(s.belowMin).toBe(0);
     expect(s.alertCount).toBe(1);
+    expectBucketsDisjoint(s);
   });
 
   it('stock == min (min > 0) is belowMin', () => {
     const p = { current_stock: 10, minimum_stock: 10, is_active: true };
     expect(isBelowMinimum(p)).toBe(true);
-    expect(summarizeLowStock([p]).belowMin).toBe(1);
+    const s = summarizeLowStock([p]);
+    expect(s.belowMin).toBe(1);
+    expectBucketsDisjoint(s);
+  });
+
+  it('stock 0 with min > 0 is outOfStock only (not belowMin)', () => {
+    const products = [
+      { stock: 0, min_stock: 5, is_active: true },
+      { stock: 3, min_stock: 5, is_active: true },
+      { stock: 9, min_stock: 5, is_active: true },
+    ];
+    const s = summarizeLowStock(products);
+    expect(s.outOfStock).toBe(1);
+    expect(s.belowMin).toBe(1);
+    expect(s.alertCount).toBe(2);
+    expectBucketsDisjoint(s);
+    expect(formatLowStockHeadline(s)).toBe('1 out of stock · 1 below minimum');
+    expect(isBelowMinimum(products[0])).toBe(false);
+    expect(isOutOfStock(products[0])).toBe(true);
   });
 
   it('inactive products are excluded', () => {
@@ -54,6 +80,7 @@ describe('lowStock shared helper', () => {
     ]);
     expect(s.outOfStock).toBe(0);
     expect(s.belowMin).toBe(1);
+    expectBucketsDisjoint(s);
   });
 
   it('formats headline and short copy for Dashboard / Nexus / strip', () => {
@@ -75,6 +102,7 @@ describe('lowStock shared helper', () => {
       { stock: 5, min_stock: 0, is_active: true },
     ];
     const s = summarizeLowStock(products);
+    expectBucketsDisjoint(s);
     expect(formatLowStockHeadline(s)).toBe('1 out of stock · 1 below minimum');
     expect(formatLowStockShort(s)).toBe('1 out of stock · 1 below minimum');
   });
@@ -85,6 +113,7 @@ describe('lowStock shared helper', () => {
       { id: 2, name: 'B', stock: 0, min_stock: 0, is_active: true },
       { id: 3, name: 'C', stock: 1, min_stock: 5, is_active: true },
     ]);
+    expectBucketsDisjoint(s);
     const top = topLowStockAlerts(s, 6);
     expect(top[0].kind).toBe('out_of_stock');
     expect(top.map((t) => t.product.name)).toEqual(['B', 'C', 'A']);
