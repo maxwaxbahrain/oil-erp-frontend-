@@ -20,7 +20,11 @@ import { getArSummary, getCustomerStats, type ArSummary, type CustomerStats } fr
 import { useEscape } from '../../hooks/useEscape';
 import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetrics';
 import { outstandingTotals } from '../../utils/outstandingTotals';
-import { dashboardLowStockAlertCount } from '../../utils/dashboardLowStock';
+import {
+    formatLowStockHeadline,
+    summarizeLowStock,
+    topLowStockAlerts,
+} from '../../utils/lowStock';
 import { livePayments } from '../../utils/paymentVoid';
 import { formatLocalDate, isSameLocalMonth, parseLocalDate, parseStoredTimestamp } from '../../utils/dates';
 import { localIsoDate } from '../../utils/localDate';
@@ -300,11 +304,8 @@ export default function Dashboard() {
         ['pending', 'open', 'draft'].includes(String(o.status || '').toLowerCase())
     ).length;
 
-    const lowStockItems = products
-        .filter(p => Number(p.current_stock || 0) < 20)
-        .sort((a, b) => Number(a.current_stock || 0) - Number(b.current_stock || 0))
-        .slice(0, 6);
-    const lowStockCount = dashboardLowStockAlertCount(products);
+    const lowStockSummary = summarizeLowStock(products);
+    const lowStockItems = topLowStockAlerts(lowStockSummary, 6);
 
     const cashCollectedToday = livePaymentsData.reduce((sum: number, p: any) => {
         const d = String(p.payment_date || p.date || '').slice(0, 10);
@@ -416,7 +417,7 @@ export default function Dashboard() {
     const glRevYtdStr = glRevenue && glRevenue.ytd != null ? fmtUsd0(glRevenue.ytd) : '—';
 
     // ── 6-cell stats row data ──────────────────────────────────
-    const statCells: Array<{ label: string; value: string; color: string; sub: string }> = [
+    const statCells: Array<{ label: string; value: string; color: string; sub: string; subLink?: string }> = [
         {
             label: 'Invoiced (MTD)',
             value: `$${totalRevenueMTD.toLocaleString()}`,
@@ -443,9 +444,15 @@ export default function Dashboard() {
         },
         {
             label: 'Low Stock Items',
-            value: String(lowStockCount),
-            color: lowStockCount > 0 ? C.amber : C.green,
-            sub: lowStockCount > 0 ? 'need reorder' : 'All stocked ✓',
+            value: formatLowStockHeadline(lowStockSummary),
+            color: lowStockSummary.alertCount > 0 ? C.amber : C.green,
+            sub:
+                lowStockSummary.noMinimum > 0
+                    ? `${lowStockSummary.noMinimum} products have no minimum stock set`
+                    : lowStockSummary.alertCount > 0
+                      ? 'need reorder'
+                      : 'All stocked ✓',
+            subLink: lowStockSummary.noMinimum > 0 ? '/products' : undefined,
         },
         {
             label: 'Active Customers',
@@ -599,12 +606,37 @@ export default function Dashboard() {
                             {cell.label}
                         </div>
                         <div style={{
-                            fontSize: 18, fontWeight: 700, lineHeight: 1,
-                            marginBottom: 2, color: cell.color,
+                            fontSize: cell.label === 'Low Stock Items' ? 12 : 18,
+                            fontWeight: 700,
+                            lineHeight: 1.2,
+                            marginBottom: 2,
+                            color: cell.color,
                         }}>
                             {cell.value}
                         </div>
-                        <div style={{ fontSize: 10, color: C.t2 }}>{cell.sub}</div>
+                        <div style={{ fontSize: 10, color: C.t2 }}>
+                            {cell.subLink ? (
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(cell.subLink!)}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        padding: 0,
+                                        color: C.blue,
+                                        cursor: 'pointer',
+                                        fontSize: 10,
+                                        fontFamily: 'inherit',
+                                        textAlign: 'left',
+                                        textDecoration: 'underline',
+                                    }}
+                                >
+                                    {cell.sub} →
+                                </button>
+                            ) : (
+                                cell.sub
+                            )}
+                        </div>
                     </div>
                 ))}
             </div>
@@ -635,7 +667,7 @@ export default function Dashboard() {
                             { label: 'Cash collected today', value: `$${cashCollectedToday.toLocaleString()}`, color: C.green },
                             { label: 'Pending orders',       value: String(pendingOrderCount),                  color: C.blue  },
                             { label: 'Active customers',     value: customerStats ? customerStats.active_customers.toLocaleString() : '—', color: C.blue  },
-                            { label: 'Low stock alerts',     value: String(lowStockItems.length),               color: lowStockItems.length > 0 ? C.amber : C.green },
+                            { label: 'Low stock alerts',     value: formatLowStockHeadline(lowStockSummary),   color: lowStockSummary.alertCount > 0 ? C.amber : C.green },
                             { label: 'Overdue invoices',     value: String(overdueCount),                       color: overdueCount > 0 ? C.red : C.green },
                             { label: 'Van routes today',     value: String(vansData.length),                    color: C.blue  },
                         ].map((row, i, arr) => (
@@ -1150,7 +1182,7 @@ export default function Dashboard() {
                                 style={{ fontSize: 10, color: C.blue, cursor: 'pointer' }}
                                 onClick={() => navigate('/products')}
                             >
-                                View all →
+                                View all {lowStockSummary.alertCount} →
                             </span>
                         </div>
                         <div style={{ overflowX: 'auto' }}>
@@ -1175,18 +1207,18 @@ export default function Dashboard() {
                                         <tr><td colSpan={4} style={{ padding: '32px 10px', textAlign: 'center', color: C.t2, fontSize: 11 }}>
                                             All stocked ✓
                                         </td></tr>
-                                    ) : lowStockItems.slice(0, 6).map((item: any, i: number) => {
-                                        const qty = Number(item.current_stock ?? item.quantity ?? item.stock ?? 0);
-                                        const min = Number((item as any).reorder_point ?? (item as any).minimumStock ?? (item as any).minStock ?? 10);
-                                        const isCritical = qty <= Math.floor(min * 0.5);
+                                    ) : lowStockItems.map((item, i) => {
+                                        const qty = item.stock;
+                                        const min = item.minStock;
+                                        const isCritical = item.kind === 'out_of_stock';
                                         return (
                                             <tr
-                                                key={i}
+                                                key={String(item.product.id ?? i)}
                                                 onMouseEnter={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'rgba(255,255,255,.025)'; }}
                                                 onMouseLeave={(e: React.MouseEvent<HTMLTableRowElement>) => { e.currentTarget.style.background = 'transparent'; }}
                                             >
                                                 <td style={{ fontSize: 11, color: C.t, padding: '8px 10px', borderBottom: `1px solid ${C.bd2}` }}>
-                                                    {item.name ?? item.productName ?? '—'}
+                                                    {item.product.name ?? '—'}
                                                 </td>
                                                 <td style={{
                                                     fontSize: 11, padding: '8px 10px',
@@ -1205,7 +1237,7 @@ export default function Dashboard() {
                                                         background: isCritical ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)',
                                                         color: isCritical ? '#B91C1C' : '#B45309',
                                                     }}>
-                                                        {isCritical ? 'Critical' : 'Low'}
+                                                        {isCritical ? 'Out of stock' : 'Below min'}
                                                     </span>
                                                 </td>
                                             </tr>

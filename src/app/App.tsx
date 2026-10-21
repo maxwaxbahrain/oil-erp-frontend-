@@ -47,6 +47,7 @@ import { getPurchaseOrders } from '../services/purchasesService';
 import { getArSummary, type ArSummary } from '../services/customerService';
 import { outstandingTotals } from '../utils/outstandingTotals';
 import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
+import { formatLowStockShort, summarizeLowStock } from '../utils/lowStock';
 import api from '../api/axios';
 import { HandsFreeHeaderChip } from '../pages/Agent/handsFree/HandsFreeProvider';
 
@@ -174,8 +175,16 @@ function App() {
     const creditTotal = headline ? Math.abs(headline.customerCredits) : 0;
     const netTotal = headline ? headline.netReceivable : unpaidTotal;
     const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
-    const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
-    return { unpaid, unpaidTotal, creditTotal, netTotal, overdue, lowStock };
+    const lowStockSummary = summarizeLowStock(prods);
+    return {
+      unpaid,
+      unpaidTotal,
+      creditTotal,
+      netTotal,
+      overdue,
+      lowStock: lowStockSummary.alertCount,
+      lowStockLabel: formatLowStockShort(lowStockSummary),
+    };
   }, [aiCtx]);
 
   // Trial banner — fetch once on mount (not per navigation). Change guards
@@ -209,8 +218,10 @@ function App() {
     const items: { label: string; severity: 'info' | 'warn' }[] = [];
     const overdue = (aiCtx.invoices as any[]).filter(i => String(i.status || '').toLowerCase() === 'overdue').length;
     if (overdue) items.push({ label: `${overdue} overdue invoice${overdue === 1 ? '' : 's'}`, severity: 'warn' });
-    const lowStock = (aiCtx.products as any[]).filter(p => Number(p.current_stock || 0) < 10).length;
-    if (lowStock) items.push({ label: `${lowStock} product${lowStock === 1 ? '' : 's'} low on stock`, severity: 'warn' });
+    const lowStockSummary = summarizeLowStock(aiCtx.products as any[]);
+    if (lowStockSummary.alertCount) {
+      items.push({ label: formatLowStockShort(lowStockSummary), severity: 'warn' });
+    }
     return items;
   })();
 
@@ -777,7 +788,7 @@ function App() {
                 {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}
                 {alertCounts.overdue > 0 && <>{alertCounts.overdue} overdue</>}
                 {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
-                {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
+                {alertCounts.lowStock > 0 && <>{alertCounts.lowStockLabel}</>}
               </span>
               {alertCounts.unpaid > 0 && (
                 <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
