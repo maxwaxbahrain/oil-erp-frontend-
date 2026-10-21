@@ -25,6 +25,11 @@ export default function HandsFreeToggle() {
               {hint}
             </span>
           )}
+          {ctx.statusMessage && (
+            <span className="mt-2 block text-xs text-amber-300" data-testid="hands-free-panel-status">
+              {ctx.statusMessage}
+            </span>
+          )}
         </span>
         <input
           type="checkbox"

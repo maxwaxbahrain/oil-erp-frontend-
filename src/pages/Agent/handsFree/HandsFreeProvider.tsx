@@ -44,10 +44,15 @@ import {
   VOICE_PREFS_DEFAULTS,
   type VoicePrefs,
 } from './voicePrefsApi';
+import { NO_SPEECH_MESSAGE, recordUntilSilence } from './followUpRecording';
+import {
+  LISTEN_FAILED_MESSAGE,
+  MIC_BLOCKED_MESSAGE,
+  nextRecognitionAction,
+} from './recognitionErrors';
 import { matchWakeUtterance } from './wakeWord';
 
 const IDLE_MS = 30 * 60 * 1000;
-const FOLLOWUP_SECONDS = 15;
 const HEARTBEAT_MS = 2_500;
 
 type SpeechRec = {
@@ -75,6 +80,8 @@ type HandsFreeContextValue = {
   unsupportedHint: string;
   chipStatus: HandsFreeChipStatus;
   localPaused: boolean;
+  micBlocked: boolean;
+  statusMessage: string;
   isLeaderTab: boolean;
   noticeOpen: boolean;
   toggleDisabled: boolean;
@@ -135,6 +142,8 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [prefsError, setPrefsError] = useState('');
   const [localPaused, setLocalPaused] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
   const [hearing, setHearing] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [isLeaderTab, setIsLeaderTab] = useState(true);
@@ -147,10 +156,13 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
   const recognitionRef = useRef<SpeechRec | null>(null);
   const wantListenRef = useRef(false);
   const followupBusyRef = useRef(false);
+  const blockRestartRef = useRef(false);
+  const networkFailCountRef = useRef(0);
+  const backoffTimerRef = useRef<number | undefined>(undefined);
   const lastActivityRef = useRef(Date.now());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef('');
-  const recorderRef = useRef<MediaRecorder | null>(null);
+  const startRecognitionRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     prefsRef.current = prefs;
@@ -227,7 +239,11 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
         voiceUrlRef.current = url;
         const audio = new Audio(url);
         audioRef.current = audio;
-        await audio.play();
+        await new Promise<void>((resolve) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => resolve();
+          void audio.play().catch(() => resolve());
+        });
       } catch {
         // text already shown
       }
@@ -252,29 +268,20 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     if (followupBusyRef.current) return;
     followupBusyRef.current = true;
     setHearing(true);
+    let stream: MediaStream | null = null;
     try {
       if (!(await assertCap())) return;
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
       const mime = recorderMime();
-      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) chunks.push(ev.data);
-      };
-      const done = new Promise<Blob>((resolve) => {
-        recorder.onstop = () => {
-          stream.getTracks().forEach((t) => t.stop());
-          resolve(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
-        };
-      });
-      recorder.start();
-      await new Promise<void>((r) => window.setTimeout(r, FOLLOWUP_SECONDS * 1000));
-      if (recorder.state !== 'inactive') recorder.stop();
-      const blob = await done;
-      recorderRef.current = null;
+      const { blob, reason } = await recordUntilSilence(stream, { mimeType: mime || undefined });
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+      if (!blob || reason === 'no_speech') {
+        setZavaLine(NO_SPEECH_MESSAGE);
+        return;
+      }
       if (blob.size < 64) {
-        setZavaLine("I didn't hear a question.");
+        setZavaLine(NO_SPEECH_MESSAGE);
         return;
       }
       const form = new FormData();
@@ -285,17 +292,23 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
       });
       const transcript = (heard.data.transcript || '').trim();
       if (!transcript) {
-        setZavaLine("I didn't hear a question.");
+        setZavaLine(NO_SPEECH_MESSAGE);
         return;
       }
       await runCommand(transcript);
     } catch (error) {
       if (permissionDenied(error)) {
-        setZavaLine('The microphone is off. Allow the microphone for this site.');
+        setMicBlocked(true);
+        setLocalPaused(true);
+        setStatusMessage(MIC_BLOCKED_MESSAGE);
+        setZavaLine(MIC_BLOCKED_MESSAGE);
+        blockRestartRef.current = true;
+        wantListenRef.current = false;
       } else {
         setZavaLine("I couldn't listen just then.");
       }
     } finally {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
       setHearing(false);
       followupBusyRef.current = false;
     }
@@ -309,10 +322,8 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
       if (match.kind === 'none') return;
       bumpActivity();
       if (match.kind === 'bare') {
-        setZavaLine('Yes?');
-        if (!prefsRef.current.zava_voice_muted && !quietNow()) {
-          void speak('Yes?');
-        }
+        // Wait until "Yes?" finishes before recording (don't capture Zava's voice).
+        await speak('Yes?');
         await recordFollowUp();
         return;
       }
@@ -321,6 +332,13 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     },
     [bumpActivity, quietNow, recordFollowUp, runCommand, speak],
   );
+
+  const clearBackoffTimer = useCallback(() => {
+    if (backoffTimerRef.current) {
+      window.clearTimeout(backoffTimerRef.current);
+      backoffTimerRef.current = undefined;
+    }
+  }, []);
 
   const stopRecognition = useCallback(() => {
     const rec = recognitionRef.current;
@@ -341,13 +359,16 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startRecognition = useCallback(() => {
-    if (!supported || !wantListenRef.current || pausedRef.current) return;
+    if (!supported || !wantListenRef.current || pausedRef.current || micBlocked) return;
     if (!isLeader(leaderRef.current)) return;
+    if (blockRestartRef.current && recognitionRef.current) return;
     stopRecognition();
+    blockRestartRef.current = false;
     const rec = makeRecognition();
     if (!rec) return;
     recognitionRef.current = rec;
     rec.onresult = (event) => {
+      networkFailCountRef.current = 0;
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const row = event.results[i];
         if (!row?.isFinal) continue;
@@ -355,11 +376,54 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
         if (text.trim()) void handleFinalTranscript(text);
       }
     };
-    rec.onerror = () => {
-      /* restart via onend */
+    rec.onerror = (ev) => {
+      const decision = nextRecognitionAction(ev.error || '', networkFailCountRef.current);
+      if (decision.action === 'hard_stop') {
+        blockRestartRef.current = true;
+        wantListenRef.current = false;
+        clearBackoffTimer();
+        setMicBlocked(true);
+        setLocalPaused(true);
+        setStatusMessage(MIC_BLOCKED_MESSAGE);
+        setZavaLine(MIC_BLOCKED_MESSAGE);
+        stopRecognition();
+        return;
+      }
+      if (decision.action === 'quiet_restart') {
+        // onend may restart — leave blockRestart false
+        return;
+      }
+      if (decision.action === 'backoff_restart') {
+        networkFailCountRef.current = decision.nextFailCount;
+        blockRestartRef.current = true;
+        clearBackoffTimer();
+        backoffTimerRef.current = window.setTimeout(() => {
+          blockRestartRef.current = false;
+          if (wantListenRef.current && !pausedRef.current && !micBlocked) {
+            startRecognitionRef.current();
+          }
+        }, decision.delayMs);
+        return;
+      }
+      if (decision.action === 'pause_give_up') {
+        networkFailCountRef.current = decision.nextFailCount;
+        blockRestartRef.current = true;
+        clearBackoffTimer();
+        setLocalPaused(true);
+        setStatusMessage(LISTEN_FAILED_MESSAGE);
+        setZavaLine(LISTEN_FAILED_MESSAGE);
+        stopRecognition();
+      }
     };
     rec.onend = () => {
-      if (wantListenRef.current && !pausedRef.current && isLeader(leaderRef.current) && recognitionRef.current === rec) {
+      if (blockRestartRef.current) return;
+      if (
+        wantListenRef.current &&
+        !pausedRef.current &&
+        !micBlocked &&
+        isLeader(leaderRef.current) &&
+        recognitionRef.current === rec
+      ) {
         try {
           rec.start();
         } catch {
@@ -372,7 +436,11 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
-  }, [handleFinalTranscript, stopRecognition, supported]);
+  }, [clearBackoffTimer, handleFinalTranscript, micBlocked, stopRecognition, supported]);
+
+  useEffect(() => {
+    startRecognitionRef.current = startRecognition;
+  }, [startRecognition]);
 
   // BroadcastChannel leader
   useEffect(() => {
@@ -432,11 +500,15 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
       prefsLoaded &&
       !prefsError &&
       prefs.hands_free_zava &&
-      !localPaused;
+      !localPaused &&
+      !micBlocked;
     wantListenRef.current = should;
     if (should && isLeader(leaderRef.current)) startRecognition();
     else stopRecognition();
-    return () => stopRecognition();
+    return () => {
+      clearBackoffTimer();
+      stopRecognition();
+    };
   }, [
     enabledEnv,
     isAdmin,
@@ -445,6 +517,8 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     prefsError,
     prefs.hands_free_zava,
     localPaused,
+    micBlocked,
+    clearBackoffTimer,
     startRecognition,
     stopRecognition,
   ]);
@@ -475,6 +549,11 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
 
   const turnOff = useCallback(async () => {
     setLocalPaused(false);
+    setMicBlocked(false);
+    setStatusMessage('');
+    networkFailCountRef.current = 0;
+    blockRestartRef.current = false;
+    clearBackoffTimer();
     wantListenRef.current = false;
     stopRecognition();
     stopSpeaking();
@@ -484,12 +563,17 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     } catch {
       setPrefs((p) => ({ ...p, hands_free_zava: false }));
     }
-  }, [stopRecognition, stopSpeaking]);
+  }, [clearBackoffTimer, stopRecognition, stopSpeaking]);
 
   const resumeFromPause = useCallback(() => {
     bumpActivity();
+    setMicBlocked(false);
+    setStatusMessage('');
+    networkFailCountRef.current = 0;
+    blockRestartRef.current = false;
+    clearBackoffTimer();
     setLocalPaused(false);
-  }, [bumpActivity]);
+  }, [bumpActivity, clearBackoffTimer]);
 
   const acceptNoticeAndEnable = useCallback(async () => {
     setNoticeOpen(false);
@@ -539,20 +623,22 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
 
   const chipClick = useCallback(() => {
     if (!prefs.hands_free_zava) return;
-    if (localPaused) {
+    if (localPaused || micBlocked) {
       resumeFromPause();
       return;
     }
     void turnOff();
-  }, [localPaused, prefs.hands_free_zava, resumeFromPause, turnOff]);
+  }, [localPaused, micBlocked, prefs.hands_free_zava, resumeFromPause, turnOff]);
 
   const chipStatus: HandsFreeChipStatus = !prefs.hands_free_zava
     ? 'off'
-    : localPaused
-      ? 'paused'
-      : hearing
-        ? 'hearing'
-        : 'listening';
+    : micBlocked
+      ? 'mic_blocked'
+      : localPaused
+        ? 'paused'
+        : hearing
+          ? 'hearing'
+          : 'listening';
 
   const toggleDisabled = !supported || Boolean(prefsError) || !prefsLoaded;
   const toggleTitle = prefsError
@@ -571,6 +657,8 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     unsupportedHint: HANDS_FREE_UNSUPPORTED_HINT,
     chipStatus,
     localPaused,
+    micBlocked,
+    statusMessage,
     isLeaderTab,
     noticeOpen,
     toggleDisabled,
@@ -602,5 +690,12 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
 export function HandsFreeHeaderChip() {
   const ctx = useHandsFreeOptional();
   if (!ctx || !ctx.showUi || !ctx.prefsLoaded) return null;
-  return <HandsFreeChip status={ctx.chipStatus} onClick={ctx.chipClick} visible />;
+  return (
+    <HandsFreeChip
+      status={ctx.chipStatus}
+      onClick={ctx.chipClick}
+      visible
+      statusMessage={ctx.statusMessage || undefined}
+    />
+  );
 }
