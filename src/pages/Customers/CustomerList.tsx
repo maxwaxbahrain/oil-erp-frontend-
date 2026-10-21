@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Users } from 'lucide-react';
 import { type Customer, type ArSummary, type CustomerStats, getCustomers, getArSummary, getCustomerStats, deleteCustomer } from '../../services/customerService';
 import { outstandingTotals } from '../../utils/outstandingTotals';
+import { formatAddedLabel } from '../../utils/dates';
 
 /* Visual tokens only (layout/CSS) — mockup exact */
 const ROW_GRID =
@@ -69,21 +70,6 @@ function avatarColors(id: string | number): { bg: string; color: string } {
   const idx =
     Math.abs(String(id).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % palette.length;
   return palette[idx];
-}
-
-function formatRelativeDate(d?: string): string {
-  if (!d) return '—';
-  try {
-    const diff = Date.now() - new Date(d).getTime();
-    const days = Math.floor(diff / 86400000);
-    if (days === 0) return 'Today';
-    if (days === 1) return '1 day ago';
-    if (days < 7) return `${days} days ago`;
-    if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`;
-    return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  } catch {
-    return '—';
-  }
 }
 
 function statusBadge(c: Customer, bal: number): { label: string; style: React.CSSProperties } {
@@ -873,7 +859,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                             </div>
                           </div>
                           <span style={{ fontSize: 13, color: '#94a3b8' }}>{c.phone ?? '—'}</span>
-                          <span style={{ fontSize: 13, color: '#94a3b8' }}>{formatRelativeDate(c.created_at)}</span>
+                          <span style={{ fontSize: 13, color: '#94a3b8' }}>{formatAddedLabel(c.created_at)}</span>
                           <span style={out.style}>{out.text}</span>
                           <span>
                             <span style={badge.style}>{badge.label}</span>

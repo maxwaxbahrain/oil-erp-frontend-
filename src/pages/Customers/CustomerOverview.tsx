@@ -62,7 +62,7 @@ import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../..
 import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
-import { formatLocalDate } from '../../utils/dates';
+import { formatLocalDate, formatStoredTimestamp } from '../../utils/dates';
 import {
     customerLedgerRowLabel,
     customerLedgerStatementCsv,
@@ -1078,7 +1078,7 @@ export default function CustomerOverview() {
                         <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
                             {(customer as any).address ?? (customer as any).city ?? ''}
                             {((customer as any).address || (customer as any).city) ? ' · ' : ''}
-                            Customer since {_fmtMonthYear((customer as any).createdAt ?? (customer as any).created_at)}
+                            Customer since {formatStoredTimestamp((customer as any).createdAt ?? (customer as any).created_at, { month: 'short', year: 'numeric' }) || '—'}
                             {' · '}
                             {(customer as any).paymentTerms ?? (customer as any).payment_terms ?? 'COD'} terms
                         </div>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 // NOTE: no lucide-react — all icons are inline SVG copied verbatim from preview.html
 import { getCustomers, getSalesOrders, getProducts, getInvoices, getPayments } from '../../services/api';
 import { collectionRateYtd } from '../../utils/collectionMetrics';
+import { parseStoredTimestamp } from '../../utils/dates';
 import { livePayments } from '../../utils/paymentVoid';
 
 function isImportedCustomer(c: { notes?: string }): boolean {
@@ -109,7 +110,7 @@ export default function SalesDashboard() {
   const now = new Date();
   const newThisMonth = customers.filter((c: any) => {
     if (isImportedCustomer(c)) return false;
-    const created = parseActivityDate(c.createdAt || c.created_at);
+    const created = parseStoredTimestamp(c.createdAt || c.created_at);
     if (!created) return false;
     return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
   }).length;
