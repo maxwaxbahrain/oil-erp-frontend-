@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatLowStockHeadline,
   formatLowStockShort,
+  formatLowStockTileValue,
   isBelowMinimum,
   isOutOfStock,
   summarizeLowStock,
@@ -92,6 +93,16 @@ describe('lowStock shared helper', () => {
     );
     expect(formatLowStockShort({ outOfStock: 2, belowMin: 3, alertCount: 5 })).toBe(
       '2 out of stock · 3 below minimum',
+    );
+  });
+
+  it('products request failed → tile shows Couldn\'t load, never "0 out of stock"', () => {
+    const empty = { outOfStock: 0, belowMin: 0 };
+    expect(formatLowStockTileValue('failed', empty)).toBe("Couldn't load stock");
+    expect(formatLowStockTileValue('failed', empty)).not.toContain('0 out of stock');
+    expect(formatLowStockTileValue('loading', empty)).toBe('—');
+    expect(formatLowStockTileValue('ok', { outOfStock: 11, belowMin: 0 })).toBe(
+      '11 out of stock · 0 below minimum',
     );
   });
 

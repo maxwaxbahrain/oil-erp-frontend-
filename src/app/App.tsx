@@ -84,7 +84,15 @@ function App() {
   const canSeeFinance = hasRole(...FINANCE_ROLES);
   const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
   const canSeeAdmin = hasRole(...ADMIN_ROLES);
-  const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [], arSummary: null });
+  const [aiCtx, setAiCtx] = useState<any>({
+    invoices: [],
+    customers: [],
+    products: [],
+    payments: [],
+    purchaseOrders: [],
+    arSummary: null,
+    productsLoad: 'loading' as 'loading' | 'ok' | 'failed',
+  });
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
   // by this state. Default closed on all viewports.
@@ -175,6 +183,7 @@ function App() {
     const creditTotal = headline ? Math.abs(headline.customerCredits) : 0;
     const netTotal = headline ? headline.netReceivable : unpaidTotal;
     const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
+    const productsOk = aiCtx.productsLoad === 'ok';
     const lowStockSummary = summarizeLowStock(prods);
     return {
       unpaid,
@@ -182,8 +191,10 @@ function App() {
       creditTotal,
       netTotal,
       overdue,
-      lowStock: lowStockSummary.alertCount,
-      lowStockLabel: formatLowStockShort(lowStockSummary),
+      // Hide stock alerts when products failed — never show a false "0 out of stock"
+      lowStock: productsOk ? lowStockSummary.alertCount : 0,
+      lowStockLabel: productsOk ? formatLowStockShort(lowStockSummary) : '',
+      productsLoadFailed: aiCtx.productsLoad === 'failed',
     };
   }, [aiCtx]);
 
@@ -218,9 +229,11 @@ function App() {
     const items: { label: string; severity: 'info' | 'warn' }[] = [];
     const overdue = (aiCtx.invoices as any[]).filter(i => String(i.status || '').toLowerCase() === 'overdue').length;
     if (overdue) items.push({ label: `${overdue} overdue invoice${overdue === 1 ? '' : 's'}`, severity: 'warn' });
-    const lowStockSummary = summarizeLowStock(aiCtx.products as any[]);
-    if (lowStockSummary.alertCount) {
-      items.push({ label: formatLowStockShort(lowStockSummary), severity: 'warn' });
+    if (aiCtx.productsLoad === 'ok') {
+      const lowStockSummary = summarizeLowStock(aiCtx.products as any[]);
+      if (lowStockSummary.alertCount) {
+        items.push({ label: formatLowStockShort(lowStockSummary), severity: 'warn' });
+      }
     }
     return items;
   })();
@@ -241,12 +254,22 @@ function App() {
     Promise.all([
       getInvoices().catch(() => []),
       getCustomers().catch(() => []),
-      getProducts().catch(() => []),
+      getProducts()
+        .then((p) => ({ ok: true as const, products: Array.isArray(p) ? p : [] }))
+        .catch(() => ({ ok: false as const, products: [] as any[] })),
       getPayments().catch(() => []),
       getPurchaseOrders().catch(() => []),
       getArSummary().catch(() => null),
-    ]).then(([inv, cust, prod, pays, pos, ar]) => {
-      setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos, arSummary: ar });
+    ]).then(([inv, cust, prodResult, pays, pos, ar]) => {
+      setAiCtx({
+        invoices: inv,
+        customers: cust,
+        products: prodResult.products,
+        payments: pays,
+        purchaseOrders: pos,
+        arSummary: ar,
+        productsLoad: prodResult.ok ? 'ok' : 'failed',
+      });
     });
   }, []);
 
