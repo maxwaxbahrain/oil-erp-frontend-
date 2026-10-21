@@ -22,7 +22,7 @@ import { getExpenseStats } from '../../../services/expenseService';
 import { listDeliveryNotes } from '../../../services/deliveryService';
 import { getAllLeaveRequests } from '../../../services/leaveService';
 import { deriveVanLiveStatus } from '../../../lib/vanLiveStatus';
-import { dashboardLowStockAlertCount } from '../../../utils/dashboardLowStock';
+import { summarizeLowStock } from '../../../utils/lowStock';
 import { firstName } from '../zavaCopy';
 import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
@@ -135,7 +135,7 @@ export default function NexusPage() {
   const [planetInputs, setPlanetInputs] = useState({
     owedToUs: unavailableResult<number>(),
     openPoCount: unavailableResult<number>(),
-    lowStockCount: unavailableResult<number>(),
+    lowStockCount: unavailableResult<{ alertCount: number; outOfStock: number; belowMin: number }>(),
     vansOnline: unavailableResult<number>(),
     vansTotal: unavailableResult<number>(),
     pendingExpenses: unavailableResult<number>(),
@@ -211,7 +211,14 @@ export default function NexusPage() {
           : errResult(),
       lowStockCount:
         productsSettled.status === 'fulfilled'
-          ? okResult(dashboardLowStockAlertCount(productsSettled.value))
+          ? (() => {
+              const s = summarizeLowStock(productsSettled.value);
+              return okResult({
+                alertCount: s.alertCount,
+                outOfStock: s.outOfStock,
+                belowMin: s.belowMin,
+              });
+            })()
           : errResult(),
       vansOnline:
         vansSettled.status === 'fulfilled'

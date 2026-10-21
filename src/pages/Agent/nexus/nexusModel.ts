@@ -3,6 +3,8 @@
  * No invented numbers. Health score is Beta and client-side only.
  */
 
+import { formatLowStockShort } from '../../../utils/lowStock';
+
 export type SignalPriority = 'urgent' | 'today' | 'fyi';
 
 export type NexusSignalCard = {
@@ -152,7 +154,8 @@ export type PlanetInputs = {
   cardsLoadOk: boolean;
   owedToUs: SourceResult<number>;
   openPoCount: SourceResult<number>;
-  lowStockCount: SourceResult<number>;
+  /** Shared low-stock rule counts (same helper as Dashboard / header). */
+  lowStockCount: SourceResult<{ alertCount: number; outOfStock: number; belowMin: number }>;
   vansOnline: SourceResult<number>;
   vansTotal: SourceResult<number>;
   pendingExpenses: SourceResult<number>;
@@ -202,10 +205,13 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
     label: `${v} open PO${v === 1 ? '' : 's'}`,
     orbit: String(v),
   }));
-  const inventory = metricForSource(input.lowStockCount, (v) => ({
-    label: `${v} low stock`,
-    orbit: `${v} low`,
-  }));
+  const inventory = metricForSource(input.lowStockCount, (v) => {
+    const short = formatLowStockShort(v);
+    return {
+      label: short,
+      orbit: v.alertCount === 0 ? '0' : short,
+    };
+  });
   let vansOk: SourceResult<{ online: number; total: number }>;
   if (input.vansTotal.state === 'ok' && input.vansOnline.state === 'ok') {
     vansOk = {
@@ -300,7 +306,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
         inventory.statusBase === 'error'
           ? 'error'
           : inventory.connected
-            ? (input.lowStockCount.state === 'ok' && input.lowStockCount.value > 0
+            ? (input.lowStockCount.state === 'ok' && input.lowStockCount.value.alertCount > 0
                 ? worstStatus(byPlanet.get('inventory') || 'good', 'watch')
                 : byPlanet.get('inventory') || 'good')
             : 'offline',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dashboardLowStockAlertCount } from '../../../utils/dashboardLowStock';
+import { formatLowStockShort, summarizeLowStock } from '../../../utils/lowStock';
 import {
   businessHealthScore,
   buildPlanets,
@@ -12,8 +12,14 @@ import {
 } from './nexusModel';
 
 const ok = <T>(value: T): SourceResult<T> => ({ state: 'ok', value });
-const err = <T = number>(): SourceResult<T> => ({ state: 'error' });
-const none = <T = number>(): SourceResult<T> => ({ state: 'unavailable' });
+const err = <T = never>(): SourceResult<T> => ({ state: 'error' });
+const none = <T = never>(): SourceResult<T> => ({ state: 'unavailable' });
+const lowStockOk = (outOfStock: number, belowMin: number) =>
+  ok({
+    alertCount: outOfStock + belowMin,
+    outOfStock,
+    belowMin,
+  });
 
 describe('nexusModel', () => {
   it('health score (Beta): urgent −12, today −6, fyi −2, clamped, unique by id', () => {
@@ -61,7 +67,7 @@ describe('nexusModel', () => {
       cardsLoadOk: true,
       owedToUs: err(),
       openPoCount: ok(0),
-      lowStockCount: ok(0),
+      lowStockCount: lowStockOk(0, 0),
       vansOnline: ok(0),
       vansTotal: ok(0),
       pendingExpenses: ok(0),
@@ -77,7 +83,7 @@ describe('nexusModel', () => {
       cardsLoadOk: false,
       owedToUs: ok(0),
       openPoCount: ok(0),
-      lowStockCount: ok(0),
+      lowStockCount: lowStockOk(0, 0),
       vansOnline: ok(0),
       vansTotal: ok(0),
       pendingExpenses: ok(0),
@@ -87,26 +93,37 @@ describe('nexusModel', () => {
     expect(planets.find((p) => p.id === 'reports')?.metricLabel).toBe("Couldn't load");
   });
 
-  it('Nexus low-stock count === dashboard source value', () => {
+  it('Nexus low-stock wording === Dashboard shared helper', () => {
     const products = [
-      { current_stock: 3 },
-      { current_stock: 12 },
-      { current_stock: 40 },
+      { current_stock: 0, min_stock: 0, is_active: true },
+      { current_stock: 0, min_stock: 5, is_active: true },
+      { current_stock: 3, min_stock: 10, is_active: true },
+      { current_stock: 40, min_stock: 5, is_active: true },
     ];
-    const dashboardValue = dashboardLowStockAlertCount(products);
+    const summary = summarizeLowStock(products);
+    const expected = formatLowStockShort(summary);
     const planets = buildPlanets({
       cards: [],
       cardsLoadOk: true,
       owedToUs: ok(0),
       openPoCount: ok(0),
-      lowStockCount: ok(dashboardValue),
+      lowStockCount: ok({
+        alertCount: summary.alertCount,
+        outOfStock: summary.outOfStock,
+        belowMin: summary.belowMin,
+      }),
       vansOnline: ok(0),
       vansTotal: ok(0),
       pendingExpenses: ok(0),
       invoiceCountToday: none(),
     });
-    expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe(`${dashboardValue} low stock`);
-    expect(dashboardValue).toBe(2);
+    // OOS: #1 (min0) + #2 (min5); belowMin: #3 only (OOS excluded from belowMin)
+    expect(summary.outOfStock).toBe(2);
+    expect(summary.belowMin).toBe(1);
+    expect(summary.alertCount).toBe(3);
+    expect(summary.outOfStock + summary.belowMin).toBe(summary.alertCount);
+    expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe(expected);
+    expect(expected).toBe('2 out of stock · 1 below minimum');
   });
 
   it('open PO count excludes draft/rejected/completed/paid', () => {
@@ -129,7 +146,7 @@ describe('nexusModel', () => {
       cardsLoadOk: true,
       owedToUs: ok(100),
       openPoCount: ok(4),
-      lowStockCount: ok(2),
+      lowStockCount: lowStockOk(2, 0),
       vansOnline: ok(1),
       vansTotal: ok(3),
       pendingExpenses: ok(0),
@@ -139,6 +156,7 @@ describe('nexusModel', () => {
     expect(planets.find((p) => p.id === 'ai_team')?.status).toBe('offline');
     expect(planets.find((p) => p.id === 'purchase')?.metricLabel).toBe('4 open POs');
     expect(planets.find((p) => p.id === 'collections')?.metricLabel).toContain('100');
+    expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe('2 out of stock');
   });
 
   it('hasRealTimestamp rejects date-only and midnight', () => {
