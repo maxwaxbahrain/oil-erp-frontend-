@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { getCreditNotes, getCreditNoteStats, updateCreditNote, applyCreditNoteToInvoice, type CreditNote } from '../../services/creditNoteService';
 import { getCustomerInvoices, type Invoice } from '../../services/api';
+import { formatLocalDate } from '../../utils/dates';
 
 type FilterTab = 'all' | 'draft' | 'issued' | 'used' | 'expired' | 'cancelled';
 
@@ -1239,7 +1240,7 @@ export default function CreditNotes() {
                                 marginTop: 2,
                               }}
                             >
-                              {inv.invoiceDate ? new Date(inv.invoiceDate).toLocaleDateString() : '—'} · Total ${Number(inv.grandTotal ?? 0).toFixed(2)}
+                              {inv.invoiceDate ? (formatLocalDate(inv.invoiceDate) || '—') : '—'} · Total ${Number(inv.grandTotal ?? 0).toFixed(2)}
                             </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>

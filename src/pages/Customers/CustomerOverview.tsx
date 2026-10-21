@@ -62,6 +62,7 @@ import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../..
 import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
+import { formatLocalDate } from '../../utils/dates';
 import {
     customerLedgerRowLabel,
     customerLedgerStatementCsv,
@@ -238,7 +239,7 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                 <tbody>
                     ${ledger.map(entry => `
                         <tr>
-                            <td>${formatDateOnly(entry.date)}</td>
+                            <td>${formatLocalDate(entry.date)}</td>
                             <td>${customerLedgerStatementType(entry)}</td>
                             <td>${entry.referenceNumber}</td>
                             <td>${entry.description}</td>
@@ -267,7 +268,7 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     csvContent += `Customer Ledger - ${customer.name}\n\n`;
     csvContent += customerLedgerStatementCsv(ledger.map((entry) => ({
         ...entry,
-        date: formatDateOnly(entry.date),
+        date: formatLocalDate(entry.date),
     })));
 
     const encodedUri = encodeURI(csvContent);
@@ -322,7 +323,10 @@ import DocumentVault from './DocumentVault';
 // Visual-only date helper (Month YYYY).
 function _fmtMonthYear(dateStr: string | undefined | null): string {
   if (!dateStr) return '—';
-  const formatted = formatDateOnly(dateStr, 'en-US', { month: 'short', year: 'numeric' });
+  const trimmed = dateStr.trim();
+  const formatted = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? formatLocalDate(trimmed, { month: 'short', year: 'numeric' })
+    : formatDateOnly(dateStr, 'en-US', { month: 'short', year: 'numeric' });
   return formatted || dateStr;
 }
 
@@ -1333,7 +1337,9 @@ export default function CustomerOverview() {
                         value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
                         color: '#4F8EF7',
                         sub: _lastPayment
-                            ? formatDateOnly(_lastPayment.payment_date ?? _lastPayment.created_at ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? (_lastPayment.payment_date
+                                ? formatLocalDate(_lastPayment.payment_date, { month: 'short', day: 'numeric', year: 'numeric' })
+                                : formatDateOnly(_lastPayment.created_at ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }))
                             : '—',
                     },
                     {
@@ -1681,7 +1687,7 @@ export default function CustomerOverview() {
                                                         || String(inv.status ?? '').toLowerCase() === 'overdue';
                                                     const dueDateStr = inv.dueDate ?? inv.due_date ?? inv.invoiceDate ?? '';
                                                     const dueFmt = dueDateStr
-                                                        ? formatDateOnly(dueDateStr, 'en-US', { month: 'short', day: 'numeric' })
+                                                        ? formatLocalDate(dueDateStr, { month: 'short', day: 'numeric' })
                                                         : '—';
                                                     return (
                                                         <tr
@@ -1699,7 +1705,7 @@ export default function CustomerOverview() {
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
                                                                 {inv.invoiceDate
-                                                                    ? formatDateOnly(inv.invoiceDate, 'en-US', { month: 'short', day: 'numeric' })
+                                                                    ? formatLocalDate(inv.invoiceDate, { month: 'short', day: 'numeric' })
                                                                     : '—'}
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
@@ -1742,10 +1748,12 @@ export default function CustomerOverview() {
                                     {_sortedPayments.slice(0, 5).map((p: any, i: number) => {
                                         const amt = Number(p.amount ?? 0);
                                         const pct = _paymentMaxAmt > 0 ? Math.round((amt / _paymentMaxAmt) * 100) : 0;
-                                        const dateStr = p.payment_date ?? p.date ?? p.createdAt;
-                                        const label = dateStr
-                                            ? formatDateOnly(dateStr, 'en-US', { month: 'short', day: 'numeric' })
-                                            : '—';
+                                        const calendarDate = p.payment_date ?? p.date;
+                                        const label = calendarDate
+                                            ? formatLocalDate(calendarDate, { month: 'short', day: 'numeric' })
+                                            : (p.createdAt
+                                                ? formatDateOnly(p.createdAt, 'en-US', { month: 'short', day: 'numeric' })
+                                                : '—');
                                         return (
                                             <div
                                                 key={i}
@@ -2014,7 +2022,7 @@ export default function CustomerOverview() {
                                                     style={{ transition: 'background .15s' }}
                                                 >
                                                     <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                        {formatDateOnly(entry.date)}
+                                                        {formatLocalDate(entry.date)}
                                                     </td>
                                                     <td style={ledgerTdStyle}>
                                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2218,7 +2226,7 @@ export default function CustomerOverview() {
                                                             {doc.docType === 'Invoice' ? doc.invoiceNumber : doc.orderNumber}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                            {formatDateOnly(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate)}
+                                                            {formatLocalDate(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate)}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {doc.lineItems.length} {doc.lineItems.length === 1 ? 'Item' : 'Items'}
@@ -2410,7 +2418,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s', background: isReversal ? 'rgba(239,68,68,.04)' : 'transparent' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(pay.payment_date)}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatLocalDate(pay.payment_date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.payment_method}</td>
                                                         <td style={{
@@ -2641,7 +2649,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(exp.date)}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatLocalDate(exp.date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontWeight: 700 }}>{exp.vendor}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{exp.category}</td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{exp.currency} ${exp.amount.toFixed(2)}</td>
@@ -2745,11 +2753,11 @@ export default function CustomerOverview() {
                                     <div className="grid grid-cols-2 gap-8 pt-2">
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Instrument Date</p>
-                                            <p className="text-xs font-black text-gray-700">{formatDateOnly(selectedInvoice.invoiceDate || selectedInvoice.orderDate)}</p>
+                                            <p className="text-xs font-black text-gray-700">{formatLocalDate(selectedInvoice.invoiceDate || selectedInvoice.orderDate)}</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Maturity Date</p>
-                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? formatDateOnly(selectedInvoice.dueDate) : 'N/A'}</p>
+                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? formatLocalDate(selectedInvoice.dueDate) : 'N/A'}</p>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-8 pt-2">

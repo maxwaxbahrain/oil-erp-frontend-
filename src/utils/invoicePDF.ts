@@ -5,6 +5,14 @@
 
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from './documentGenerator';
+import { formatLocalDate } from './dates';
+
+/** Same shape as Date#toLocaleDateString() with no options: numeric month/day/year. */
+const PDF_DATE: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+};
 
 export interface InvoicePDFLineItem {
     product?: string;
@@ -72,10 +80,10 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(80, 80, 80);
         doc.text(`Invoice #: ${invoiceNumber}`, 14, y);
-        doc.text(`Invoice Date: ${new Date(invoiceDate).toLocaleDateString()}`, 140, y);
+        doc.text(`Invoice Date: ${formatLocalDate(invoiceDate, PDF_DATE) || invoiceDate}`, 140, y);
         y += 6;
         if (dueDate) {
-            doc.text(`Due Date: ${new Date(dueDate).toLocaleDateString()}`, 140, y);
+            doc.text(`Due Date: ${formatLocalDate(dueDate, PDF_DATE) || dueDate}`, 140, y);
         }
         if (salesman) {
             doc.text(`Salesman: ${salesman}`, 14, y);

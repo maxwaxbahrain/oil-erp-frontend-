@@ -32,6 +32,7 @@ import { getInvoices } from '../../services/api';
 import { getGRNs } from '../../services/grnService';
 import { getSalesReturns } from '../../services/salesReturnService';
 import clsx from 'clsx';
+import { formatLocalDate } from '../../utils/dates';
 
 // ITEM 8 — Product History tab. A single chronological feed of every
 // stock-affecting movement for this product: purchase (GRN), sale
@@ -1194,7 +1195,7 @@ export default function ProductOverview() {
                                                 : 'bg-amber-100 text-amber-700';
                                             return (
                                                 <tr key={`${m.reference}-${idx}`} className="hover:bg-gray-50/60">
-                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.date ? new Date(m.date).toLocaleDateString() : '—'}</td>
+                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.date ? (formatLocalDate(m.date) || '—') : '—'}</td>
                                                     <td className="px-4 py-3">
                                                         <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest', typeStyle)}>{m.type}</span>
                                                     </td>

@@ -5,6 +5,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getAgedReceivable, type AgedReceivableCustomer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate } from '../../utils/localDate';
 
 export default function AgedReceivable() {
     const navigate = useNavigate();
@@ -12,7 +14,7 @@ export default function AgedReceivable() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expanded, setExpanded] = useState<string | null>(null);
-    const [asOf] = useState(new Date().toISOString().split('T')[0]);
+    const [asOf] = useState(() => localIsoDate());
 
     useEffect(() => {
         getAgedReceivable(asOf)
@@ -39,7 +41,7 @@ export default function AgedReceivable() {
         doc.setFontSize(16);
         doc.text('Aged Receivable Report', 14, 16);
         doc.setFontSize(10);
-        doc.text(`As of ${asOf}`, 14, 22);
+        doc.text(`As of ${formatLocalDate(asOf) || asOf}`, 14, 22);
         doc.text(`${filtered.length} customers · Gross: ${formatCurrency(totals.gross)} · Net: ${formatCurrency(totals.net)}`, 14, 28);
         autoTable(doc, {
             startY: 34,
@@ -90,7 +92,7 @@ export default function AgedReceivable() {
                     <div>
                         <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
                     <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Aged Receivable</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">As of {asOf} · Opening balance is its own row. Net is the customer ledger closing.</p>
+                        <p className="text-xs text-gray-500 mt-0.5">As of {formatLocalDate(asOf) || asOf} · Opening balance is its own row. Net is the customer ledger closing.</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 print:hidden">
@@ -188,7 +190,7 @@ export default function AgedReceivable() {
                                                             {c.lines.map(line => (
                                                                 <div key={`${line.kind}-${line.label}-${line.date}`} className={`flex items-center justify-between text-xs rounded-lg px-4 py-2 border ${line.bucket ? 'bg-white border-gray-100' : 'bg-sky-50 border-sky-100'}`}>
                                                                     <span className="font-black text-gray-700">{line.label}</span>
-                                                                    <span className="text-gray-500">{line.date || '—'}</span>
+                                                                    <span className="text-gray-500">{line.date ? (formatLocalDate(line.date) || line.date) : '—'}</span>
                                                                     <span className="text-gray-500">{line.kind === 'opening' ? 'Opening balance' : line.kind === 'opening_credit' ? 'Opening credit' : line.stored_as || line.status || ''}</span>
                                                                     <span className="font-black font-mono text-gray-900">{formatCurrency(line.amount)}</span>
                                                                 </div>

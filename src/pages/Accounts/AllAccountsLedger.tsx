@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatLocalDate } from '../../utils/dates';
 import {
     BookOpen,
     Download,
@@ -565,7 +566,7 @@ export default function AllAccountsLedger() {
                                         return (
                                             <tr key={`${row.entry_id}-${index}`}>
                                                 <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
-                                                    {row.entry_date ? new Date(row.entry_date.includes('T') ? row.entry_date : `${row.entry_date}T12:00:00`).toLocaleDateString() : '—'}
+                                                    {row.entry_date ? (formatLocalDate(row.entry_date) || '—') : '—'}
                                                 </td>
                                                 <td style={tdStyle}>
                                                     <span

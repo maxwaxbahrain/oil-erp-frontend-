@@ -3,6 +3,7 @@
  */
 import { ACCESS_TOKEN_KEY } from '../api/axios';
 import { API_BASE_URL } from './api';
+import { localIsoDate } from '../utils/localDate';
 
 export const GL_EMPTY_MESSAGE =
   'Your General Ledger has no entries yet. Enter opening balances to see your financial position.';
@@ -120,7 +121,7 @@ export async function apiRequest<T>(endpoint: string, options: RequestInit = {})
 }
 
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localIsoDate();
 }
 
 export function yearStartISO(): string {
