@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getInvoices, getProducts } from '../../services/api';
 import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
+import { formatLocalDate } from '../../utils/dates';
 import {
     BarChart3, TrendingUp, DollarSign,
     Activity,
@@ -2225,7 +2226,7 @@ export default function ProfitabilityReports() {
                     ];
                     const maxPosition = Math.max(...positionBars.map((b) => b.value), 1);
                     const bsTimestamp = bs?.asOfDate
-                        ? `As of ${new Date(bs.asOfDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                        ? `As of ${formatLocalDate(bs.asOfDate, { month: 'short', day: 'numeric', year: 'numeric' }) || bs.asOfDate}`
                         : 'May 2026';
 
                     const amtCell = (v: number, color?: string, bold?: boolean) => (

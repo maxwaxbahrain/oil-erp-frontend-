@@ -31,11 +31,21 @@ describe('parseApiDateTime', () => {
 });
 
 describe('formatDateTime', () => {
-    it('formats zoneless UTC as local wall time in America/New_York', () => {
+    it('formats zoneless UTC as local wall time', () => {
         const formatted = formatDateTime('2026-08-31T00:51:00');
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         expect(formatted).toContain('Aug');
-        expect(formatted).toMatch(/30|8\/30/);
-        expect(formatted).toMatch(/8:51/);
+        if (zone === 'America/New_York') {
+            expect(formatted).toMatch(/30|8\/30/);
+            expect(formatted).toMatch(/8:51/);
+        } else if (zone === 'UTC') {
+            expect(formatted).toMatch(/31|8\/31/);
+            expect(formatted).toMatch(/12:51/);
+        } else {
+            const via = parseApiDateTime('2026-08-31T00:51:00');
+            expect(via).not.toBeNull();
+            expect(formatted).toContain(String(via!.getDate()));
+        }
     });
 
     it('returns empty string for null or empty input', () => {

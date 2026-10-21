@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrency } from '../../services/settingsService';
 import { getGLTrialBalance, type GLTrialBalance, type GLTrialBalanceRow } from '../../services/glService';
+import { formatLocalDate } from '../../utils/dates';
 
 interface TrialEntry {
     account: string;
@@ -115,7 +116,7 @@ export default function TrialBalance() {
         doc.setFontSize(16);
         doc.text('Trial Balance', 14, 16);
         doc.setFontSize(10);
-        doc.text(`General ledger as of ${asOfLabel}`, 14, 22);
+        doc.text(`General ledger as of ${formatLocalDate(asOfLabel) || asOfLabel}`, 14, 22);
         doc.text(
             isBalanced
                 ? `Balanced · Totals: ${formatCurrency(totalDebit)}`
@@ -200,7 +201,7 @@ export default function TrialBalance() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-gray-100">
                     <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                        Trial Balance — as of {asOfLabel}
+                        Trial Balance — as of {formatLocalDate(asOfLabel) || asOfLabel}
                     </p>
                 </div>
                 {loading ? (
@@ -208,7 +209,7 @@ export default function TrialBalance() {
                 ) : error ? (
                     <div className="p-16 text-center text-red-500 font-bold">Could not load trial balance.</div>
                 ) : entries.length === 0 ? (
-                    <div className="p-16 text-center text-gray-400 font-bold">No posted GL activity as of {asOfLabel}.</div>
+                    <div className="p-16 text-center text-gray-400 font-bold">No posted GL activity as of {formatLocalDate(asOfLabel) || asOfLabel}.</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">

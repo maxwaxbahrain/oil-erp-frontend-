@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, type CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { parseNewExpenseParams } from './expenseQueryParams';
+import { formatLocalDate, isSameLocalMonth } from '../../utils/dates';
 import {
     DollarSign, Upload, Plus,
     Edit2, Trash2, RefreshCw,
@@ -63,13 +64,7 @@ function formatMoney(n: number) {
 
 function formatExpenseDate(raw: string): string {
     if (!raw) return '—';
-    try {
-        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
-        if (Number.isNaN(d.getTime())) return raw;
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-        return raw;
-    }
+    return formatLocalDate(raw) || raw;
 }
 
 function statusBadgeStyle(status: Expense['status']): CSSProperties {
@@ -431,10 +426,7 @@ export default function ExpenseManagement() {
     };
 
     const now = new Date();
-    const thisMonthExpenses = expenses.filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
+    const thisMonthExpenses = expenses.filter(e => isSameLocalMonth(e.date, now));
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
     const thisMonthCount = thisMonthExpenses.length;
     const monthLabel = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -1046,7 +1038,7 @@ export default function ExpenseManagement() {
                                         </div>
                                         <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
                                             <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Date</p>
-                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{new Date(aiExtractedData.date).toLocaleDateString()}</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{formatLocalDate(aiExtractedData.date) || '—'}</p>
                                             <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.date ?? aiExtractedData.confidence} />
                                         </div>
                                         <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>

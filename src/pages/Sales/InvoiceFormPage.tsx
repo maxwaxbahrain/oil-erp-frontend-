@@ -18,6 +18,7 @@ import {
     type Product,
     type Van,
 } from '../../services/api';
+import { formatLocalDate } from '../../utils/dates';
 import CreditHoldBanner from '../../components/CreditHoldBanner';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
@@ -1087,18 +1088,12 @@ export default function InvoiceFormPage() {
 
                                 <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Date:</span>
                                 <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
-                                    {formData.invoiceDate
-                                        ? new Date(formData.invoiceDate).toLocaleDateString('en-GB',
-                                            { day: 'numeric', month: 'short', year: 'numeric' })
-                                        : '—'}
+                                    {formData.invoiceDate ? (formatLocalDate(formData.invoiceDate) || '—') : '—'}
                                 </span>
 
                                 <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Due:</span>
                                 <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
-                                    {formData.dueDate
-                                        ? new Date(formData.dueDate).toLocaleDateString('en-GB',
-                                            { day: 'numeric', month: 'short', year: 'numeric' })
-                                        : '—'}
+                                    {formData.dueDate ? (formatLocalDate(formData.dueDate) || '—') : '—'}
                                 </span>
                             </div>
                         </div>

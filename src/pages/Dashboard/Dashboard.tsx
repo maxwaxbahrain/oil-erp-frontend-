@@ -22,6 +22,8 @@ import { calculateReceivables, capReceivablesByLedger } from '../../utils/arMetr
 import { outstandingTotals } from '../../utils/outstandingTotals';
 import { dashboardLowStockAlertCount } from '../../utils/dashboardLowStock';
 import { livePayments } from '../../utils/paymentVoid';
+import { formatLocalDate, isSameLocalMonth, parseLocalDate } from '../../utils/dates';
+import { localIsoDate } from '../../utils/localDate';
 import {
     getGLProfitLoss, getGLBalanceSheet, isGLEmpty,
     todayISO, monthStartISO, yearStartISO,
@@ -59,8 +61,7 @@ function isToday(d?: string): boolean {
 
 function _fmtDate(d?: string): string {
     if (!d) return '—';
-    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
-    catch { return d; }
+    return formatLocalDate(d) || d;
 }
 
 function isImportedCustomer(c: { notes?: string }): boolean {
@@ -207,16 +208,13 @@ export default function Dashboard() {
         const points: Array<{ month: string; revenue: number }> = [];
         for (let i = months - 1; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const keyYear = d.getFullYear();
-            const keyMonth = d.getMonth();
             const monthLabel = d.toLocaleDateString(undefined, { month: 'short' });
             const invoiced = filteredInvoices
                 .filter((inv) => {
                     // DASH-5(A) — exclude cancelled so the trend matches the MTD/YTD
                     // invoiced figures (previously counted cancelled).
                     if (String(inv.status || '').toLowerCase() === 'cancelled') return false;
-                    const date = new Date(inv.invoiceDate || inv.createdAt);
-                    return date.getFullYear() === keyYear && date.getMonth() === keyMonth;
+                    return isSameLocalMonth(inv.invoiceDate || inv.createdAt, d);
                 })
                 .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
             points.push({ month: monthLabel, revenue: invoiced });
@@ -240,14 +238,12 @@ export default function Dashboard() {
 
     // ── KPI metrics computed from existing data ────────────────
     const _now = new Date();
-    const _curMonth = _now.getMonth();
     const _curYear = _now.getFullYear();
-    const _todayStr = _now.toISOString().slice(0, 10);
+    const _todayStr = localIsoDate();
 
     const totalRevenueMTD = invoices.reduce((sum, inv) => {
         if (String(inv.status || '').toLowerCase() === 'cancelled') return sum;
-        const d = new Date(inv.invoiceDate || inv.createdAt || 0);
-        if (d.getFullYear() !== _curYear || d.getMonth() !== _curMonth) return sum;
+        if (!isSameLocalMonth(inv.invoiceDate || inv.createdAt, _now)) return sum;
         return sum + (Number(inv.grandTotal) || 0);
     }, 0);
 
@@ -320,20 +316,21 @@ export default function Dashboard() {
     // all-status ÷ all-invoice-count, which read as YTD but wasn't).
     const ytdInvoices = invoices.filter((inv) => {
         if (String(inv.status || '').toLowerCase() === 'cancelled') return false;
-        const d = new Date(inv.invoiceDate || inv.createdAt || 0);
-        return d.getFullYear() === _curYear;
+        const parsed = parseLocalDate(inv.invoiceDate || inv.createdAt);
+        return parsed != null && parsed.getFullYear() === _curYear;
     });
     const totalSalesYTD = ytdInvoices.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
 
+    // GET /invoices returns the invoice rows, not a YTD count. This figure is
+    // every loaded invoice, so the tile is labelled all-time.
     const totalOrderCount = invoices.length;
     const avgInvoiceYTD = ytdInvoices.length > 0 ? totalSalesYTD / ytdInvoices.length : 0;
 
     const collectedYTD = livePaymentsData.reduce((sum: number, p: any) => {
         const d = p.payment_date ?? p.date ?? p.createdAt;
         if (!d) return sum;
-        try {
-            if (new Date(d).getFullYear() === _curYear) return sum + (Number(p.amount) || 0);
-        } catch { /* ignore */ }
+        const parsed = parseLocalDate(String(d));
+        if (parsed && parsed.getFullYear() === _curYear) return sum + (Number(p.amount) || 0);
         return sum;
     }, 0);
 
@@ -839,7 +836,7 @@ export default function Dashboard() {
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginTop: 8 }}>
                                         {[
                                             { val: `$${totalSalesYTD.toLocaleString()}`, lbl: 'Invoiced YTD', color: C.green },
-                                            { val: String(totalOrderCount),               lbl: 'Orders',     color: C.blue },
+                                            { val: String(totalOrderCount),               lbl: 'Orders (all time)', color: C.blue },
                                             { val: `$${avgInvoiceYTD.toFixed(0)}`,        lbl: 'Avg invoice (YTD)',  color: C.purple },
                                         ].map(s => (
                                             <div key={s.lbl} style={{
@@ -956,7 +953,7 @@ export default function Dashboard() {
                             const amt = Number(p.amount) || 0;
                             const pct = Math.round((amt / paymentMaxAmt) * 100);
                             const dateStr = p.payment_date ?? p.date ?? p.createdAt;
-                            const label = dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+                            const label = dateStr ? (formatLocalDate(dateStr) || '—') : '—';
                             return (
                                 <div key={i} style={{
                                     display: 'flex', alignItems: 'center', gap: 8,

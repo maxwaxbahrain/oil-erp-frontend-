@@ -37,6 +37,7 @@ import {
   buildSalesmanNameById,
   resolveSalesmanDisplayName,
 } from '../../utils/salesmanDisplay';
+import { formatLocalDate } from '../../utils/dates';
 
 const THEME_PRIMARY = '#4F8EF7';
 const THEME_OVERDUE = '#EF4444';
@@ -703,11 +704,7 @@ export default function Invoices() {
                           {displayCustomerName(inv, customerById)}
                         </td>
                         <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm font-semibold text-gray-600 whitespace-nowrap">
-                          {inv.invoiceDate
-                            ? new Date(
-                                inv.invoiceDate.includes('T') ? inv.invoiceDate : `${inv.invoiceDate}T12:00:00`
-                              ).toLocaleDateString()
-                            : '—'}
+                          {inv.invoiceDate ? (formatLocalDate(inv.invoiceDate) || '—') : '—'}
                         </td>
                         <td className="px-3 sm:px-4 py-3 text-xs font-bold text-gray-600 max-w-[100px] truncate">
                           {sm}
@@ -839,22 +836,12 @@ export default function Invoices() {
                   </p>
                   <p className="text-xs text-gray-500 mt-2 font-semibold">
                     Date:{' '}
-                    {detailInvoice.invoiceDate
-                      ? new Date(
-                          detailInvoice.invoiceDate.includes('T')
-                            ? detailInvoice.invoiceDate
-                            : `${detailInvoice.invoiceDate}T12:00:00`
-                        ).toLocaleDateString()
-                      : '—'}
+                    {detailInvoice.invoiceDate ? (formatLocalDate(detailInvoice.invoiceDate) || '—') : '—'}
                     {detailInvoice.dueDate && (
                       <>
                         {' '}
                         · Due:{' '}
-                        {new Date(
-                          detailInvoice.dueDate.includes('T')
-                            ? detailInvoice.dueDate
-                            : `${detailInvoice.dueDate}T12:00:00`
-                        ).toLocaleDateString()}
+                        {formatLocalDate(detailInvoice.dueDate) || '—'}
                       </>
                     )}
                   </p>

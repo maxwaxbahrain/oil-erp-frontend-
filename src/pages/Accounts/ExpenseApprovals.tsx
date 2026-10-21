@@ -27,6 +27,7 @@ import {
     Plus,
 } from 'lucide-react';
 import { getExpenses, saveExpense, pushExpenseToAccounting, getExpenseSettings, getExpenseReceiptUrl, type Expense } from '../../services/expenseService';
+import { formatLocalDate } from '../../utils/dates';
 import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -45,13 +46,7 @@ function formatMoney(n: number) {
 
 function formatDate(raw: string | undefined): string {
     if (!raw) return '—';
-    try {
-        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
-        if (Number.isNaN(d.getTime())) return raw;
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-        return raw;
-    }
+    return formatLocalDate(raw) || raw;
 }
 
 function timeAgo(iso: string | undefined): string {

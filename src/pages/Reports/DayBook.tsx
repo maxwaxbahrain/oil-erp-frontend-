@@ -22,6 +22,7 @@ import {
     type DayBookSummary,
     type GLAccount,
 } from '../../services/glService';
+import { formatLocalDate } from '../../utils/dates';
 
 const RANGE_TOO_WIDE = 'Date range cannot exceed 92 days';
 const RANGE_BACKWARDS = 'end_date must be on or after start_date';
@@ -245,7 +246,7 @@ export default function DayBook() {
         doc.setFontSize(16);
         doc.text('Day Book Report', 14, 16);
         doc.setFontSize(10);
-        doc.text(`Range: ${startDate} → ${endDate}`, 14, 22);
+        doc.text(`Range: ${formatLocalDate(startDate) || startDate} → ${formatLocalDate(endDate) || endDate}`, 14, 22);
         doc.text(
             `${summary.entry_count} vouchers · Period amount: ${formatCurrency(summary.total_amount)} · Ledger Dr ${formatCurrency(summary.total_debit)} / Cr ${formatCurrency(summary.total_credit)}`,
             14,
@@ -465,7 +466,7 @@ export default function DayBook() {
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                         <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3">
                             <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                                {entries.length} vouchers · {startDate === endDate ? startDate : `${startDate} → ${endDate}`}
+                                {entries.length} vouchers · {startDate === endDate ? (formatLocalDate(startDate) || startDate) : `${formatLocalDate(startDate) || startDate} → ${formatLocalDate(endDate) || endDate}`}
                             </p>
                             {entries.length > 0 && (
                                 <button
@@ -510,7 +511,7 @@ export default function DayBook() {
                                                     {multiDay && (
                                                         <tr className="bg-purple-50">
                                                             <td colSpan={9} className="px-5 py-3 text-xs font-black text-purple-800 uppercase">
-                                                                {day}
+                                                                {formatLocalDate(day) || day}
                                                                 {daySummary ? ` · ${daySummary.count} · ${formatCurrency(daySummary.total_amount)}` : ''}
                                                             </td>
                                                         </tr>

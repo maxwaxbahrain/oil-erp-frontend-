@@ -11,6 +11,7 @@ import {
     ArrowLeft, Sparkles, Loader2, AlertTriangle, BarChart3,
     PieChart as PieIcon, Printer, FileText,
 } from 'lucide-react';
+import { formatLocalDate } from '../../utils/dates';
 import {
     BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -260,7 +261,7 @@ export default function ExpenseReports() {
                                         <tbody className="divide-y divide-gray-100">
                                             {result.filteredExpenses.map(e => (
                                                 <tr key={e.id}>
-                                                    <td className="px-3 py-2">{new Date(e.date).toLocaleDateString()}</td>
+                                                    <td className="px-3 py-2">{formatLocalDate(e.date) || '—'}</td>
                                                     <td className="px-3 py-2 font-bold">{e.vendor}</td>
                                                     <td className="px-3 py-2">{e.category}</td>
                                                     <td className="px-3 py-2 text-right font-mono">{e.currency} ${e.amount.toFixed(2)}</td>
