@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, X, Calendar } from 'lucide-react';
 import { useTracking } from '../../hooks/useTracking';
 import {
-    getCustomers, getInvoices, getProducts, getSalesOrders, getVans, getCustomerPayments,
+    getCustomers, getInvoices, getProductsStrict, getSalesOrders, getVans, getCustomerPayments,
     type Invoice, type Product,
 } from '../../services/api';
 import { getPurchaseOrders } from '../../services/purchasesService';
@@ -132,7 +132,7 @@ export default function Dashboard() {
         try {
             const [inv, prodResult, orders, vans, customers, pays, pos, ar, stats, glBs, glPlMtd, glPlYtd] = await Promise.all([
                 getInvoices().catch(() => []),
-                getProducts()
+                getProductsStrict()
                     .then((p): { ok: true; products: Product[] } => ({ ok: true, products: Array.isArray(p) ? p : [] }))
                     .catch((): { ok: false; products: Product[] } => ({ ok: false, products: [] })),
                 getSalesOrders().catch(() => []),

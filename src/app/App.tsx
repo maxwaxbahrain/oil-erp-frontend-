@@ -42,7 +42,7 @@ import { isProduction, isStaging, appEnv } from '../config/appEnv';
 import { postLoginHomePath } from '../config/stagingHome';
 import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
+import { getInvoices, getCustomers, getProductsStrict, getPayments, isCustomerPayment } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
 import { getArSummary, type ArSummary } from '../services/customerService';
 import { outstandingTotals } from '../utils/outstandingTotals';
@@ -254,7 +254,7 @@ function App() {
     Promise.all([
       getInvoices().catch(() => []),
       getCustomers().catch(() => []),
-      getProducts()
+      getProductsStrict()
         .then((p) => ({ ok: true as const, products: Array.isArray(p) ? p : [] }))
         .catch(() => ({ ok: false as const, products: [] as any[] })),
       getPayments().catch(() => []),

@@ -829,7 +829,7 @@ function normalizeApiProductRow(raw: Record<string, unknown>): Product {
 }
 
 // Product APIs
-export async function getProducts(): Promise<Product[]> {
+async function fetchProductsOrThrow(): Promise<Product[]> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -842,6 +842,20 @@ export async function getProducts(): Promise<Product[]> {
   const raw = await response.json().catch(() => []);
   const list = Array.isArray(raw) ? raw : [];
   return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+}
+
+/** Soft load — returns [] on failure (original behavior for forms / lists). */
+export async function getProducts(): Promise<Product[]> {
+  try {
+    return await fetchProductsOrThrow();
+  } catch {
+    return [];
+  }
+}
+
+/** Strict load — same request as getProducts, but throws on HTTP/network failure. */
+export async function getProductsStrict(): Promise<Product[]> {
+  return fetchProductsOrThrow();
 }
 
 export async function getProduct(id: string): Promise<Product> {
