@@ -1229,7 +1229,7 @@ export default function InvoiceFormPage() {
                                 onChange={(val) => setFormData((p) => ({ ...p, salesmanEmployeeId: val }))}
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
-                                theme="dark"
+                                variant="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                         )}
@@ -1245,7 +1245,7 @@ export default function InvoiceFormPage() {
                             placeholder={vansLoading ? 'Loading vans…' : 'Search and select van...'}
                             displayKey="name"
                             disabled={vansLoading}
-                            theme="dark"
+                            variant="dark"
                             className="!px-4 !py-3 !border-2 border-gray-300"
                         />
                     </div>
@@ -1271,7 +1271,7 @@ export default function InvoiceFormPage() {
                                 placeholder="Search and select customer..."
                                 displayKey="name"
                                 disabled={loading || isEditMode}
-                                theme="dark"
+                                variant="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                             {isEditMode && (

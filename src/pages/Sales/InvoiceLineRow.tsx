@@ -65,7 +65,7 @@ function InvoiceLineRow({
                         onChange={(productId) => onProductSelect(item.id, productId)}
                         placeholder="Search product..."
                         displayKey="name"
-                        theme="dark"
+                        variant="dark"
                         className="!px-3 !py-2"
                     />
                 )}
