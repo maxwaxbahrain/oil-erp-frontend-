@@ -19,6 +19,7 @@ import {
     type Van,
 } from '../../services/api';
 import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 import CreditHoldBanner from '../../components/CreditHoldBanner';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
@@ -179,7 +180,7 @@ async function persistInvoiceWithSalesmanFk(
         invoiceNumber: formData.invoiceNumber || `INV-${Date.now()}`,
         customerId: String(formData.customerId),
         customerName: formData.customerName || '',
-        invoiceDate: formData.invoiceDate || new Date().toISOString().split('T')[0],
+        invoiceDate: formData.invoiceDate || localIsoDate(),
         dueDate: formData.dueDate || null,
         lineItems,
         subtotal: Number(formData.subtotal) || 0,
@@ -360,8 +361,8 @@ export default function InvoiceFormPage() {
         // below once getInvoices() resolves. Was: Date.now().slice(-6) which
         // looked random and didn't increment cleanly across creations.
         invoiceNumber: `INV-000001`,
-        invoiceDate: new Date().toISOString().split('T')[0],
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        invoiceDate: localIsoDate(),
+        dueDate: localIsoDatePlusDays(30),
         lineItems: [
             {
                 id: '1',
@@ -586,7 +587,7 @@ export default function InvoiceFormPage() {
                         customerId: String(inv.customerId || ''),
                         customerName: inv.customerName || '',
                         invoiceNumber: inv.invoiceNumber || '',
-                        invoiceDate: inv.invoiceDate || new Date().toISOString().split('T')[0],
+                        invoiceDate: inv.invoiceDate || localIsoDate(),
                         dueDate: inv.dueDate || '',
                         lineItems: (inv.lineItems || []).map((item: any, idx: number) => ({
                             id: String(idx + 1),

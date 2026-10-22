@@ -18,6 +18,7 @@ import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import { getCurrentUser } from '../../store/authStore';
 import { formatDateOnly } from '../../utils/formatters';
+import { defaultPurchaseOrderDates } from './defaultPurchaseOrderDates';
 
 interface POLineItem {
     id: string;
@@ -274,13 +275,14 @@ export default function PurchaseOrderForm() {
     const [lineItemErrors, setLineItemErrors] = useState<Record<string, PoLineFieldErrors>>({});
 
     const prefilledSupplier = location.state as { supplierId?: string; supplierName?: string; isPending?: boolean } | null;
+    const seededDates = defaultPurchaseOrderDates();
 
     const [formData, setFormData] = useState<POFormData>({
         supplierId: prefilledSupplier?.supplierId || '',
         supplierName: prefilledSupplier?.supplierName || '',
         poNumber: `PO-${Date.now().toString().slice(-6)}`,
-        date: new Date().toISOString().split('T')[0],
-        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        date: seededDates.date,
+        expectedDate: seededDates.expectedDate,
         lineItems: [
             {
                 id: '1',

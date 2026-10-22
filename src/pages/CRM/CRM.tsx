@@ -9,6 +9,7 @@ import {
 import { authFetch } from '../../api/axios';
 import { getCustomers, type Customer } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
+import { localIsoDate } from '../../utils/localDate';
 
 // ── Types ─────────────────────────────────────────────────────
 type DealStage = 'lead' | 'contacted' | 'qualified' | 'proposal' | 'negotiating' | 'won' | 'lost';
@@ -188,7 +189,7 @@ export default function CRM() {
     const [editDeal, setEditDeal] = useState<Deal | null>(null);
     const [formData, setFormData] = useState(emptyDeal());
     const [showActForm, setShowActForm] = useState<Deal | null>(null);
-    const [actForm, setActForm] = useState<Partial<Activity>>({ type: 'call', title: '', dueDate: new Date().toISOString().slice(0,10), done: false, notes: '' });
+    const [actForm, setActForm] = useState<Partial<Activity>>({ type: 'call', title: '', dueDate: localIsoDate(), done: false, notes: '' });
     const [custSearch, setCustSearch] = useState('');
     const [custResults, setCustResults] = useState<Customer[]>([]);
     const [filterStage, setFilterStage] = useState<DealStage | 'all'>('all');
@@ -209,7 +210,7 @@ export default function CRM() {
         const deal: Deal = {
             ...formData,
             id: editDeal?.id || `DEAL-${Date.now()}`,
-            createdAt: editDeal?.createdAt || new Date().toISOString().slice(0,10),
+            createdAt: editDeal?.createdAt || new Date().toISOString().slice(0,10), // utc-date-ok: createdAt timestamp
             activities: editDeal?.activities || [],
         };
         saveDeal(deal);
@@ -245,14 +246,14 @@ export default function CRM() {
             type: actForm.type as ActivityType || 'call',
             title: actForm.title || '',
             notes: actForm.notes,
-            dueDate: actForm.dueDate || new Date().toISOString().slice(0,10),
+            dueDate: actForm.dueDate || localIsoDate(),
             done: false,
-            createdAt: new Date().toISOString().slice(0,10),
+            createdAt: new Date().toISOString().slice(0,10), // utc-date-ok: createdAt timestamp
         };
         saveDeal({ ...deal, activities: [...deal.activities, act] });
         refresh();
         setShowActForm(null);
-        setActForm({ type: 'call', title: '', dueDate: new Date().toISOString().slice(0,10), done: false, notes: '' });
+        setActForm({ type: 'call', title: '', dueDate: localIsoDate(), done: false, notes: '' });
     };
 
     const toggleActivity = (dealId: string, actId: string) => {

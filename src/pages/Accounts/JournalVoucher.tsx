@@ -19,6 +19,7 @@ import {
 import { getGLAccounts, type GLAccount } from '../../services/glService';
 import { getCustomers, type Customer } from '../../services/customerService';
 import { authFetch } from '../../api/axios';
+import { localIsoDate, localMonthEndIso, localMonthStartIso } from '../../utils/localDate';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -219,9 +220,7 @@ function periodLabel(dateFrom: string, dateTo: string): string {
 
 function defaultMonthRange(): { from: string; to: string } {
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-    return { from, to };
+    return { from: localMonthStartIso(now), to: localMonthEndIso(now) };
 }
 
 type JVIssue =
@@ -324,7 +323,7 @@ interface JVFormProps {
 
 function JVForm({ accounts, accountsLoading, accountsLoadError, editJV, onSave, onCancel }: JVFormProps) {
     const [jvNumber] = useState(editJV?.jvNumber || PLACEHOLDER_JV_NUMBER);
-    const [date, setDate] = useState(editJV?.date || new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(editJV?.date || localIsoDate());
     const [reference, setReference] = useState(editJV?.reference || '');
     const [narration, setNarration] = useState(editJV?.narration || '');
     const [type, setType] = useState<JournalVoucher['type']>(editJV?.type || 'General');

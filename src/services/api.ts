@@ -2,6 +2,7 @@ import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
 import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
 import { livePayments } from '../utils/paymentVoid';
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
 
 export const API_BASE_URL = getOilErpApiBase();
 const USE_MOCK = false;
@@ -931,7 +932,7 @@ export async function createInvoice(
     invoiceNumber: invoice.invoiceNumber || `INV-${Date.now()}`,
     customerId: String(invoice.customerId),
     customerName: invoice.customerName || '',
-    invoiceDate: invoice.invoiceDate || new Date().toISOString().split('T')[0],
+    invoiceDate: invoice.invoiceDate || localIsoDate(),
     dueDate: invoice.dueDate || null,
     lineItems: (invoice.lineItems || []).map((item: any) => {
       const rawPid = item.productId ?? item.product_id;
@@ -1514,7 +1515,7 @@ export const deleteRecurringInvoice = (id: string): void => {
 
 export const runDueRecurringInvoices = async (): Promise<number> => {
     const list = getRecurringInvoices();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localIsoDate();
     let count = 0;
     for (const rec of list) {
         if (!rec.active || rec.nextRunDate > today) continue;
@@ -1524,7 +1525,7 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
                 customerId: rec.customerId,
                 customerName: rec.customerName,
                 invoiceDate: today,
-                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                dueDate: localIsoDatePlusDays(30),
                 lineItems: rec.lineItems,
                 subtotal: rec.subtotal,
                 taxRate: rec.taxRate,
@@ -1535,11 +1536,13 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
                 status: 'Unpaid',
             });
             // Advance next run date
-            const next = new Date(rec.nextRunDate);
+            // YYYY-MM-DD is a local calendar day. `new Date('YYYY-MM-DD')` is UTC midnight.
+            const [yy, mm, dd] = rec.nextRunDate.split('-').map(Number);
+            const next = new Date(yy, (mm || 1) - 1, dd || 1);
             if (rec.frequency === 'weekly') next.setDate(next.getDate() + 7);
             else if (rec.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
             else next.setMonth(next.getMonth() + 3);
-            rec.nextRunDate = next.toISOString().slice(0, 10);
+            rec.nextRunDate = localIsoDate(next);
             rec.lastRunDate = today;
             saveRecurringInvoice(rec);
             count++;

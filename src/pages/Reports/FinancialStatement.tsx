@@ -524,7 +524,7 @@ function MiniBarChart({
 
 export default function FinancialStatement() {
     const [period, setPeriod] = useState<PeriodKey>('ytd');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const [dateFrom, setDateFrom] = useState(() => yearStartISO());
     const [dateTo, setDateTo] = useState(() => todayISO());
 

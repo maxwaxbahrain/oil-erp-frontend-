@@ -4,6 +4,7 @@ import { getExpenses } from './expenseService';
 import { getProducts } from './productService';
 import { calculateCashFlow } from './profitLossService';
 import { getFinancialSettings, calculateDepreciation } from './financialSettingsService';
+import { localIsoDate } from '../utils/localDate';
 
 export interface BalanceSheet {
     asOfDate: string;
@@ -135,7 +136,7 @@ export async function calculateBalanceSheet(): Promise<BalanceSheet> {
     const totalEquity = ownersCapital + retainedEarnings;
 
     return {
-        asOfDate: new Date().toISOString().split('T')[0],
+        asOfDate: localIsoDate(),
         assets: {
             currentAssets: {
                 cash,

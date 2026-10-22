@@ -275,7 +275,7 @@ export default function SupplierList() {
         ]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Suppliers');
-        XLSX.writeFile(wb, `Supplier_Master_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        XLSX.writeFile(wb, `Supplier_Master_${new Date().toISOString().slice(0, 10)}.xlsx`); // utc-date-ok: export filename
     };
 
     const counts = useMemo(() => {

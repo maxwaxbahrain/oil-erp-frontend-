@@ -1,6 +1,7 @@
 // Expense Management Service
 import { authFetch } from '../api/axios';
 import { getOilErpApiBase, getOilErpApiHost } from '../config/apiBase';
+import { localIsoDate } from '../utils/localDate';
 
 export interface ExpenseCategory {
     id: number;
@@ -355,7 +356,7 @@ export async function saveExpense(expense: Partial<Expense>): Promise<Expense> {
     const seeded: Partial<Expense> = {
         ...expense,
         createdBy: resolvedCreator,
-        date: expense.date || new Date().toISOString().slice(0, 10),
+        date: expense.date || localIsoDate(),
         status: expense.status || 'Draft',
         currency: expense.currency || 'USD',
         category: expense.category || 'Other',
@@ -570,7 +571,7 @@ export async function extractExpenseFromReceipt(file: File): Promise<AIExtracted
     return {
         vendor:            String(parsed.vendor_name || ''),
         amount:            Number(parsed.total_amount) || 0,
-        date:              String(parsed.date || new Date().toISOString().slice(0, 10)),
+        date:              String(parsed.date || localIsoDate()),
         items:             lineItems.map(li => String(li.description || '')).filter(Boolean),
         taxAmount:         Number(parsed.tax_amount) || 0,
         // Suggested category is filled by Smart Categorization (STEP 3).
@@ -1032,7 +1033,7 @@ export async function parseBulkExpenses(input: BulkInput): Promise<ParsedExpense
     for (let i = 0; i < rawRows.length; i++) {
         const r = rawRows[i] || {};
         const vendor = String(r.vendor_name || '');
-        const date = String(r.date || new Date().toISOString().slice(0, 10));
+        const date = String(r.date || localIsoDate());
         const amount = Number(r.amount) || 0;
         const description = String(r.description || '');
         const currency = String(r.currency || 'USD');
@@ -1119,7 +1120,7 @@ export async function saveMileageEntry(entry: Partial<MileageEntry>): Promise<Mi
         } else {
             saved = {
                 id: 'MIL-' + Date.now(),
-                date: entry.date || new Date().toISOString().slice(0, 10),
+                date: entry.date || localIsoDate(),
                 fromLocation: entry.fromLocation || '',
                 toLocation: entry.toLocation || '',
                 distanceKm: Number(entry.distanceKm) || 0,

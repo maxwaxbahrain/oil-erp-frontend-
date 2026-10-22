@@ -94,7 +94,7 @@ export default function AIAssistant({
     }, [subscriptionLocked, onSubscriptionRequired]);
 
     const buildSystemPrompt = () => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = new Date().toISOString().slice(0, 10); // utc-date-ok: AI prompt body
 
         // Build customer lookup map by ID for enriching invoices and payments
         const custMap: Record<string, string> = {};

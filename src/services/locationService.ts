@@ -4,6 +4,7 @@
 // ============================================
 
 import * as turf from '@turf/turf';
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
 
 const STORAGE_KEY_LOCATION_HISTORY = 'pod_location_history';
 const STORAGE_KEY_GEOFENCES = 'pod_geofences';
@@ -134,8 +135,8 @@ export async function getLocationHistory(
 }
 
 export async function getTodayLocationHistory(vanId: string): Promise<LocationPoint[]> {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const today = localIsoDate();
+    const tomorrow = localIsoDatePlusDays(1);
     return getLocationHistory(vanId, today, tomorrow);
 }
 
@@ -279,7 +280,7 @@ export function calculateDistance(
 export async function calculateRouteDistance(vanId: string, date?: string): Promise<number> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const history = await getLocationHistory(vanId, targetDate);
 
     if (history.length < 2) return 0;

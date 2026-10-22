@@ -27,6 +27,7 @@ import { createSalesOrder, getSalesOrders, type SalesOrderItem, type SalesOrderS
 // added entries appear without a page reload.
 import { getSalesmen, addSalesman, type Salesman } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { localIsoDate } from '../../utils/localDate';
 // ITEM 16 — Escape closes the New Salesman inline modal.
 import { useEscape } from '../../hooks/useEscape';
 
@@ -471,7 +472,7 @@ export default function SalesOrderFormPage() {
       const dueDays = paymentMethod === 'Cash' ? 0 : paymentDueDays;
       await createSalesOrder({
         customer_id: String(selectedCustomer.id),
-        order_date: new Date().toISOString().split('T')[0],
+        order_date: localIsoDate(),
         items: items as unknown as Array<Record<string, unknown>>,
         notes,
         status,

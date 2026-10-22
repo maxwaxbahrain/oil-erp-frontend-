@@ -23,6 +23,7 @@ import {
     reverseAdjustment,
     type InventoryAdjustmentRecord,
 } from '../../services/inventoryAdjustmentService';
+import { localIsoDate } from '../../utils/localDate';
 import { getCurrentUser } from '../../store/authStore';
 import { authFetch } from '../../api/axios';
 
@@ -227,7 +228,7 @@ export default function InventoryAdjustment() {
         quantity: 1,
         reason: 'Purchase received',
         note: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: localIsoDate(),
     });
     const [mode, setMode] = useState<PageMode>('single');
     const [bulkFilter, setBulkFilter] = useState('');

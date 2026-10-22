@@ -5,6 +5,7 @@ import {
   type DeliveryNoteItem,
   type DriverDeliveryStatus,
 } from '../../services/deliveryService';
+import { localIsoDate } from '../../utils/localDate';
 
 export type DriverPodItem = {
   description: string;
@@ -57,7 +58,7 @@ export function buildDeliveryNotePayload(
     van_id: van.id || van.van_number,
     driver_name: driverName || van.driver_name || 'Driver',
     vehicle_number: van.van_number,
-    delivery_date: new Date().toISOString().slice(0, 10),
+    delivery_date: localIsoDate(),
     items: stopItemsToDeliveryNoteItems(stop.items),
   };
 }

@@ -18,6 +18,7 @@ import {
     type MileageEntry,
     type MileageEstimate,
 } from '../../services/expenseService';
+import { localIsoDate } from '../../utils/localDate';
 
 export default function ExpenseMileageTracker() {
     const navigate = useNavigate();
@@ -26,7 +27,7 @@ export default function ExpenseMileageTracker() {
     const [distanceKm, setDistanceKm] = useState<number>(0);
     const [ratePerKm, setRatePerKm] = useState<number>(0.45);
     const [purpose, setPurpose] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(localIsoDate());
     const [roundTrip, setRoundTrip] = useState(false);
 
     const [estimating, setEstimating] = useState(false);

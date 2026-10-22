@@ -19,6 +19,7 @@ import { FreeInvoiceProcessor, type InvoiceData } from '../../services/invoicePr
 import { createSupplier, createPurchaseOrder, getSuppliers, type PurchaseOrderItem } from '../../services/purchasesService';
 import { saveImportedProduct } from '../../services/productService';
 import { authFetch } from '../../api/axios';
+import { localIsoDate } from '../../utils/localDate';
 
 type ImportStep = 'upload' | 'processing' | 'review' | 'success';
 type UploadedFile = {
@@ -167,7 +168,7 @@ export default function InvoiceImport() {
 
             // Step 3: Create Purchase Order
             try {
-                const today = new Date().toISOString().slice(0, 10);
+                const today = localIsoDate();
                 await createPurchaseOrder({
                     poNumber: invoiceData.invoice?.number || invoiceData.invoice?.poNumber || `PO-${Date.now()}`,
                     supplierId,

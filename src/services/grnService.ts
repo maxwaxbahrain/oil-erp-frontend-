@@ -1,6 +1,7 @@
 import { getPurchaseOrders, receiptFailureReason, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
 import { getOilErpApiBase } from '../config/apiBase';
 import { authFetch } from '../api/axios';
+import { localIsoDate } from '../utils/localDate';
 
 // FIX W3-1 — Path B (this module) now writes stock to the SAME backend
 // endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
@@ -112,7 +113,7 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
         poId: po.id,
         warehouse,
         receivedBy: 'Current User', // Should be replaced with actual user
-        receivedDate: new Date().toISOString().split('T')[0],
+        receivedDate: localIsoDate(),
         status: 'Draft',
         items: grnItems,
         goodsValue: 0,

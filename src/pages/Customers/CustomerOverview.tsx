@@ -274,7 +274,7 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Ledger_${customer.code}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Ledger_${customer.code}_${new Date().toISOString().split('T')[0]}.csv`); // utc-date-ok: export filename
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

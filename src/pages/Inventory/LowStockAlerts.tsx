@@ -12,6 +12,7 @@ import {
 import { getProducts, saveProduct, type Product } from '../../services/productService';
 import { createPurchaseOrder, getSuppliers } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
+import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 
 const C = {
     bg: '#060f1c',
@@ -339,8 +340,8 @@ export default function LowStockAlerts() {
                 poNumber,
                 supplierId: supplier.id,
                 supplierName: supplier.name,
-                date: new Date().toISOString().slice(0, 10),
-                expectedDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+                date: localIsoDate(),
+                expectedDate: localIsoDatePlusDays(7),
                 status: 'Pending',
                 items: targets.map((r) => ({
                     productId: r.id,

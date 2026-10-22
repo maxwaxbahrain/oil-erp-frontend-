@@ -3,10 +3,11 @@ import { getInvoices, getProducts, type Invoice } from '../../services/api';
 import { Package, Download, FileText, Filter, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import FormInput from '../../components/forms/FormInput';
+import { localIsoDate } from '../../utils/localDate';
 
 export default function SalesByProductReport() {
     const [dateFrom, setDateFrom] = useState('2024-01-01');
-    const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+    const [dateTo, setDateTo] = useState(localIsoDate());
     const [selectedProduct, setSelectedProduct] = useState('all');
     const [selectedWarehouse, setSelectedWarehouse] = useState('all');
     const [selectedSalesman, setSelectedSalesman] = useState('all');

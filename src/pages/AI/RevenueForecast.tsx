@@ -264,7 +264,7 @@ export default function RevenueForecast() {
                 body: JSON.stringify({
                     system: `You are Bettano, expert financial forecaster for a NYC oil distribution company.
 Analyze revenue history and give realistic forecasts with reasoning.
-Today: ${new Date().toISOString().slice(0, 10)}
+Today: ${new Date().toISOString().slice(0, 10) /* utc-date-ok: AI prompt body */}
 No markdown symbols. Mixed case headings only. Max 250 words.`,
                     max_tokens: 600,
                     messages: [{

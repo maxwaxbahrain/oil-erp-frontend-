@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { formatCurrency } from '../../services/settingsService';
 import { getGLTrialBalance, type GLTrialBalance, type GLTrialBalanceRow } from '../../services/glService';
 import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate } from '../../utils/localDate';
 
 interface TrialEntry {
     account: string;
@@ -19,7 +20,7 @@ const GL_COVERAGE_NOTE =
 
 function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    const today = localIsoDate(now);
     const y = now.getFullYear();
     const m = now.getMonth();
     let end: Date;
@@ -31,7 +32,7 @@ function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
     } else {
         end = new Date(y, 11, 31);
     }
-    const endIso = end.toISOString().slice(0, 10);
+    const endIso = localIsoDate(end);
     return endIso > today ? today : endIso;
 }
 

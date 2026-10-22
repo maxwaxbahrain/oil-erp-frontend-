@@ -687,7 +687,7 @@ export default function SupplierDetail() {
         const ws = XLSX.utils.aoa_to_sheet(worksheetData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Ledger");
-        XLSX.writeFile(wb, `Ledger_${supplier.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.writeFile(wb, `Ledger_${supplier.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`); // utc-date-ok: export filename
     };
 
     const handleShareEmail = () => {

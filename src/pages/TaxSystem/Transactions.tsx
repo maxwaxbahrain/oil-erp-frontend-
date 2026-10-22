@@ -170,7 +170,7 @@ export default function Transactions() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `tax-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.download = `tax-transactions-${new Date().toISOString().slice(0, 10)}.csv`; // utc-date-ok: export filename
         link.click();
         URL.revokeObjectURL(url);
     };

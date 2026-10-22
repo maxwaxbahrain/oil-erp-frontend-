@@ -19,6 +19,7 @@ import {
 import type { BankingAccount } from '../../services/glService';
 import { expenseMethodIsCash, expensePaymentAccountIdForSave } from '../../utils/bankingAccounts';
 import { PaidFromBankPicker } from './paidFromBankPicker';
+import { localIsoDate } from '../../utils/localDate';
 
 const RECEIPT_ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf';
 const RECEIPT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
@@ -456,7 +457,7 @@ export function ExpenseManualForm({
                                 ref={dateRef}
                                 type="date"
                                 className="expense-input"
-                                defaultValue={editingExpense?.date || new Date().toISOString().split('T')[0]}
+                                defaultValue={editingExpense?.date || localIsoDate()}
                                 onChange={() => {
                                     if (fieldErrors.date) setFieldErrors((prev) => ({ ...prev, date: '' }));
                                 }}

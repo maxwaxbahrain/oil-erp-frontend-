@@ -217,7 +217,7 @@ export default function OutstandingBills() {
             headStyles: { fillColor: [33, 33, 33] },
             footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
         });
-        doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`);
+        doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`); // utc-date-ok: export filename
     };
 
     const asOf = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });

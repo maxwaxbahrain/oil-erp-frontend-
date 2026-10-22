@@ -18,6 +18,7 @@ import { RuleForm } from './components/RuleForm';
 import { NexusForm } from './components/NexusForm';
 import { ProviderForm } from './components/ProviderForm';
 import { ExemptionForm } from './components/ExemptionForm';
+import { localIsoDate } from '../../utils/localDate';
 import {
     listTaxRules,
     createTaxRule,
@@ -277,7 +278,7 @@ export default function TaxEngine() {
     };
 
     // Today's ISO date used to flag expired certs in the table.
-    const todayISO = new Date().toISOString().slice(0, 10);
+    const todayISO = localIsoDate();
     const isCertExpired = (x: TaxExemption) => !!x.expiryDate && x.expiryDate < todayISO;
 
     const amt = parseFloat(demoAmount) || 0;
