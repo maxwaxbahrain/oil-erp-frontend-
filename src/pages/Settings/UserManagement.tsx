@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import api from '../../api/axios';
 import PasswordInput from '../../components/ui/PasswordInput';
 import { useAuth, type AuthRole } from '../../contexts/AuthContext';
+import { extractUserManagementError } from './userManagementErrors';
 
 const C = {
   bg: '#060f1c',
@@ -93,15 +94,6 @@ const emptyForm = (): UserFormState => ({
   is_active: true,
 });
 
-function extractError(err: unknown): string {
-  if (err instanceof Error && err.message.trim()) return err.message;
-  if (typeof err === 'object' && err !== null && 'response' in err) {
-    const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail;
-    if (typeof detail === 'string') return detail;
-  }
-  return 'Something went wrong. Please try again.';
-}
-
 export default function UserManagement() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<ApiUser[]>([]);
@@ -111,6 +103,7 @@ export default function UserManagement() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm());
+  const [formError, setFormError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiUser | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -127,7 +120,7 @@ export default function UserManagement() {
       const { data } = await api.get<ApiUser[]>('/api/auth/users');
       setUsers(data);
     } catch (err) {
-      const message = extractError(err);
+      const message = extractUserManagementError(err);
       setLoadError(message);
       showToast('error', message);
     } finally {
@@ -142,6 +135,7 @@ export default function UserManagement() {
   const openCreate = () => {
     setEditingUser(null);
     setForm(emptyForm());
+    setFormError(null);
     setModalOpen(true);
   };
 
@@ -155,6 +149,7 @@ export default function UserManagement() {
       role: user.role,
       is_active: user.is_active,
     });
+    setFormError(null);
     setModalOpen(true);
   };
 
@@ -163,10 +158,12 @@ export default function UserManagement() {
     setModalOpen(false);
     setEditingUser(null);
     setForm(emptyForm());
+    setFormError(null);
   };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    setFormError(null);
     setSaving(true);
     try {
       if (editingUser) {
@@ -182,7 +179,9 @@ export default function UserManagement() {
         showToast('success', 'User updated successfully');
       } else {
         if (!form.password.trim()) {
-          showToast('error', 'Password is required for new users');
+          const msg = 'Password is required for new users';
+          setFormError(msg);
+          showToast('error', msg);
           setSaving(false);
           return;
         }
@@ -199,7 +198,9 @@ export default function UserManagement() {
       closeModal();
       await loadUsers();
     } catch (err) {
-      showToast('error', extractError(err));
+      const message = extractUserManagementError(err);
+      setFormError(message);
+      showToast('error', message);
     } finally {
       setSaving(false);
     }
@@ -214,7 +215,7 @@ export default function UserManagement() {
       setDeleteTarget(null);
       await loadUsers();
     } catch (err) {
-      showToast('error', extractError(err));
+      showToast('error', extractUserManagementError(err));
     } finally {
       setDeleting(false);
     }
@@ -449,6 +450,20 @@ export default function UserManagement() {
                   className="h-4 w-4 accent-blue-500"
                 />
               </label>
+
+              {formError && (
+                <div
+                  role="alert"
+                  className="rounded-lg px-3 py-2.5 text-sm font-semibold"
+                  style={{
+                    background: 'rgba(239,68,68,.12)',
+                    border: '1px solid rgba(239,68,68,.35)',
+                    color: '#FCA5A5',
+                  }}
+                >
+                  {formError}
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-2">
                 <button
