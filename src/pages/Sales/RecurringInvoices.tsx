@@ -10,6 +10,7 @@ import {
 } from '../../services/api';
 import { formatCurrency } from '../../services/settingsService';
 import { formatStoredTimestamp } from '../../utils/dates';
+import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 import { computeRecurringSuggestions } from '../../utils/recurringSuggestions';
 
 /* ── UI tokens (dark redwood) ─────────────────────────────────────────────── */
@@ -157,11 +158,13 @@ function statusLabel(rec: RecurringInvoice, today: string): string {
 }
 
 function advanceNextRunDate(rec: RecurringInvoice): string {
-    const next = new Date(rec.nextRunDate);
+    // YYYY-MM-DD is a local calendar day. `new Date('YYYY-MM-DD')` is UTC midnight.
+    const [y, m, d] = rec.nextRunDate.split('-').map(Number);
+    const next = new Date(y, (m || 1) - 1, d || 1);
     if (rec.frequency === 'weekly') next.setDate(next.getDate() + 7);
     else if (rec.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
     else next.setMonth(next.getMonth() + 3);
-    return next.toISOString().slice(0, 10);
+    return localIsoDate(next);
 }
 
 export default function RecurringInvoices() {
@@ -180,11 +183,11 @@ export default function RecurringInvoices() {
     const [aiQuestion, setAiQuestion] = useState('');
     const [form, setForm] = useState({
         customerId: '', frequency: 'monthly' as 'weekly' | 'monthly' | 'quarterly',
-        nextRunDate: new Date().toISOString().slice(0, 10),
+        nextRunDate: localIsoDate(),
         notes: '', items: [EMPTY_ITEM()],
     });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localIsoDate();
     const currentMonth = today.slice(0, 7);
 
     useEffect(() => {
@@ -258,7 +261,7 @@ export default function RecurringInvoices() {
     const resetForm = () => {
         setForm({
             customerId: '', frequency: 'monthly',
-            nextRunDate: new Date().toISOString().slice(0, 10),
+            nextRunDate: localIsoDate(),
             notes: '', items: [EMPTY_ITEM()],
         });
         setEditingId(null);
@@ -388,7 +391,7 @@ export default function RecurringInvoices() {
                 customerId: rec.customerId,
                 customerName: rec.customerName,
                 invoiceDate: today,
-                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                dueDate: localIsoDatePlusDays(30),
                 lineItems: rec.lineItems,
                 subtotal: rec.subtotal,
                 taxRate: rec.taxRate,

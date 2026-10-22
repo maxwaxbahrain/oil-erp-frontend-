@@ -151,7 +151,7 @@ export default function AgedPayable() {
             headStyles: { fillColor: [33, 33, 33] },
             footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
         });
-        doc.save(`AgedPayable_${new Date().toISOString().slice(0, 10)}.pdf`);
+        doc.save(`AgedPayable_${new Date().toISOString().slice(0, 10)}.pdf`); // utc-date-ok: export filename
     };
 
     const ageBadge = (s: AgedSupplier) => {

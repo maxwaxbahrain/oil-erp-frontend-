@@ -169,7 +169,7 @@ function exportCustomersCsv(rows: Customer[], balanceOf: (c: Customer) => number
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`; // utc-date-ok: export filename
   a.click();
   URL.revokeObjectURL(url);
 }

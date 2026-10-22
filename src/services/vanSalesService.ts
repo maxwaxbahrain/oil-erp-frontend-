@@ -7,12 +7,20 @@ import type { VanSale, VanSaleFormData, VanSalesStats, VanDailySummary } from '.
 import { getCustomers } from './api';
 import { vanService } from './vanService';
 import { addLedgerEntry } from './customerService';
+import { localIsoDate } from '../utils/localDate';
 
 const STORAGE_KEY = 'van_sales';
 const COUNTER_KEY = 'van_sales_counter';
 
 // Helper: Delay for mock API
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Calendar day for a stored date. Date-only strings stay as written; timestamps use the local calendar. */
+function localDayKey(value: string): string {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value.slice(0, 10) : localIsoDate(parsed);
+}
 
 // Helper: Get from localStorage
 const getStorage = <T>(key: string): T[] => {
@@ -31,7 +39,7 @@ const setStorage = <T>(key: string, data: T[]) => {
  */
 export const generateReceiptNumber = (): string => {
     const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    const dateStr = localIsoDate(now).replace(/-/g, ''); // YYYYMMDD
 
     // Get today's counter
     const counterData = localStorage.getItem(COUNTER_KEY);
@@ -329,10 +337,10 @@ export const getVanDailySummary = async (
     await delay(300);
 
     const sales = getStorage<VanSale>(STORAGE_KEY);
-    const targetDate = new Date(date).toISOString().slice(0, 10);
+    const targetDate = localDayKey(date);
 
     const vanSales = sales.filter(sale => {
-        const saleDate = new Date(sale.sale_date).toISOString().slice(0, 10);
+        const saleDate = localDayKey(sale.sale_date);
         return sale.van_id === vanId && saleDate === targetDate && sale.status === 'completed';
     });
 

@@ -84,7 +84,7 @@ export function syncAuthUser(authUser: { id?: number | string; username: string;
         email: `${authUser.username}@bettano.com`,
         role: mapBackendRole(authUser.role),
         isActive: true,
-        createdAt: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString().split('T')[0], // utc-date-ok: demo createdAt
     });
 }
 
@@ -128,7 +128,7 @@ export function getCurrentUser(): User {
                 email: `${auth.username}@bettano.com`,
                 role: mapBackendRole(auth.role),
                 isActive: true,
-                createdAt: new Date().toISOString().split('T')[0],
+                createdAt: new Date().toISOString().split('T')[0], // utc-date-ok: demo createdAt
             };
         }
         const raw = localStorage.getItem(CURRENT_USER_KEY);

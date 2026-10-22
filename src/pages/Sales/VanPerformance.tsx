@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Truck, MapPin, Users, FileText, Calculator } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { localIsoDate } from '../../utils/localDate';
 
 const vanPerformanceData = [
     { van: 'Van 1', driver: 'Oscar Miller', sales: 2840.00, deliveries: 45, efficiency: 94 },
@@ -17,7 +18,7 @@ const dailyReconciliationData = [
 
 export default function VanPerformance() {
     const [selectedVan, setSelectedVan] = useState('Van 1');
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(localIsoDate());
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700 pb-20">

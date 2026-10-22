@@ -16,6 +16,7 @@ import {
   type ReturnReasonCode,
 } from '../../services/salesReturnService';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { localIsoDate } from '../../utils/localDate';
 
 const THEME = '#800020';
 
@@ -53,7 +54,7 @@ export default function SalesReturnFormPage() {
 
   const [customerId, setCustomerId] = useState('');
   const [invoiceId, setInvoiceId] = useState('');
-  const [returnDate, setReturnDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [returnDate, setReturnDate] = useState(() => localIsoDate());
   const [headerReason, setHeaderReason] = useState<ReturnReasonCode>('other');
   const [notes, setNotes] = useState('');
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
@@ -519,7 +520,7 @@ export default function SalesReturnFormPage() {
                 <input
                   type="date"
                   value={returnDate}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={localIsoDate()}
                   onChange={(e) => setReturnDate(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold"
                 />

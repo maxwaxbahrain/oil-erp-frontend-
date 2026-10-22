@@ -4,6 +4,7 @@ import { createSalesOrder, type SalesOrderItem } from '../../services/salesServi
 import { getCustomers, getVans, getProducts, getCustomerPrice, type Customer, type Van, type Product } from '../../services/api';
 import FormInput from '../../components/forms/FormInput';
 import { getSystemSettings } from '../../services/settingsService';
+import { localIsoDate } from '../../utils/localDate';
 
 interface SalesOrderFormProps {
     onSave: () => void;
@@ -18,7 +19,7 @@ export default function SalesOrderForm({ onSave, onCancel }: SalesOrderFormProps
 
     const [customerId, setCustomerId] = useState('');
     const [vanId, setVanId] = useState('');
-    const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+    const [orderDate, setOrderDate] = useState(localIsoDate());
     const [items, setItems] = useState<SalesOrderItem[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);

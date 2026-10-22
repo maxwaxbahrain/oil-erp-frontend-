@@ -205,7 +205,7 @@ export async function generateTestData() {
         {
             customer_id: '1',
             van_id: 'VAN-001',
-            order_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            order_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // utc-date-ok: test data fixtures
             items: [
                 { product_id: '1', product_name: 'Soltol 15W40', quantity: 25, unit_price: 1500, total: 37500 }
             ],
@@ -219,7 +219,7 @@ export async function generateTestData() {
         {
             customer_id: '1',
             van_id: 'VAN-001',
-            order_date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            order_date: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // utc-date-ok: test data fixtures
             items: [
                 { product_id: '1', product_name: 'Soltol 15W40', quantity: 30, unit_price: 1500, total: 45000 }
             ],
@@ -233,7 +233,7 @@ export async function generateTestData() {
         {
             customer_id: '1',
             van_id: 'VAN-002',
-            order_date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            order_date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // utc-date-ok: test data fixtures
             items: [
                 { product_id: '1', product_name: 'Soltol 15W40', quantity: 18, unit_price: 1500, total: 27000 }
             ],

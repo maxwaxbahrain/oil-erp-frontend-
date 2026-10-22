@@ -1,5 +1,6 @@
 import type { Van } from '../../services/api';
 import type { DeliveryNote, DeliveryNoteStatus } from '../../services/deliveryService';
+import { localIsoDate } from '../../utils/localDate';
 
 export type DeliveryStatusCounts = Record<DeliveryNoteStatus, number>;
 
@@ -39,7 +40,7 @@ export interface PodMapMarker {
 
 export function isToday(day: string | null | undefined, now = new Date()): boolean {
   if (!day) return false;
-  return day.slice(0, 10) === now.toISOString().slice(0, 10);
+  return day.slice(0, 10) === localIsoDate(now);
 }
 
 export function countDeliveryStatuses(notes: DeliveryNote[]): DeliveryStatusCounts {

@@ -4,6 +4,7 @@
 // ============================================
 
 import { differenceInMinutes } from 'date-fns';
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
 
 const STORAGE_KEY_TIME_TRACKING = 'pod_time_tracking';
 
@@ -134,8 +135,8 @@ export async function getTimeEvents(
 }
 
 export async function getTodayTimeEvents(vanId: string): Promise<TimeEvent[]> {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const today = localIsoDate();
+    const tomorrow = localIsoDatePlusDays(1);
     return getTimeEvents(vanId, today, tomorrow);
 }
 
@@ -149,7 +150,7 @@ export async function calculateLoadingTime(
 ): Promise<number> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const events = await getTimeEvents(vanId, targetDate);
 
     const loadingStarts = events.filter(e => e.eventType === 'loading_start');
@@ -263,7 +264,7 @@ export async function getDailyTimeBreakdown(
 ): Promise<DailyTimeBreakdown> {
     await delay(150);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const events = await getTimeEvents(vanId, targetDate);
 
     const shiftStart = events.find(e => e.eventType === 'shift_start');

@@ -16,6 +16,7 @@ import FormInput from '../../components/forms/FormInput';
 import CustomerSelect from '../../components/forms/CustomerSelect';
 import ProductSelect from '../../components/forms/ProductSelect';
 import { getCustomers, getProducts, type Customer, type Product } from '../../services/api';
+import { localIsoDate } from '../../utils/localDate';
 
 interface OrderLine {
     id: string;
@@ -34,7 +35,7 @@ export default function SalesOrderFormPage() {
 
     // Header fields
     const [orderNo] = useState('SO-' + Date.now());
-    const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
+    const [orderDate, setOrderDate] = useState(localIsoDate());
     const [salesman, setSalesman] = useState('');
     const [van, setVan] = useState('');
     const [orderStatus, setOrderStatus] = useState<'draft' | 'confirmed'>('draft');

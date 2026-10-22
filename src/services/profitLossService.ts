@@ -4,6 +4,7 @@ import { getPurchaseOrders } from './purchasesService';
 import { getExpenses } from './expenseService';
 import { getProducts } from './productService';
 import { getCustomers } from './customerService';
+import { localIsoDate } from '../utils/localDate';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -369,8 +370,8 @@ export async function calculateProfitLoss(months: number = 1): Promise<ProfitLos
 
     return {
         period: {
-            startDate: startDate.toISOString().split('T')[0],
-            endDate: endDate.toISOString().split('T')[0],
+            startDate: localIsoDate(startDate),
+            endDate: localIsoDate(endDate),
             label: months === 1 ? 'Current Month' : `Last ${months} Months`
         },
         revenue: {
@@ -505,8 +506,8 @@ export async function calculateCashFlow(months: number = 1): Promise<CashFlowSta
 
     return {
         period: {
-            startDate: startDate.toISOString().split('T')[0],
-            endDate: endDate.toISOString().split('T')[0]
+            startDate: localIsoDate(startDate),
+            endDate: localIsoDate(endDate)
         },
         operating: {
             cashFromCustomers,

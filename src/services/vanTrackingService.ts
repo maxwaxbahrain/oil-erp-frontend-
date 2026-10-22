@@ -3,6 +3,8 @@
 // Handles automated status transitions for 10 vans
 // ============================================
 
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
+
 const STORAGE_KEY_VAN_STATUS = 'pod_van_status';
 const STORAGE_KEY_STATUS_HISTORY = 'pod_status_history';
 
@@ -160,8 +162,8 @@ export async function getVanStatusHistory(
 }
 
 export async function getTodayStatusHistory(vanId: string): Promise<StatusHistory[]> {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const today = localIsoDate();
+    const tomorrow = localIsoDatePlusDays(1);
     return getVanStatusHistory(vanId, today, tomorrow);
 }
 
@@ -231,7 +233,7 @@ export async function getStatusDurationStats(
 ): Promise<StatusDurationStats[]> {
     await delay(200);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const history = await getVanStatusHistory(vanId, targetDate);
 
     const stats = new Map<VanStatusType, { total: number; count: number }>();

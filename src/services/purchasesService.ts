@@ -1,5 +1,6 @@
 import { getOilErpApiBase } from '../config/apiBase';
 import { authFetch } from '../api/axios';
+import { localIsoDate } from '../utils/localDate';
 
 export interface PurchaseOrderItem {
     productId: string;
@@ -680,7 +681,7 @@ export const markPOPaid = async (id: string, paymentMethod: string): Promise<Pur
     await createSupplierPayment({
         supplierId: po.supplierId,
         amount: po.remaining_balance ?? po.grandTotal,
-        date: new Date().toISOString().split('T')[0],
+        date: localIsoDate(),
         paymentMethod,
         reference: po.poNumber,
         notes: `Payment for PO ${po.poNumber}`

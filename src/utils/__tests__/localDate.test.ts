@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { localIsoDate } from '../localDate';
+import { localIsoDate, localIsoDatePlusDays, localMonthEndIso, localMonthStartIso } from '../localDate';
 
 describe('localIsoDate', () => {
   it('returns zero-padded YYYY-MM-DD from local calendar fields', () => {
@@ -16,5 +16,41 @@ describe('localIsoDate', () => {
     if (utcDay !== localDay) {
       expect(utcDay).toBe('2025-01-16');
     }
+  });
+});
+
+// Absolute instant: 21:04 in America/New_York on 2026-10-21 (EDT, UTC-4).
+const NY_EVENING = new Date('2026-10-22T01:04:00.000Z');
+
+describe('local calendar helpers at 21:04 America/New_York', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NY_EVENING);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('follows the process timezone for the same absolute instant', () => {
+    if (process.env.TZ === 'UTC') {
+      expect(localIsoDate()).toBe('2026-10-22');
+      expect(localIsoDatePlusDays(7)).toBe('2026-10-29');
+      expect(localIsoDatePlusDays(30)).toBe('2026-11-21');
+      return;
+    }
+
+    expect(localIsoDate()).toBe('2026-10-21');
+    expect(localIsoDatePlusDays(7)).toBe('2026-10-28');
+    expect(localIsoDatePlusDays(30)).toBe('2026-11-20');
+    expect(localMonthStartIso()).toBe('2026-10-01');
+    expect(localMonthEndIso()).toBe('2026-10-31');
+    expect(new Date().toISOString().slice(0, 10)).toBe('2026-10-22');
+  });
+});
+
+describe('localIsoDatePlusDays across the November fallback', () => {
+  it('adds one local calendar day from Nov 1 23:00', () => {
+    expect(localIsoDatePlusDays(1, new Date(2026, 10, 1, 23))).toBe('2026-11-02');
   });
 });

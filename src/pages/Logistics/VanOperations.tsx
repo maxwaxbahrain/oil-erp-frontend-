@@ -18,6 +18,7 @@ import { getCurrentUser } from '../../store/authStore';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { authFetch } from '../../api/axios';
+import { localIsoDate } from '../../utils/localDate';
 
 const C = {
     bg: '#060f1c',
@@ -422,7 +423,7 @@ export default function VanOperations() {
         );
         const payload = {
             van_id: String(selectedVan),
-            load_date: new Date().toISOString().slice(0, 10),
+            load_date: localIsoDate(),
             status: 'loaded',
             total_value: totalValue,
             additional_load: additionalLoad,

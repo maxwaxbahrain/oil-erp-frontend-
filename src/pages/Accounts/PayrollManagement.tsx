@@ -20,6 +20,7 @@ import type { ComprehensiveEmployee, SalaryStructure } from '../../services/empl
 // approach in the View modal with an actual file download via jspdf.
 import { generatePayslipPDF } from '../../utils/payslipPDF';
 import { formatLocalDate } from '../../utils/dates';
+import { localMonthEndIso, localMonthStartIso } from '../../utils/localDate';
 
 export default function PayrollManagement() {
     // STEP 11C — pending reimbursable expenses pulled from Expense module.
@@ -318,8 +319,8 @@ export default function PayrollManagement() {
             // (Draft status, current month's window) and use its real id.
             const now = new Date();
             const period = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-            const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+            const startDate = localMonthStartIso(now);
+            const endDate = localMonthEndIso(now);
             const newRun = await createPayrollRun(period, startDate, endDate);
 
             // Stamp every PayrollItem with the real run id so processPayroll's

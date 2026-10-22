@@ -5,6 +5,7 @@
 
 import { getVans } from './api';
 import { listDeliveryNotes, type DeliveryNote } from './deliveryService';
+import { localIsoDate } from '../utils/localDate';
 
 // ============================================
 // INTERFACES
@@ -170,7 +171,7 @@ export async function getVanPerformanceMetrics(
     vanId: string,
     date?: string
 ): Promise<VanPerformanceMetrics> {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const [vans, notes] = await Promise.all([getVans(), listDeliveryNotes({ van_id: vanId })]);
     const van = vans.find(v => v.id === vanId || v.van_number === vanId);
     const vanName = van?.van_number || vanId;
@@ -215,7 +216,7 @@ export async function getVanPerformanceMetrics(
 // ============================================
 
 export async function getFleetAnalytics(date?: string): Promise<FleetAnalytics> {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const [vans, notes] = await Promise.all([getVans(), listDeliveryNotes()]);
     const totalVans = vans.length;
     const activeVans = vans.filter((van) => String(van.status).toLowerCase() === 'active').length;
@@ -259,7 +260,7 @@ export async function getComparativeAnalysis(
     vanId: string,
     date?: string
 ): Promise<ComparativeAnalysis> {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const vanMetrics = await getVanPerformanceMetrics(vanId, targetDate);
     const fleetAnalytics = await getFleetAnalytics(targetDate);
 
@@ -290,7 +291,7 @@ export async function getPredictiveAnalytics(
     vanId: string,
     date?: string
 ): Promise<PredictiveAnalytics> {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const notes = await listDeliveryNotes({ van_id: vanId });
     const todayDeliveries = notesForDate(notes, targetDate);
     const completed = todayDeliveries.filter(d => d.status === 'delivered').length;

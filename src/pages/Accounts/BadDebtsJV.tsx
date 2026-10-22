@@ -16,6 +16,7 @@ import {
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { authFetch } from '../../api/axios';
+import { localIsoDate } from '../../utils/localDate';
 
 // Helper to generate JV number
 const nextBDJVNumber = (): string => {
@@ -166,7 +167,7 @@ export default function BadDebtsJV() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(localIsoDate());
     const [notes, setNotes] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [recentJVs, setRecentJVs] = useState<any[]>([]);
@@ -467,7 +468,7 @@ export default function BadDebtsJV() {
                 if (!a?.customerId) { failures.push(a?.invoiceNumber || 'unknown'); continue; }
                 const payload = {
                     amount: Number(a.amount) || 0,
-                    payment_date: new Date().toISOString().slice(0, 10),
+                    payment_date: localIsoDate(),
                     payment_method: 'Bad Debt Reversal',
                     reference: `REV ${jv.jvNumber} / ${a.invoiceNumber}`,
                     notes: `Reversal of bad-debt write-off ${jv.jvNumber} — ${a.invoiceNumber}`,
@@ -491,7 +492,7 @@ export default function BadDebtsJV() {
             const reversal = {
                 id: Date.now().toString(),
                 jvNumber: nextBDJVNumber(),
-                date: new Date().toISOString().slice(0, 10),
+                date: localIsoDate(),
                 reference: `Reversal of ${jv.jvNumber}`,
                 narration: `Reversal of bad-debt write-off ${jv.jvNumber}`,
                 type: 'Bad Debt Reversal' as const,

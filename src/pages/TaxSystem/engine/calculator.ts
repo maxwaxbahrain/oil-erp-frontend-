@@ -8,6 +8,7 @@
 import type { TaxRule, TaxNexus, TaxProviderConfig, ProviderId, TaxExemption } from '../data/types';
 import { US_STATES, US_STATE_RATES, EXEMPTION_ANY_JURISDICTION } from '../data/constants';
 import { quote as providerQuote } from '../integrations/providerClient';
+import { localIsoDate } from '../../../utils/localDate';
 
 /** Round to 2 decimal places using half-up (the convention every
  *  invoicing system uses for money display). All tax amounts surface
@@ -76,7 +77,7 @@ export function findExemption(
     const cust = (customerId || '').trim().toLowerCase();
     if (!cust) return undefined;
     const j = (jurisdiction || '').trim().toUpperCase();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localIsoDate();
     const candidates = exemptions.filter(e =>
         e.isActive &&
         e.customerId.trim().toLowerCase() === cust &&

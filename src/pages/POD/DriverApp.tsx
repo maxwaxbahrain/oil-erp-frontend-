@@ -634,8 +634,8 @@ export default function DriverApp() {
         invoiceNumber: '',
         customerId: String(customerId),
         customerName: selectedStop.customerName,
-        invoiceDate: new Date().toISOString().slice(0, 10),
-        dueDate: new Date().toISOString().slice(0, 10),
+        invoiceDate: localIsoDate(),
+        dueDate: localIsoDate(),
         lineItems: selectedStop.items.map((i) => ({
           product: i.description,
           description: i.description,

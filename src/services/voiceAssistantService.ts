@@ -10,6 +10,7 @@
 import { authFetch } from '../api/axios';
 import { getOilErpApiHost } from '../config/apiBase';
 import { MODULE_FLAGS } from '../config/moduleFlags';
+import { localIsoDate } from '../utils/localDate';
 // ============================================
 
 export type VoiceActionType =
@@ -162,7 +163,7 @@ const ROUTE_CATALOG = [
 ].join('\n');
 
 const SYSTEM_PROMPT = `You are a voice command processor for the Soltol ERP system.
-Today's date is ${new Date().toISOString().slice(0, 10)}.  Use it as the
+Today's date is ${localIsoDate()}.  Use it as the
 reference when resolving relative dates like "today", "yesterday",
 "tomorrow", "first of june", "next monday".  Always emit dates as
 strict YYYY-MM-DD format.

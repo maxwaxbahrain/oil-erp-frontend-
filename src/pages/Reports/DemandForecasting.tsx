@@ -423,7 +423,7 @@ export default function DemandForecasting() {
         setAiError('');
         setAiInsight('');
 
-        const today = new Date().toISOString().slice(0, 10);
+        const today = new Date().toISOString().slice(0, 10); // utc-date-ok: AI prompt body
         const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
         const summary = forecasts.map((f) => ({

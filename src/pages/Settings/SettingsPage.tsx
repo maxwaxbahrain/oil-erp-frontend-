@@ -160,7 +160,7 @@ export default function SettingsPage() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `soltol-data-export-${new Date().toISOString().slice(0, 10)}.zip`;
+            a.download = `soltol-data-export-${new Date().toISOString().slice(0, 10)}.zip`; // utc-date-ok: export filename
             document.body.appendChild(a);
             a.click();
             a.remove();

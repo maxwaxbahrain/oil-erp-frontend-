@@ -12,6 +12,7 @@ import {
   type CreditStatus,
 } from '../../services/creditNoteService';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { localIsoDate } from '../../utils/localDate';
 
 const THEME = '#800020';
 
@@ -75,7 +76,7 @@ export default function CreditNoteFormPage() {
   const [balance, setBalance] = useState(0);
   const [unusedCredits, setUnusedCredits] = useState(0);
   const [reason, setReason] = useState<CreditReason>(prefill.reason || 'other');
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+  const [issueDate, setIssueDate] = useState(localIsoDate());
   const [expiryDate, setExpiryDate] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<CreditNoteItem[]>([{ description: '', quantity: 1, unitPrice: 0, amount: 0 }]);
@@ -139,7 +140,7 @@ export default function CreditNoteFormPage() {
         setInvoiceId(cn.originalInvoiceId || '');
         setLinkedInvoice(!!cn.originalInvoiceId);
         setReason(cn.reason);
-        setIssueDate(cn.issueDate || new Date().toISOString().slice(0, 10));
+        setIssueDate(cn.issueDate || localIsoDate());
         setExpiryDate(cn.expiryDate || '');
         setNotes(cn.notes || '');
         // Simple-amount heuristic: matches the marker `save()` writes
