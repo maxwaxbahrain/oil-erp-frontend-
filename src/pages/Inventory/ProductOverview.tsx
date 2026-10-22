@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
     Package,
     ArrowLeft,
@@ -28,17 +28,11 @@ import {
 } from 'lucide-react';
 import { getProductById, getProducts, saveProduct, getAIInsights, type Product } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
-import { getInvoices } from '../../services/api';
-import { getGRNs } from '../../services/grnService';
-import { getSalesReturns } from '../../services/salesReturnService';
+import { getMovements, type InventoryMovement } from '../../services/inventoryLedgerService';
 import clsx from 'clsx';
 import { formatLocalDate } from '../../utils/dates';
+import { formatMovementLabel } from '../../utils/movementLabel';
 
-// ITEM 8 — Product History tab. A single chronological feed of every
-// stock-affecting movement for this product: purchase (GRN), sale
-// (invoice), return (sales return), and manual adjustment. Adjustments
-// are read from localStorage where the Inventory Adjustment page writes
-// them; other sources go through the standard service layer.
 type TabType = 'Performance' | 'Inventory' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
 
 const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
@@ -55,25 +49,7 @@ const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Documents: 'Documents',
 };
 
-// ITEM 8 — Normalized movement row used by the History tab.
-type MovementType = 'Purchase' | 'Sale' | 'Return' | 'Adjustment';
-interface MovementRow {
-    date: string;        // ISO 'YYYY-MM-DD'
-    type: MovementType;
-    qtyIn: number;       // 0 if outbound
-    qtyOut: number;      // 0 if inbound
-    unitCost?: number;
-    reference: string;   // e.g. invoice number, GRN number, return number, 'ADJ'
-    notes?: string;
-}
-
-// localStorage key written by InventoryAdjustment.tsx
-const ADJ_KEY = 'inventory_adjustments';
-interface StoredAdjustment {
-    id: string; productId: string; productName: string;
-    type: 'add' | 'reduce'; quantity: number; reason: string;
-    date: string; before: number; after: number;
-}
+const HISTORY_PAGE_SIZE = 50;
 
 export default function ProductOverview() {
     const { id } = useParams();
@@ -83,11 +59,12 @@ export default function ProductOverview() {
     const [activeTab, setActiveTab] = useState<TabType>('Performance');
     const [aiInsights, setAiInsights] = useState<string[]>([]);
     const [busyAction, setBusyAction] = useState<string | null>(null);
-    // ITEM 8 — Movement-history state. Loaded lazily the first time the
-    // user opens the History tab; cached for subsequent visits.
-    const [movements, setMovements] = useState<MovementRow[] | null>(null);
+    const [movements, setMovements] = useState<InventoryMovement[] | null>(null);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [historyPage, setHistoryPage] = useState(0);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
+    const [historyReload, setHistoryReload] = useState(0);
 
     useEffect(() => {
         if (id) {
@@ -117,122 +94,39 @@ export default function ProductOverview() {
         return Number.isFinite(num) ? num : fallback;
     };
 
-    // ITEM 8 — Build the movement feed from invoices + GRNs + sales returns
-    // + adjustments. Each source is treated as best-effort: a failure on
-    // one source still surfaces rows from the others.
-    async function loadMovementHistory(productId: string) {
-        setHistoryLoading(true);
-        setHistoryError(null);
-        try {
-            const pid = String(productId);
-            const rows: MovementRow[] = [];
+    useEffect(() => {
+        setHistoryPage(0);
+        setMovements(null);
+    }, [product?.id]);
 
-            // ── Sales (Invoices) — outbound ────────────────────────────
-            try {
-                const invs = await getInvoices();
-                for (const inv of invs) {
-                    const items = (inv as any).lineItems || [];
-                    for (const li of items) {
-                        if (String(li.productId ?? li.product_id ?? '') !== pid) continue;
-                        const q = Number(li.quantity) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: (inv as any).invoiceDate || (inv as any).date || '',
-                            type: 'Sale',
-                            qtyIn: 0,
-                            qtyOut: q,
-                            unitCost: Number(li.rate) || 0,
-                            reference: (inv as any).invoiceNumber || String((inv as any).id || ''),
-                            notes: (inv as any).customerName || '',
-                        });
-                    }
-                }
-            } catch (e) { console.warn('History: invoices fetch failed', e); }
-
-            // ── Purchases (GRNs — only what was received & posted) ─────
-            try {
-                const grns = await getGRNs();
-                for (const grn of grns) {
-                    if (grn.status === 'Cancelled') continue;
-                    for (const it of grn.items || []) {
-                        if (String(it.productId) !== pid) continue;
-                        const q = Number(it.acceptedQty ?? it.receivedQty) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: grn.receivedDate || grn.postedAt?.slice(0, 10) || grn.createdAt?.slice(0, 10) || '',
-                            type: 'Purchase',
-                            qtyIn: q,
-                            qtyOut: 0,
-                            unitCost: Number(it.unitCost) || 0,
-                            reference: grn.grnNumber || grn.poReference || grn.id,
-                            notes: grn.warehouse,
-                        });
-                    }
-                }
-            } catch (e) { console.warn('History: GRNs fetch failed', e); }
-
-            // ── Sales Returns — inbound ────────────────────────────────
-            try {
-                const rets = await getSalesReturns();
-                for (const ret of rets) {
-                    for (const li of ret.lineItems || []) {
-                        if (String(li.productId) !== pid) continue;
-                        const q = Number(li.quantityReturned) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: ret.returnDate || ret.createdAt?.slice(0, 10) || '',
-                            type: 'Return',
-                            qtyIn: q,
-                            qtyOut: 0,
-                            unitCost: Number(li.unitPrice) || 0,
-                            reference: ret.returnNumber || ret.id,
-                            notes: ret.customerName,
-                        });
-                    }
-                }
-            } catch (e) { console.warn('History: returns fetch failed', e); }
-
-            // ── Manual Adjustments (localStorage) ──────────────────────
-            try {
-                const raw = localStorage.getItem(ADJ_KEY) || '[]';
-                const list = JSON.parse(raw) as StoredAdjustment[];
-                for (const adj of list) {
-                    if (String(adj.productId) !== pid) continue;
-                    const q = Number(adj.quantity) || 0;
-                    if (q <= 0) continue;
-                    rows.push({
-                        date: adj.date || '',
-                        type: 'Adjustment',
-                        qtyIn: adj.type === 'add' ? q : 0,
-                        qtyOut: adj.type === 'reduce' ? q : 0,
-                        reference: `ADJ-${String(adj.id).slice(-6)}`,
-                        notes: adj.reason,
-                    });
-                }
-            } catch (e) { console.warn('History: adjustments read failed', e); }
-
-            // Sort by date desc; falls back to insertion order when dates tie.
-            rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            setMovements(rows);
-        } catch (e: any) {
-            console.error('Failed to load movement history:', e);
-            setHistoryError(e?.message || 'Could not load movement history.');
-            setMovements([]);
-        } finally {
-            setHistoryLoading(false);
-        }
-    }
-
-    // ITEM 8 — Fetch the history the first time the tab is opened. If the
-    // user switches tabs and comes back, we keep the cached list (cheap
-    // refresh button on the tab itself).
     useEffect(() => {
         if (activeTab !== 'History') return;
         if (!product?.id) return;
-        if (movements !== null) return; // already loaded
-        loadMovementHistory(String(product.id));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, product?.id]);
+        let cancelled = false;
+        setHistoryLoading(true);
+        setHistoryError(null);
+        getMovements({
+            product_id: Number(product.id),
+            limit: HISTORY_PAGE_SIZE,
+            offset: historyPage * HISTORY_PAGE_SIZE,
+        })
+            .then((page) => {
+                if (cancelled) return;
+                setMovements(page.rows);
+                setHistoryTotal(page.total);
+            })
+            .catch((error: unknown) => {
+                if (cancelled) return;
+                setHistoryError(error instanceof Error ? error.message : 'Could not load movement history.');
+                setMovements([]);
+            })
+            .finally(() => {
+                if (!cancelled) setHistoryLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, product?.id, historyPage, historyReload]);
 
     const onRefresh = async () => {
         if (!id) return;
@@ -1139,11 +1033,11 @@ export default function ProductOverview() {
                             <div>
                                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Movement History</h3>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                    Purchases · Sales · Returns · Adjustments — chronological feed
+                                    Stock ledger · newest first
                                 </p>
                             </div>
                             <button
-                                onClick={() => { if (product?.id) loadMovementHistory(String(product.id)); }}
+                                onClick={() => setHistoryReload((n) => n + 1)}
                                 disabled={historyLoading}
                                 className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:text-redwood-brand bg-gray-50 hover:bg-white border border-gray-200 rounded-lg transition-all disabled:opacity-40"
                             >
@@ -1181,42 +1075,48 @@ export default function ProductOverview() {
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Type</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty In</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty Out</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit Price</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Notes</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Before → after</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit cost</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Journal</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {movements.map((m, idx) => {
-                                            const typeStyle = m.type === 'Purchase' ? 'bg-emerald-100 text-emerald-700'
-                                                : m.type === 'Sale' ? 'bg-rose-100 text-rose-700'
-                                                : m.type === 'Return' ? 'bg-blue-100 text-blue-700'
-                                                : 'bg-amber-100 text-amber-700';
+                                        {movements.map((m) => {
+                                            const qty = Number(m.quantity_delta) || 0;
+                                            const inbound = qty > 0;
                                             return (
-                                                <tr key={`${m.reference}-${idx}`} className="hover:bg-gray-50/60">
-                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.date ? (formatLocalDate(m.date) || '—') : '—'}</td>
+                                                <tr key={m.id} className="hover:bg-gray-50/60">
+                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.entry_date ? (formatLocalDate(m.entry_date) || '—') : '—'}</td>
                                                     <td className="px-4 py-3">
-                                                        <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest', typeStyle)}>{m.type}</span>
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-gray-100 text-gray-700">
+                                                            {formatMovementLabel(m)}
+                                                        </span>
                                                     </td>
-                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference}</td>
-                                                    <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">{m.qtyIn > 0 ? `+${m.qtyIn}` : ''}</td>
-                                                    <td className="px-4 py-3 text-right font-mono font-black text-rose-700">{m.qtyOut > 0 ? `-${m.qtyOut}` : ''}</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-600">{m.unitCost && m.unitCost > 0 ? formatCurrency(m.unitCost) : '—'}</td>
-                                                    <td className="px-4 py-3 text-xs text-gray-500">{m.notes || ''}</td>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference || m.source_id || '—'}</td>
+                                                    <td className={clsx('px-4 py-3 text-right font-mono font-black', inbound ? 'text-emerald-700' : 'text-rose-700')}>
+                                                        {inbound ? `+${qty}` : qty}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">{m.stock_before} → {m.stock_after}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-600">{m.unit_cost != null ? formatCurrency(m.unit_cost) : '—'}</td>
+                                                    <td className="px-4 py-3 text-xs">
+                                                        {m.journal_entry_id != null ? (
+                                                            <Link to="/finance/all-ledger" className="font-bold text-redwood-brand">JE {m.journal_entry_id}</Link>
+                                                        ) : '—'}
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot className="bg-gray-50">
-                                        <tr>
-                                            <td colSpan={3} className="px-4 py-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">{movements.length} movement{movements.length === 1 ? '' : 's'}</td>
-                                            <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">+{movements.reduce((s, r) => s + r.qtyIn, 0)}</td>
-                                            <td className="px-4 py-3 text-right font-mono font-black text-rose-700">-{movements.reduce((s, r) => s + r.qtyOut, 0)}</td>
-                                            <td colSpan={2}></td>
-                                        </tr>
-                                    </tfoot>
                                 </table>
+                                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                    <span>{historyTotal} movement{historyTotal === 1 ? '' : 's'}</span>
+                                    <span className="flex items-center gap-3 normal-case tracking-normal font-semibold">
+                                        <button type="button" disabled={historyPage <= 0} onClick={() => setHistoryPage((p) => Math.max(0, p - 1))} className="disabled:opacity-40">Previous</button>
+                                        <span>Page {historyPage + 1} of {Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE))}</span>
+                                        <button type="button" disabled={(historyPage + 1) * HISTORY_PAGE_SIZE >= historyTotal} onClick={() => setHistoryPage((p) => p + 1)} className="disabled:opacity-40">Next</button>
+                                    </span>
+                                </div>
                             </div>
                         )}
                     </div>

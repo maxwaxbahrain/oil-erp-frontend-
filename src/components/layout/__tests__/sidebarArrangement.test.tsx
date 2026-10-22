@@ -23,8 +23,13 @@ const LABEL_RENAMES: Record<string, string> = {
   '/settings': 'Company Settings',
 };
 
-/** Purchases-cycle entries added after the sidebar inventory snapshot. */
-const ALLOWED_ADDED_ROUTES = new Set<string>(['/purchases/returns', '/purchases/payments']);
+/** Routes added after the sidebar inventory snapshot. */
+const ALLOWED_ADDED_ROUTES = new Set<string>([
+  '/purchases/returns',
+  '/purchases/payments',
+  '/warehouse/dashboard',
+  '/warehouse/stock',
+]);
 
 const ALWAYS_HIDDEN = [
   { route: '/finance/accounting', label: 'Accounting', flag: 'finance_accounting_dashboard' },
@@ -167,12 +172,18 @@ describe('sidebar arrangement completeness', () => {
         const missing = beforeRoutes.filter((route) => !afterSet.has(route));
         const added = afterRoutes.filter((route) => !beforeSet.has(route));
         const illegalAdded = added.filter((route) => !ALLOWED_ADDED_ROUTES.has(route));
+        const allowedAdded = added.filter((route) => ALLOWED_ADDED_ROUTES.has(route));
         const allowedAddedCount = added.length - illegalAdded.length;
         const unexplainedGap = (afterRoutes.length - beforeRoutes.length) - allowedAddedCount;
         rows.push(
           `${role} | ${build} | ${beforeRoutes.length} | ${afterRoutes.length} | ${missing.join(', ') || '—'} | ${added.join(', ') || '—'}`,
         );
-        if (unexplainedGap !== 0 || missing.length || illegalAdded.length) {
+        if (
+          missing.length
+          || illegalAdded.length
+          || afterRoutes.length !== beforeRoutes.length + allowedAdded.length
+          || unexplainedGap !== 0
+        ) {
           problems.push(
             `${role}/${build} before=${beforeRoutes.length} after=${afterRoutes.length} missing=[${missing.join(', ')}] added=[${illegalAdded.join(', ')}]`,
           );
