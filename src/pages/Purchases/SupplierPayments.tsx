@@ -123,8 +123,8 @@ export default function SupplierPayments() {
   const rangeEnd = page.total === 0 ? 0 : Math.min(offset + page.items.length, page.total);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="max-w-6xl mx-auto px-6 py-6 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
         <h1 className="text-xl font-black text-gray-900 flex items-center gap-2">
           <DollarSign size={22} />
           Supplier payments
@@ -133,7 +133,7 @@ export default function SupplierPayments() {
           <button
             type="button"
             onClick={() => setPickingSupplier((open) => !open)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-black"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-black shrink-0"
             style={{ backgroundColor: '#800020' }}
           >
             <DollarSign size={16} />
@@ -252,15 +252,15 @@ export default function SupplierPayments() {
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Supplier</th>
-                <th className="px-4 py-3">Reference</th>
-                <th className="px-4 py-3">Method</th>
-                <th className="px-4 py-3">Account</th>
-                <th className="px-4 py-3 text-right">Amount</th>
-                <th className="px-4 py-3 text-right">Allocated</th>
-                <th className="px-4 py-3 text-right">Unallocated</th>
-                <th className="px-4 py-3">Purchase orders</th>
+                <th className="px-4 py-3 whitespace-nowrap">Date</th>
+                <th className="px-4 py-3 whitespace-nowrap">Supplier</th>
+                <th className="px-4 py-3 whitespace-nowrap">Reference</th>
+                <th className="px-4 py-3 whitespace-nowrap">Method</th>
+                <th className="px-4 py-3 whitespace-nowrap">Account</th>
+                <th className="px-4 py-3 text-right whitespace-nowrap">Amount</th>
+                <th className="px-4 py-3 text-right whitespace-nowrap">Allocated</th>
+                <th className="py-3 pr-6 text-right whitespace-nowrap">Unallocated</th>
+                <th className="py-3 pl-6 min-w-[10rem] whitespace-nowrap">Purchase orders</th>
               </tr>
             </thead>
             <tbody>
@@ -281,10 +281,10 @@ export default function SupplierPayments() {
                     <td className="px-4 py-3 font-mono">{row.reference || '—'}</td>
                     <td className="px-4 py-3">{row.paymentMethod}</td>
                     <td className="px-4 py-3">{accountLabel(row)}</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(row.amount)}</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(row.allocated_total)}</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(row.unallocated)}</td>
-                    <td className={`px-4 py-3 ${unallocatedOrders ? 'text-gray-400' : ''}`}>{orders}</td>
+                    <td className="px-4 py-3 text-right font-mono whitespace-nowrap">{formatCurrency(row.amount)}</td>
+                    <td className="px-4 py-3 text-right font-mono whitespace-nowrap">{formatCurrency(row.allocated_total)}</td>
+                    <td className="py-3 pr-6 text-right font-mono whitespace-nowrap">{formatCurrency(row.unallocated)}</td>
+                    <td className={`py-3 pl-6 min-w-[10rem] ${unallocatedOrders ? 'text-gray-400' : ''}`}>{orders}</td>
                   </tr>
                 );
               })}
