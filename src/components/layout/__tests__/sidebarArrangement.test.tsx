@@ -23,9 +23,10 @@ const LABEL_RENAMES: Record<string, string> = {
   '/settings': 'Company Settings',
 };
 
-/** Purchase Returns was already in the sidebar, so this set stays empty in practice. */
+/** Routes added after the sidebar inventory snapshot. */
 const ALLOWED_ADDED_ROUTES = new Set<string>([
   '/purchases/returns',
+  '/purchases/payments',
   '/warehouse/dashboard',
   '/warehouse/stock',
 ]);
@@ -172,10 +173,17 @@ describe('sidebar arrangement completeness', () => {
         const added = afterRoutes.filter((route) => !beforeSet.has(route));
         const illegalAdded = added.filter((route) => !ALLOWED_ADDED_ROUTES.has(route));
         const allowedAdded = added.filter((route) => ALLOWED_ADDED_ROUTES.has(route));
+        const allowedAddedCount = added.length - illegalAdded.length;
+        const unexplainedGap = (afterRoutes.length - beforeRoutes.length) - allowedAddedCount;
         rows.push(
           `${role} | ${build} | ${beforeRoutes.length} | ${afterRoutes.length} | ${missing.join(', ') || '—'} | ${added.join(', ') || '—'}`,
         );
-        if (missing.length || illegalAdded.length || afterRoutes.length !== beforeRoutes.length + allowedAdded.length) {
+        if (
+          missing.length
+          || illegalAdded.length
+          || afterRoutes.length !== beforeRoutes.length + allowedAdded.length
+          || unexplainedGap !== 0
+        ) {
           problems.push(
             `${role}/${build} before=${beforeRoutes.length} after=${afterRoutes.length} missing=[${missing.join(', ')}] added=[${illegalAdded.join(', ')}]`,
           );

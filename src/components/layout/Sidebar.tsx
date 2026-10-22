@@ -123,7 +123,8 @@ export default function Sidebar({
     const showInventorySection = showNav('/products')
         || (canSeeManagement && showNav('/inventory/adjustments'));
     const showProcurement = showNav('/purchases/suppliers') || showNav('/purchases')
-        || showNav('/purchases/new') || showNav('/receiving') || showNav('/purchases/returns');
+        || showNav('/purchases/new') || showNav('/receiving') || showNav('/purchases/returns')
+        || showNav('/purchases/payments');
     const showFinanceSection =
         (canSeeFinance && (
             (MODULE_FLAGS.finance_banking && showNav('/finance/banking'))
@@ -261,6 +262,7 @@ export default function Sidebar({
                 <NavItem to="/purchases/new" icon={Package} label="New Purchase Order" />
                 <NavItem to="/receiving" icon={Inbox} label="Goods Received (GRN)" />
                 <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
+                <NavItem to="/purchases/payments" icon={DollarSign} label="Supplier payments" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}

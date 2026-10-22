@@ -59,6 +59,27 @@ function todayIsoLocal(): string {
     return `${y}-${m}-${day}`;
 }
 
+/** Select values already accepted by the disbursement POST. Labels are "Bank Wire (SWIFT)" and "Cash / Petty Cash". */
+const PAY_CHANNEL_BANK = 'Bank Transfer';
+const PAY_CHANNEL_CASH = 'Cash';
+
+function payChannelForAccount(account: {
+    role?: string | null;
+    system_key?: string | null;
+    code?: string | null;
+} | undefined): typeof PAY_CHANNEL_CASH | typeof PAY_CHANNEL_BANK | null {
+    if (!account) return null;
+    const role = (account.role || '').trim().toLowerCase();
+    const key = (account.system_key || '').trim().toLowerCase();
+    // role / system_key are the cash-vs-bank types from useCompanyPaymentAccounts
+    // (cash_on_hand → cash, bank → bank). Codes 1000 and 1010 are the fallback.
+    if (role === 'cash' || key === 'cash_on_hand') return PAY_CHANNEL_CASH;
+    if (role === 'bank' || key === 'bank') return PAY_CHANNEL_BANK;
+    if (account.code === '1000') return PAY_CHANNEL_CASH;
+    if (account.code === '1010') return PAY_CHANNEL_BANK;
+    return null;
+}
+
 function poWorkflowStatusBadge(status: string): { label: string; bg: string; color: string } {
     switch (status) {
         case 'Pending':
@@ -259,6 +280,14 @@ export default function SupplierDetail() {
         });
     }, [accountsLoading, accountsLoadError, bankAccounts, defaultBank, cash]);
 
+    useEffect(() => {
+        if (!showPaymentModal || accountsLoading || accountsLoadError || payFromAccountId === '') return;
+        const selected = bankAccounts.find((account) => String(account.id) === payFromAccountId);
+        const channel = payChannelForAccount(selected);
+        if (!channel) return;
+        setPaymentForm((prev) => (prev.paymentMethod === channel ? prev : { ...prev, paymentMethod: channel }));
+    }, [showPaymentModal, accountsLoading, accountsLoadError, bankAccounts, payFromAccountId]);
+
     // FIX W2-3 — Auto-open the edit modal when the user clicked the
     // per-row Edit button on SupplierList. We clear the history state
     // after consuming it so a refresh doesn't re-open the modal.
@@ -385,6 +414,28 @@ export default function SupplierDetail() {
     const payFromReady =
         !accountsLoading && !accountsLoadError && bankAccounts.length > 0 && payFromAccountId !== '';
 
+    const onPayFromAccountChange = (id: string) => {
+        setPayFromAccountId(id);
+        const channel = payChannelForAccount(bankAccounts.find((account) => String(account.id) === id));
+        if (!channel) return;
+        setPaymentForm((prev) => (prev.paymentMethod === channel ? prev : { ...prev, paymentMethod: channel }));
+    };
+
+    const onTransferChannelChange = (method: string) => {
+        setPaymentForm((prev) => ({ ...prev, paymentMethod: method }));
+        if (method !== PAY_CHANNEL_BANK && method !== PAY_CHANNEL_CASH) return;
+        const current = bankAccounts.find((account) => String(account.id) === payFromAccountId);
+        if (payChannelForAccount(current) === method) return;
+        const next = method === PAY_CHANNEL_CASH
+            ? (bankAccounts.find((account) => account.code === '1000' && payChannelForAccount(account) === PAY_CHANNEL_CASH)
+                ?? cash[0]
+                ?? bankAccounts.find((account) => payChannelForAccount(account) === PAY_CHANNEL_CASH))
+            : (bankAccounts.find((account) => account.code === '1010' && payChannelForAccount(account) === PAY_CHANNEL_BANK)
+                ?? defaultBank
+                ?? bankAccounts.find((account) => payChannelForAccount(account) === PAY_CHANNEL_BANK));
+        if (next) setPayFromAccountId(String(next.id));
+    };
+
     const handleSendPayment = async () => {
         if (!id || paymentForm.amount <= 0) {
             alert('Please enter a valid amount');
@@ -400,6 +451,8 @@ export default function SupplierDetail() {
         }
 
         const payFromId = Number(payFromAccountId);
+        // GL account is the selected pay-from account only (account_id / pay_from_account_id).
+        // Transfer channel is stored as paymentMethod and does not choose the GL account.
 
         try {
             setLoadingDetails(true);
@@ -475,10 +528,11 @@ export default function SupplierDetail() {
 
             setShowPaymentModal(false);
             setSelectedPOIds([]);
+            const keptAccount = bankAccounts.find((account) => String(account.id) === payFromAccountId);
             setPaymentForm({
                 amount: 0,
                 date: todayIsoLocal(),
-                paymentMethod: 'Cash',
+                paymentMethod: payChannelForAccount(keptAccount) ?? PAY_CHANNEL_CASH,
                 reference: '',
                 notes: '',
                 poId: ''
@@ -1618,7 +1672,7 @@ export default function SupplierDetail() {
             {/* SEND PAYMENT MODAL */}
             {showPaymentModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border-2 border-redwood-brand overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div data-disbursement-modal className="bg-white rounded-2xl shadow-2xl w-full max-w-lg min-w-0 border-2 border-redwood-brand overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="bg-redwood-brand px-8 py-6 flex items-center justify-between">
                             <div>
                                 <h2 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-2">
@@ -1749,8 +1803,9 @@ export default function SupplierDetail() {
                                     </div>
                                 ) : (
                                     <select
+                                        aria-label="Pay From Account"
                                         value={payFromAccountId}
-                                        onChange={(e) => setPayFromAccountId(e.target.value)}
+                                        onChange={(e) => onPayFromAccountChange(e.target.value)}
                                         className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all uppercase"
                                     >
                                         {bankAccounts.map((a) => (
@@ -1770,27 +1825,28 @@ export default function SupplierDetail() {
                                     className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all uppercase"
                                 />
                             </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-6">
-                            <div>
+                            <div className="grid grid-cols-2 gap-6 min-w-0">
+                            <div className="min-w-0">
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Disbursement Amount</label>
                                 <div className="relative">
                                     <input
+                                        aria-label="Disbursement Amount"
                                         type="number"
                                         value={paymentForm.amount || ''}
                                         onChange={(e) => setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })}
-                                        className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-xl font-black focus:border-redwood-brand focus:bg-white outline-none transition-all font-mono"
+                                        className="w-full min-w-0 border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-xl font-black focus:border-redwood-brand focus:bg-white outline-none transition-all font-mono"
                                         placeholder="0.00"
                                     />
                                 </div>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Transfer Channel</label>
                                 <select
+                                    aria-label="Transfer Channel"
                                     value={paymentForm.paymentMethod}
-                                    onChange={(e) => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })}
-                                    className="w-full border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all bg-white"
+                                    onChange={(e) => onTransferChannelChange(e.target.value)}
+                                    className="w-full min-w-0 border-2 border-gray-100 bg-gray-50 rounded-xl px-4 py-4 text-sm font-black focus:border-redwood-brand focus:bg-white outline-none transition-all bg-white"
                                 >
                                     <option value="Cash">Cash / Petty Cash</option>
                                     <option value="Bank Transfer">Bank Wire (SWIFT)</option>
@@ -1823,9 +1879,9 @@ export default function SupplierDetail() {
                                 placeholder="Add transaction narrative or internal memo..."
                             />
                         </div>
-                    </div>
+                        </div>
 
-                    <div className="bg-gray-50 px-8 py-6 flex gap-4 justify-end border-t border-gray-100">
+                    <div data-disbursement-footer className="bg-gray-50 px-8 py-6 flex flex-wrap gap-4 justify-end border-t border-gray-100">
                         <button
                             onClick={() => setShowPaymentModal(false)}
                             className="px-6 py-3 bg-white border-2 border-gray-100 rounded-xl text-xs font-black hover:bg-gray-100 transition-all uppercase tracking-widest text-gray-500"
@@ -1840,6 +1896,7 @@ export default function SupplierDetail() {
                             <Save size={18} />
                             {loadingDetails ? 'Processing...' : 'Execute Payment'}
                         </button>
+                    </div>
                     </div>
                 </div>
             )}
