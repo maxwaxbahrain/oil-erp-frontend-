@@ -11,8 +11,8 @@ const options = [
 
 const DARK = {
     '--ss-bg': '#0a1726',
-    '--ss-fg': 'var(--color-redwood-text-main,#EEF2FF)',
-    '--ss-muted': 'var(--color-redwood-text-muted)',
+    '--ss-fg': '#EEF2FF',
+    '--ss-muted': '#8BA3C7',
     '--ss-border': 'rgba(255,255,255,.08)',
     '--ss-hover-bg': 'rgba(255,255,255,.06)',
     '--ss-selected-bg': 'rgba(79,142,247,.18)',
