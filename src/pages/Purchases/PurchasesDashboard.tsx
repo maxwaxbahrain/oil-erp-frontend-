@@ -19,7 +19,15 @@ import {
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getPurchaseOrders, approvePurchaseOrder, rejectPurchaseOrder, markPOPaid, deletePurchaseOrder, updatePurchaseOrder, type PurchaseOrder } from '../../services/purchasesService';
-import { formatDateOnly } from '../../utils/formatters';
+import { formatCurrency, formatDateOnly } from '../../utils/formatters';
+import {
+    classifyPurchaseOrders,
+    isOpenPayablePo,
+    isPaidPo,
+    isPendingApprovalPo,
+    paymentLabel,
+    purchaseStepperLights,
+} from '../../utils/purchaseOrderState';
 
 const PO_DATE_FMT = { day: 'numeric', month: 'short', year: 'numeric' } as const;
 
@@ -85,8 +93,6 @@ const tdStyle: CSSProperties = {
     borderBottom: '1px solid rgba(255,255,255,.04)',
 };
 
-const COMPLIANCE_SCORE = 99.4;
-
 type PageTab = 'all' | 'pending' | 'goods_received' | 'mark_paid' | 'settled';
 type FilterChip = 'all' | 'pending' | 'mark_paid' | 'settled';
 
@@ -96,22 +102,6 @@ function formatUsd(n: number): string {
 
 function isTestPO(po: PurchaseOrder): boolean {
     return /test/i.test(po.supplierName) || /test/i.test(po.poNumber);
-}
-
-function isPendingApproval(po: PurchaseOrder): boolean {
-    return po.status === 'Pending' || po.status === 'Draft';
-}
-
-function isGoodsReceivedMarkPaid(po: PurchaseOrder): boolean {
-    return po.status === 'Approved' || po.status === 'GRN';
-}
-
-function isSettled(po: PurchaseOrder): boolean {
-    return po.status === 'Paid' || po.status === 'Received' || po.status === 'Completed';
-}
-
-function isMarkPaidTab(po: PurchaseOrder): boolean {
-    return po.status === 'GRN';
 }
 
 function isGoodsReceivedTab(po: PurchaseOrder): boolean {
@@ -256,19 +246,14 @@ const PurchasesDashboard = () => {
     };
 
     const counts = useMemo(() => {
-        const pending = purchaseOrders.filter(isPendingApproval).length;
-        const markPaid = purchaseOrders.filter(isMarkPaidTab).length;
-        const settled = purchaseOrders.filter(isSettled).length;
-        const test = purchaseOrders.filter(isTestPO).length;
-        const totalValue = purchaseOrders.reduce((s, po) => s + (po.grandTotal || 0), 0);
+        const classified = classifyPurchaseOrders(purchaseOrders);
         return {
-            total: purchaseOrders.length,
-            pending,
-            markPaid,
-            settled,
-            test,
-            totalValue,
-            compliance: COMPLIANCE_SCORE,
+            total: classified.total,
+            pending: classified.pendingApproval,
+            markPaid: classified.openPayable,
+            settled: classified.settled,
+            openPayable: classified.openPayable,
+            openValue: classified.openValue,
         };
     }, [purchaseOrders]);
 
@@ -283,14 +268,14 @@ const PurchasesDashboard = () => {
     const filteredOrders = useMemo(() => {
         let rows = purchaseOrders.filter((po) => !isTestPO(po));
 
-        if (activeTab === 'pending') rows = rows.filter(isPendingApproval);
+        if (activeTab === 'pending') rows = rows.filter(isPendingApprovalPo);
         else if (activeTab === 'goods_received') rows = rows.filter(isGoodsReceivedTab);
-        else if (activeTab === 'mark_paid') rows = rows.filter(isMarkPaidTab);
-        else if (activeTab === 'settled') rows = rows.filter(isSettled);
+        else if (activeTab === 'mark_paid') rows = rows.filter(isOpenPayablePo);
+        else if (activeTab === 'settled') rows = rows.filter(isPaidPo);
 
-        if (filterChip === 'pending') rows = rows.filter(isPendingApproval);
-        else if (filterChip === 'mark_paid') rows = rows.filter(isMarkPaidTab);
-        else if (filterChip === 'settled') rows = rows.filter(isSettled);
+        if (filterChip === 'pending') rows = rows.filter(isPendingApprovalPo);
+        else if (filterChip === 'mark_paid') rows = rows.filter(isOpenPayablePo);
+        else if (filterChip === 'settled') rows = rows.filter(isPaidPo);
 
         if (supplierFilter !== 'all') {
             rows = rows.filter((po) => po.supplierName === supplierFilter);
@@ -315,13 +300,13 @@ const PurchasesDashboard = () => {
     );
 
     const groupedSections = useMemo(() => {
-        const pending = filteredOrders.filter(isPendingApproval);
-        const grn = filteredOrders.filter(isGoodsReceivedMarkPaid);
-        const settled = filteredOrders.filter(isSettled);
+        const pending = filteredOrders.filter(isPendingApprovalPo);
+        const openPayable = filteredOrders.filter(isOpenPayablePo);
+        const settled = filteredOrders.filter(isPaidPo);
         const rejected = filteredOrders.filter((po) => po.status === 'Rejected');
         return [
             { key: 'pending', title: 'Pending approval', color: C.amber, rows: pending },
-            { key: 'grn', title: 'Goods received — mark paid', color: C.blue, rows: grn },
+            { key: 'open_payable', title: 'Open payable', color: C.blue, rows: openPayable },
             { key: 'settled', title: 'Settled', color: C.green, rows: settled },
             { key: 'rejected', title: 'Rejected', color: C.red, rows: rejected },
         ].filter((g) => g.rows.length > 0);
@@ -347,52 +332,31 @@ const PurchasesDashboard = () => {
     );
 
     const aiInsights = useMemo(() => {
-        const insights: { color: string; body: React.ReactNode }[] = [];
+        const insights: { color: string; body: string }[] = [];
 
-        if (counts.settled > 0 && counts.total > 0) {
-            const rate = Math.round((counts.settled / counts.total) * 100);
+        if (counts.openPayable > 0) {
             insights.push({
-                color: C.green,
-                body: (
-                    <>
-                        <strong style={{ color: C.green }}>{rate}%</strong> of POs are fully settled — compliance workflow is on track at {COMPLIANCE_SCORE}%.
-                    </>
-                ),
+                color: C.amber,
+                body: `${counts.openPayable} POs open · ${formatCurrency(counts.openValue)} payable`,
             });
         }
 
         if (counts.pending > 0) {
             insights.push({
                 color: C.amber,
-                body: (
-                    <>
-                        <strong style={{ color: C.amber }}>{counts.pending} PO{counts.pending !== 1 ? 's' : ''}</strong> awaiting approval — review pending requisitions to avoid procurement delays.
-                    </>
-                ),
+                body: `${counts.pending} awaiting approval`,
             });
         }
 
-        if (grnUnpaid.length > 0) {
+        if (counts.openPayable === 0 && counts.total > 0) {
             insights.push({
-                color: C.red,
-                body: (
-                    <>
-                        <strong style={{ color: C.red }}>{grnUnpaid.length} PO{grnUnpaid.length !== 1 ? 's' : ''}</strong> received but unpaid — mark paid to update supplier ledger balances.
-                    </>
-                ),
+                color: C.green,
+                body: 'All purchase orders are paid',
             });
         }
 
-        const fallbacks = [
-            { color: C.green, body: 'Maintain audit trail for all approval and payment actions.' },
-            { color: C.amber, body: 'Review pending POs weekly to keep procurement moving.' },
-            { color: C.red, body: 'Clear unpaid GRN records promptly to avoid supplier disputes.' },
-        ];
-        while (insights.length < 3) {
-            insights.push(fallbacks[insights.length]);
-        }
-        return insights.slice(0, 3);
-    }, [counts, grnUnpaid]);
+        return insights;
+    }, [counts]);
 
     const pageTabs: { key: PageTab; label: string; badge?: number; badgeColor?: string }[] = [
         { key: 'all', label: 'All POs' },
@@ -445,8 +409,38 @@ const PurchasesDashboard = () => {
         letterSpacing: '.3px',
     });
 
+    const renderStepper = (order: PurchaseOrder) => {
+        const lights = purchaseStepperLights(order);
+        const step = (label: string, lit: boolean, styleStatus: string) => (
+            <span
+                style={{
+                    ...(lit ? workflowBadgeStyle(styleStatus) : workflowBadgeStyle('')),
+                    padding: '2px 7px',
+                    borderRadius: 5,
+                    fontSize: 8.5,
+                    fontWeight: 700,
+                }}
+            >
+                {label}
+            </span>
+        );
+        return (
+            <>
+                {step('Approved', lights.approved, 'Approved')}
+                {step('Received', lights.received, 'Received')}
+                {step('Paid', lights.paid, 'Paid')}
+            </>
+        );
+    };
+
     const renderActions = (order: PurchaseOrder) => {
-        if (isPendingApproval(order)) {
+        const viewButton = (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setReviewPO(order); }} style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9.5 }}>
+                <Eye size={11} /> View
+            </button>
+        );
+
+        if (isPendingApprovalPo(order)) {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                     <button type="button" onClick={(e) => { e.stopPropagation(); handleApprove(order.id); }} style={actionBtn(C.blue)}>
@@ -470,33 +464,20 @@ const PurchasesDashboard = () => {
                     <button type="button" onClick={(e) => { e.stopPropagation(); goToMaterialReceipt(order.id); }} style={actionBtn(C.green)}>
                         Receive goods
                     </button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setReviewPO(order); }} style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9.5 }}>
-                        <Eye size={11} /> View
-                    </button>
+                    {viewButton}
+                    {renderStepper(order)}
                 </div>
             );
         }
+        // status-only; see GL item
         if (order.status === 'GRN') {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                     <button type="button" onClick={(e) => { e.stopPropagation(); handleMarkPaid(order.id); }} style={actionBtn(C.amber, '#0a1726')}>
                         Mark paid
                     </button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setReviewPO(order); }} style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9.5 }}>
-                        <Eye size={11} /> View
-                    </button>
-                </div>
-            );
-        }
-        if (isSettled(order)) {
-            return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <span style={{ ...workflowBadgeStyle('Approved'), padding: '2px 7px', borderRadius: 5, fontSize: 8.5, fontWeight: 700 }}>Approved</span>
-                    <span style={{ ...workflowBadgeStyle('Received'), padding: '2px 7px', borderRadius: 5, fontSize: 8.5, fontWeight: 700 }}>Received</span>
-                    <span style={{ ...workflowBadgeStyle('Paid'), padding: '2px 7px', borderRadius: 5, fontSize: 8.5, fontWeight: 700 }}>Paid</span>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setReviewPO(order); }} style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9.5 }}>
-                        <Eye size={11} /> View
-                    </button>
+                    {viewButton}
+                    {renderStepper(order)}
                 </div>
             );
         }
@@ -505,6 +486,15 @@ const PurchasesDashboard = () => {
                 <span style={{ ...workflowBadgeStyle('Rejected'), padding: '3px 8px', borderRadius: 6, fontSize: 9, fontWeight: 700 }}>
                     Rejected
                 </span>
+            );
+        }
+        const lights = purchaseStepperLights(order);
+        if (lights.approved || lights.paid) {
+            return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                    {renderStepper(order)}
+                    {viewButton}
+                </div>
             );
         }
         return null;
@@ -518,7 +508,7 @@ const PurchasesDashboard = () => {
                     setReviewPO(order);
                 }
             }}
-            style={{ cursor: isPendingApproval(order) ? 'pointer' : 'default' }}
+            style={{ cursor: isPendingApprovalPo(order) ? 'pointer' : 'default' }}
         >
             <td style={tdStyle}>
                 <div style={{ fontWeight: 600, color: C.text }}>{order.supplierName}</div>
@@ -537,8 +527,8 @@ const PurchasesDashboard = () => {
                 {formatUsd(order.grandTotal || 0)}
             </td>
             <td style={tdStyle}>
-                <span style={{ fontSize: 9.5, fontWeight: 600, color: isSettled(order) ? C.green : C.amber }}>
-                    {isSettled(order) ? 'Settled' : 'Pending settlement'}
+                <span style={{ fontSize: 9.5, fontWeight: 600, color: paymentLabel(order) === 'Settled' ? C.green : C.amber }}>
+                    {paymentLabel(order)}
                 </span>
             </td>
             <td style={tdStyle}>{renderActions(order)}</td>
@@ -558,22 +548,6 @@ const PurchasesDashboard = () => {
                                 <ShoppingCart size={22} style={{ color: C.blue }} />
                                 Purchase orders
                             </h1>
-                            <span
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    padding: '3px 9px',
-                                    borderRadius: 20,
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    background: 'rgba(34,197,94,.12)',
-                                    color: '#86EFAC',
-                                    border: '1px solid rgba(34,197,94,.28)',
-                                }}
-                            >
-                                <CheckCircle size={11} /> {COMPLIANCE_SCORE}% compliance
-                            </span>
                         </div>
                         <p style={{ fontSize: 11, color: C.muted, margin: '4px 0 0' }}>
                             All POs · approval workflow · goods received · payments · audit trail
@@ -652,9 +626,9 @@ const PurchasesDashboard = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
                 {[
                     { label: 'Total POs', value: String(counts.total), sub: 'all purchase orders', color: C.blue, stripe: C.blue },
-                    { label: 'Settled', value: String(counts.settled), sub: 'fully paid & closed', color: C.green, stripe: C.green },
+                    { label: 'Settled', value: String(counts.settled), sub: 'paid in full', color: C.green, stripe: C.green },
                     { label: 'Pending approval', value: String(counts.pending), sub: 'awaiting review', color: C.amber, stripe: C.amber },
-                    { label: 'Compliance score', value: `${COMPLIANCE_SCORE}%`, sub: 'audit trail intact', color: C.green, stripe: C.green },
+                    { label: 'Open payable', value: String(counts.openPayable), sub: formatCurrency(counts.openValue), color: C.amber, stripe: C.amber },
                 ].map((kpi) => (
                     <div key={kpi.label} style={{ ...panel, padding: '10px 12px', position: 'relative', overflow: 'hidden' }}>
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, background: kpi.stripe }} />
@@ -667,24 +641,6 @@ const PurchasesDashboard = () => {
                         <div style={{ fontSize: 9.5, color: C.muted }}>{kpi.sub}</div>
                     </div>
                 ))}
-            </div>
-
-            {/* Alert banners */}
-            <div style={{ ...panel, padding: '12px 14px', background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.28)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <CheckCircle size={18} style={{ color: '#86EFAC', flexShrink: 0 }} />
-                    <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#86EFAC' }}>
-                            Compliance {COMPLIANCE_SCORE}% — procurement audit trail is intact
-                        </div>
-                        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
-                            All approval, GRN, and payment actions are logged
-                        </div>
-                    </div>
-                </div>
-                <button type="button" style={{ ...ghostBtn, color: C.green, borderColor: 'rgba(34,197,94,.35)' }}>
-                    View audit trail
-                </button>
             </div>
 
             {counts.pending > 0 && (
@@ -922,24 +878,26 @@ const PurchasesDashboard = () => {
                     <Sparkles size={14} style={{ color: C.amber }} />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                    {aiInsights.map((insight, i) => (
-                        <div
-                            key={i}
-                            style={{
-                                padding: '10px 12px',
-                                borderRadius: 8,
-                                background: `${insight.color}11`,
-                                border: `1px solid ${insight.color}33`,
-                                fontSize: 11,
-                                color: C.muted,
-                                lineHeight: 1.5,
-                            }}
-                        >
-                            {insight.body}
-                        </div>
-                    ))}
-                </div>
+                {aiInsights.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                        {aiInsights.map((insight, i) => (
+                            <div
+                                key={i}
+                                style={{
+                                    padding: '10px 12px',
+                                    borderRadius: 8,
+                                    background: `${insight.color}11`,
+                                    border: `1px solid ${insight.color}33`,
+                                    fontSize: 11,
+                                    color: C.muted,
+                                    lineHeight: 1.5,
+                                }}
+                            >
+                                {insight.body}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
                     {testOrders.length > 0 && (
