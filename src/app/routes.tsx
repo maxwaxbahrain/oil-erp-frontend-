@@ -76,6 +76,7 @@ import SupplierForm from '../pages/Purchases/SupplierForm';
 import GoodsReceivedForm from '../pages/Inventory/GoodsReceivedForm';
 import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
 import PurchaseReturns from '../pages/Purchases/PurchaseReturns';
+import SupplierPayments from '../pages/Purchases/SupplierPayments';
 import PurchaseReturnFormPage from '../pages/Purchases/PurchaseReturnFormPage';
 import PurchaseReturnDetailPage from '../pages/Purchases/PurchaseReturnDetailPage';
 import StockTransfer from '../pages/Inventory/StockTransfer';
@@ -346,6 +347,7 @@ export const AppRoutes = () => {
             <Route path="/receiving/new" element={<GoodsReceivedForm />} />
             <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
             <Route path="/purchases/returns" element={<PurchaseReturns />} />
+            <Route path="/purchases/payments" element={<SupplierPayments />} />
             <Route path="/purchases/returns/new" element={<PurchaseReturnFormPage />} />
             <Route path="/purchases/returns/:id/edit" element={<PurchaseReturnFormPage />} />
             <Route path="/purchases/returns/:id" element={<PurchaseReturnDetailPage />} />

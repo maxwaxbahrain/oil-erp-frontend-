@@ -103,6 +103,21 @@ export interface SupplierPayment {
     accountId?: number | null;
 }
 
+export interface SupplierPaymentRow extends SupplierPayment {
+    supplier_name: string;
+    account_code: string | null;
+    account_name: string | null;
+    allocated_total: number;
+    unallocated: number;
+    allocations: { po_id: number; po_number: string | null; amount: number }[];
+}
+
+export interface SupplierPaymentsPage {
+    total: number;
+    sum_amount: number;
+    items: SupplierPaymentRow[];
+}
+
 export interface SupplierLedgerEntry {
     id: string;
     date: string;
@@ -457,6 +472,80 @@ export const getSupplierPayments = async (supplierId: string): Promise<SupplierP
         const all = getStorage<SupplierPayment>('supplier_payments');
         return all.filter(p => p.supplierId === supplierId);
     }
+};
+
+function supplierPaymentQuery(params: {
+    supplier_id?: string;
+    date_from?: string;
+    date_to?: string;
+    account_id?: number;
+    limit?: number;
+    offset?: number;
+}): string {
+    const search = new URLSearchParams();
+    const setIf = (key: string, value: string | number | undefined) => {
+        if (value === undefined || value === '') return;
+        search.set(key, String(value));
+    };
+    setIf('supplier_id', params.supplier_id);
+    setIf('date_from', params.date_from);
+    setIf('date_to', params.date_to);
+    setIf('account_id', params.account_id);
+    setIf('limit', params.limit);
+    setIf('offset', params.offset);
+    const qs = search.toString();
+    return qs ? `?${qs}` : '';
+}
+
+function normalizeSupplierPaymentRow(raw: any): SupplierPaymentRow {
+    const allocations = Array.isArray(raw?.allocations)
+        ? raw.allocations.map((entry: any) => ({
+            po_id: Number(entry?.po_id) || 0,
+            po_number: entry?.po_number == null ? null : String(entry.po_number),
+            amount: Number(entry?.amount) || 0,
+        }))
+        : [];
+    const amount = Number(raw?.amount);
+    const allocated = Number(raw?.allocated_total);
+    const unallocated = Number(raw?.unallocated);
+    return {
+        id: String(raw?.id ?? ''),
+        supplierId: String(raw?.supplierId ?? raw?.supplier_id ?? ''),
+        amount: Number.isFinite(amount) ? amount : 0,
+        date: String(raw?.date ?? ''),
+        paymentMethod: String(raw?.paymentMethod ?? raw?.payment_method ?? ''),
+        reference: raw?.reference ?? undefined,
+        notes: raw?.notes ?? undefined,
+        pay_from_account_id: raw?.pay_from_account_id ?? raw?.account_id ?? null,
+        accountId: raw?.accountId ?? raw?.account_id ?? null,
+        supplier_name: String(raw?.supplier_name ?? ''),
+        account_code: raw?.account_code == null ? null : String(raw.account_code),
+        account_name: raw?.account_name == null ? null : String(raw.account_name),
+        allocated_total: Number.isFinite(allocated) ? allocated : 0,
+        unallocated: Number.isFinite(unallocated) ? unallocated : 0,
+        allocations,
+    };
+}
+
+/** Throws on HTTP error so the list page can show it; unlike getSupplierPayments, there is no empty fallback. */
+export const getAllSupplierPayments = async (params: {
+    supplier_id?: string;
+    date_from?: string;
+    date_to?: string;
+    account_id?: number;
+    limit?: number;
+    offset?: number;
+}): Promise<SupplierPaymentsPage> => {
+    const r = await authFetch(`${getOilErpApiBase()}/supplier-payments${supplierPaymentQuery(params)}`);
+    if (!r.ok) throw new Error(`Supplier payments failed: HTTP ${r.status}`);
+    const body = await r.json();
+    const total = Number(body?.total);
+    const sumAmount = Number(body?.sum_amount);
+    return {
+        total: Number.isFinite(total) ? total : 0,
+        sum_amount: Number.isFinite(sumAmount) ? sumAmount : 0,
+        items: Array.isArray(body?.items) ? body.items.map(normalizeSupplierPaymentRow) : [],
+    };
 };
 
 export const createSupplierPayment = async (payment: Omit<SupplierPayment, 'id'>): Promise<SupplierPayment> => {
