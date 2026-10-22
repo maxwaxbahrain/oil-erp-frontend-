@@ -337,7 +337,7 @@ export default function QuotationFormPage() {
                             onChange={setCustomerId}
                             placeholder="Select customer…"
                             displayKey="name"
-                            theme="dark"
+                            variant="dark"
                         />
                     </div>
                     <div>
@@ -353,7 +353,7 @@ export default function QuotationFormPage() {
                                 onChange={setSalesmanEmployeeId}
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
-                                theme="dark"
+                                variant="dark"
                             />
                         )}
                     </div>

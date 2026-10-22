@@ -790,6 +790,7 @@ export default function PurchaseOrderForm() {
                                 placeholder="Search supplier..."
                                 displayKey="name"
                                 disabled={loading}
+                                variant="dark"
                             />
                         ) : (
                             <div
@@ -970,6 +971,7 @@ export default function PurchaseOrderForm() {
                                                         onChange={(productId) => handleProductSelect(item.id, productId)}
                                                         placeholder="Select SKU"
                                                         displayKey="name"
+                                                        variant="dark"
                                                     />
                                                 </div>
                                                 {rowErrors?.sku && (
