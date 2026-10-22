@@ -249,7 +249,7 @@ export default function SupplierPayments() {
         </div>
       ) : page.total === 0 ? null : (
         <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[72rem] text-left text-sm">
             <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="px-4 py-3 whitespace-nowrap">Date</th>
@@ -269,8 +269,8 @@ export default function SupplierPayments() {
                 const unallocatedOrders = orders === 'Not allocated';
                 return (
                   <tr key={String(row.id)} className="border-t border-gray-100">
-                    <td className="px-4 py-3">{formatLocalDate(row.date) || '—'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">{formatLocalDate(row.date) || '—'}</td>
+                    <td className="px-4 py-3 min-w-[14rem]">
                       <Link
                         to={`/suppliers/${row.supplierId}?tab=payments`}
                         className="font-bold text-gray-900 underline"
@@ -278,9 +278,9 @@ export default function SupplierPayments() {
                         {row.supplier_name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 font-mono">{row.reference || '—'}</td>
-                    <td className="px-4 py-3">{row.paymentMethod}</td>
-                    <td className="px-4 py-3">{accountLabel(row)}</td>
+                    <td className="px-4 py-3 font-mono whitespace-nowrap">{row.reference || '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{row.paymentMethod}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{accountLabel(row)}</td>
                     <td className="px-4 py-3 text-right font-mono whitespace-nowrap">{formatCurrency(row.amount)}</td>
                     <td className="px-4 py-3 text-right font-mono whitespace-nowrap">{formatCurrency(row.allocated_total)}</td>
                     <td className="py-3 pr-6 text-right font-mono whitespace-nowrap">{formatCurrency(row.unallocated)}</td>
