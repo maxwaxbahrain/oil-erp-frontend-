@@ -894,10 +894,16 @@ export function checkExpensePolicy(candidate: {
 
 // ─── STEP 6 — Bulk Upload parser ────────────────────────────────────
 // Accepts an image, PDF, raw text (e.g. pasted bank-statement rows),
-// or CSV string and returns one row per detected expense.  Each row
-// is shallow-categorized (STEP 3) + duplicate-checked (STEP 4) +
-// policy-checked (STEP 5) so the review table can show everything
-// inline.
+// or CSV string. Image, PDF, and pasted text share one prompt. A
+// receipt (one purchase with a TOTAL) becomes a single row; an expense
+// list stays one row per expense. Each row is shallow-categorized
+// (STEP 3) + duplicate-checked (STEP 4) + policy-checked (STEP 5) so
+// the review table can show everything inline.
+
+export interface ParsedExpenseLineItem {
+    name: string;
+    amount: number;
+}
 
 export interface ParsedExpenseRow {
     id: string;                  // local table reactivity
@@ -912,22 +918,44 @@ export interface ParsedExpenseRow {
     isDuplicate: boolean;
     duplicateOfId: string | null;
     policyFlags: PolicyFlag[];
+    taxAmount?: number;
+    documentType?: 'receipt' | 'expense_list';
+    lineItems?: ParsedExpenseLineItem[];
+    collapsedReceipt?: boolean;
+    /** How many AI entries were combined into this one expense. */
+    collapsedLineCount?: number;
 }
 
 const BULK_PARSER_PROMPT =
-    'You are reading an expense document.  Extract every individual ' +
-    'expense line item you can find.\n' +
-    'Return ONLY a valid JSON array with no extra text:\n' +
+    'You are reading an expense document. First decide document_type.\n' +
+    '- "receipt": a single purchase with a TOTAL / amount due line, usually also SUBTOTAL and TAX.\n' +
+    '- "expense_list": several independent expenses, with no single total for the whole document.\n' +
+    'Return ONLY a valid JSON array with no extra text and no markdown.\n' +
+    'If document_type is "receipt", return exactly ONE entry. amount is the TOTAL line ' +
+    '(tax-inclusive), never the subtotal. tax_amount is 0 when there is no tax. ' +
+    'description is a short summary of the line items (for example "Diesel 31.26 gal, DEF, coffee").\n' +
     '[{\n' +
+    '  "document_type": "receipt",\n' +
+    '  "vendor_name": string or null,\n' +
+    '  "date": "YYYY-MM-DD" or null,\n' +
+    '  "amount": number or null,\n' +
+    '  "tax_amount": number,\n' +
+    '  "currency": "ISO" or null,\n' +
+    '  "description": string or null,\n' +
+    '  "line_items": [{"name": string, "amount": number}],\n' +
+    '  "confidence": 0-100\n' +
+    '}]\n' +
+    'If document_type is "expense_list", return one entry per expense line. ' +
+    'Ignore totals, headings, and page numbers. Only extract individual expense line items.\n' +
+    '[{\n' +
+    '  "document_type": "expense_list",\n' +
     '  "vendor_name": string or null,\n' +
     '  "date": "YYYY-MM-DD" or null,\n' +
     '  "amount": number or null,\n' +
     '  "currency": "ISO" or null,\n' +
     '  "description": string or null,\n' +
     '  "confidence": 0-100\n' +
-    '}]\n' +
-    'Ignore totals, headings, and page numbers.  Only extract ' +
-    'individual expense line items.';
+    '}]';
 
 function parseLooseJsonArray(text: string): unknown[] {
     const trimmed = text.trim();
@@ -985,6 +1013,245 @@ async function callBulkParserAI(payload: Record<string, unknown>): Promise<unkno
     return parseLooseJsonArray(reply);
 }
 
+interface BulkAiEntry {
+    vendor: string;
+    date: string;
+    amount: number;
+    currency: string;
+    description: string;
+    confidence: number;
+    taxAmount?: number;
+    taxProvided: boolean;
+    documentType?: 'receipt' | 'expense_list';
+    lineItems?: ParsedExpenseLineItem[];
+    collapsedReceipt?: boolean;
+    collapsedLineCount?: number;
+}
+
+function toCents(amount: number): number {
+    return Math.round(amount * 100);
+}
+
+function fromCents(cents: number): number {
+    return cents / 100;
+}
+
+function readOptionalNumber(raw: unknown): { value: number; provided: boolean } {
+    if (raw === null || raw === undefined || raw === '') return { value: 0, provided: false };
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return { value: 0, provided: false };
+    return { value: fromCents(toCents(n)), provided: true };
+}
+
+function readDocumentType(raw: unknown): 'receipt' | 'expense_list' | undefined {
+    if (typeof raw !== 'string') return undefined;
+    const value = raw.trim().toLowerCase();
+    if (value === 'receipt') return 'receipt';
+    if (value === 'expense_list') return 'expense_list';
+    return undefined;
+}
+
+function readLineItems(raw: unknown): ParsedExpenseLineItem[] | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    const items = raw.map(item => {
+        const row = (item && typeof item === 'object') ? item as Record<string, unknown> : {};
+        const name = String(row.name ?? row.description ?? '').trim();
+        const amount = Number(row.amount) || 0;
+        return { name, amount };
+    }).filter(item => item.name.length > 0 || item.amount !== 0);
+    return items.length > 0 ? items : undefined;
+}
+
+function readBulkAiEntry(raw: Record<string, unknown> | undefined): BulkAiEntry {
+    const r = raw || {};
+    const tax = readOptionalNumber(r.tax_amount !== undefined ? r.tax_amount : r.taxAmount);
+    return {
+        vendor: String(r.vendor_name || ''),
+        date: String(r.date || '').trim(),
+        amount: Number(r.amount) || 0,
+        currency: String(r.currency || 'USD'),
+        description: String(r.description || ''),
+        confidence: Math.max(0, Math.min(100, Number(r.confidence) || 0)),
+        taxAmount: tax.provided ? tax.value : undefined,
+        taxProvided: tax.provided,
+        documentType: readDocumentType(r.document_type !== undefined ? r.document_type : r.documentType),
+        lineItems: readLineItems(r.line_items !== undefined ? r.line_items : r.lineItems),
+    };
+}
+
+function looksLikeTaxText(text: string): boolean {
+    return /\b(sales\s+tax|tax|vat|gst|hst)\b/i.test(text);
+}
+
+function vendorsDiffer(entries: BulkAiEntry[]): boolean {
+    return new Set(entries.map(entry => entry.vendor.trim().toLowerCase())).size > 1;
+}
+
+function datesDiffer(entries: BulkAiEntry[]): boolean {
+    return new Set(entries.map(entry => entry.date.trim())).size > 1;
+}
+
+/** One entry equals the sum of the others (±$0.02) or that sum plus tax of at most 15%. */
+function entryLooksLikeTotal(entries: BulkAiEntry[], index: number): boolean {
+    const others = entries.filter((_, i) => i !== index);
+    const sumCents = others.reduce((sum, row) => sum + toCents(row.amount), 0);
+    const diffCents = toCents(entries[index].amount) - sumCents;
+    if (Math.abs(diffCents) <= 2) return true;
+    if (sumCents > 0 && diffCents > 2 && diffCents / sumCents <= 0.15 + 1e-9) return true;
+    return false;
+}
+
+function shouldCollapseReceipt(entries: BulkAiEntry[]): boolean {
+    if (entries.length < 2) return false;
+    if (entries.some(entry => entry.documentType === 'expense_list')) return false;
+    if (vendorsDiffer(entries)) return false;
+    if (entries.some(entry => entry.documentType === 'receipt')) return true;
+    if (entries.some(entry => entry.documentType != null)) return false;
+    if (datesDiffer(entries)) return false;
+    return entries.some((_, index) => entryLooksLikeTotal(entries, index));
+}
+
+function pickTotalIndex(entries: BulkAiEntry[]): number {
+    let best = 0;
+    for (let i = 1; i < entries.length; i++) {
+        const amt = toCents(entries[i].amount);
+        const bestAmt = toCents(entries[best].amount);
+        if (amt > bestAmt) best = i;
+        else if (amt === bestAmt && entryLooksLikeTotal(entries, i) && !entryLooksLikeTotal(entries, best)) best = i;
+    }
+    return best;
+}
+
+function collapsedTaxAmount(total: BulkAiEntry, others: BulkAiEntry[]): number | undefined {
+    if (total.taxProvided) return total.taxAmount;
+    const taxLine = others.find(row => looksLikeTaxText(`${row.description} ${row.vendor}`));
+    if (taxLine) return fromCents(toCents(taxLine.amount));
+    const sumCents = others.reduce((sum, row) => sum + toCents(row.amount), 0);
+    const diffCents = toCents(total.amount) - sumCents;
+    const plausibleTax = sumCents > 0 && diffCents > 0 && diffCents / sumCents <= 0.15 + 1e-9;
+    if (plausibleTax) return fromCents(diffCents);
+    return undefined;
+}
+
+function collapseReceiptEntries(entries: BulkAiEntry[]): BulkAiEntry[] {
+    if (!shouldCollapseReceipt(entries)) return entries;
+    const totalIndex = pickTotalIndex(entries);
+    const total = entries[totalIndex];
+    const others = entries.filter((_, index) => index !== totalIndex);
+    const lineItems = others.map((row, index) => ({
+        name: row.description.trim() || `Item ${index + 1}`,
+        amount: row.amount,
+    }));
+    const taxAmount = collapsedTaxAmount(total, others);
+    return [{
+        vendor: total.vendor,
+        date: total.date,
+        amount: total.amount,
+        currency: total.currency,
+        description: total.description,
+        confidence: total.confidence,
+        taxAmount,
+        taxProvided: taxAmount !== undefined,
+        documentType: 'receipt',
+        lineItems,
+        collapsedReceipt: true,
+        collapsedLineCount: entries.length,
+    }];
+}
+
+function descriptionWithLineItems(description: string, lineItems?: ParsedExpenseLineItem[]): string {
+    const names = (lineItems || []).map(item => item.name.trim()).filter(Boolean);
+    const base = description.trim();
+    if (names.length === 0) return base;
+    const summary = names.join(', ');
+    if (!base) return summary;
+    const hay = base.toLowerCase();
+    if (names.every(name => hay.includes(name.toLowerCase()))) return base;
+    return `${base} — ${summary}`;
+}
+
+/** Visible review-table copy when a receipt was collapsed to one expense. */
+export function formatCollapsedReceiptNotice(combinedEntryCount: number): string {
+    return `Combined ${combinedEntryCount} receipt lines into one expense`;
+}
+
+/** Argument importRows passes to saveExpense. */
+export function buildBulkExpenseSavePayload(r: ParsedExpenseRow): Partial<Expense> {
+    const payload: Partial<Expense> = {
+        vendor: r.vendor,
+        amount: r.amount,
+        currency: r.currency || 'USD',
+        date: r.date,
+        category: r.category,
+        description: descriptionWithLineItems(r.description, r.lineItems),
+        paymentMethod: 'Card',
+        isRecurring: false,
+        status: 'Draft',
+        is_duplicate_flag: r.isDuplicate,
+        duplicate_of_id: r.duplicateOfId,
+        policy_flags: r.policyFlags.length > 0 ? r.policyFlags : undefined,
+        aiExtracted: true,
+        aiConfidence: r.extractionConfidence,
+    };
+    if (r.taxAmount !== undefined) payload.taxAmount = r.taxAmount;
+    return payload;
+}
+
+export async function hydrateBulkExpenseRows(
+    rawRows: Array<Record<string, unknown>>,
+): Promise<ParsedExpenseRow[]> {
+    const collapsed = collapseReceiptEntries(rawRows.map(row => readBulkAiEntry(row)));
+    const out: ParsedExpenseRow[] = [];
+    for (let i = 0; i < collapsed.length; i++) {
+        const entry = collapsed[i];
+        const vendor = entry.vendor;
+        const date = entry.date || localIsoDate();
+        const amount = entry.amount;
+        const description = descriptionWithLineItems(entry.description, entry.lineItems);
+        const currency = entry.currency || 'USD';
+        const extractionConfidence = entry.confidence;
+
+        // Categorize — non-fatal if AI fails for one row.
+        let category = 'Other Expenses';
+        let categoryConfidence = 0;
+        if (vendor && amount > 0) {
+            try {
+                const s = await suggestExpenseCategory(vendor, description, amount);
+                category = s.mappedCategory;
+                categoryConfidence = s.confidence;
+            } catch { /* leave default */ }
+        }
+
+        // Duplicate + policy (pure-local, never fail).
+        const dup = checkExpenseDuplicate({ vendor, amount, date, category });
+        const policyFlags = checkExpensePolicy({ category, amount, date, hasReceipt: false });
+
+        const row: ParsedExpenseRow = {
+            id: `bulk-${Date.now()}-${i}`,
+            vendor,
+            date,
+            amount,
+            currency,
+            description,
+            category,
+            categoryConfidence,
+            extractionConfidence,
+            isDuplicate: dup.isDuplicate,
+            duplicateOfId: dup.matches[0]?.expenseId || null,
+            policyFlags,
+        };
+        if (entry.taxAmount !== undefined) row.taxAmount = entry.taxAmount;
+        if (entry.documentType) row.documentType = entry.documentType;
+        if (entry.lineItems?.length) row.lineItems = entry.lineItems;
+        if (entry.collapsedReceipt) {
+            row.collapsedReceipt = true;
+            row.collapsedLineCount = entry.collapsedLineCount;
+        }
+        out.push(row);
+    }
+    return out;
+}
+
 export type BulkInput =
     | { kind: 'image';   file: File }
     | { kind: 'pdf';     file: File }
@@ -1028,48 +1295,7 @@ export async function parseBulkExpenses(input: BulkInput): Promise<ParsedExpense
         rawRows = parsed as Array<Record<string, unknown>>;
     }
 
-    // Hydrate each row with categorization + duplicate + policy.
-    const out: ParsedExpenseRow[] = [];
-    for (let i = 0; i < rawRows.length; i++) {
-        const r = rawRows[i] || {};
-        const vendor = String(r.vendor_name || '');
-        const date = String(r.date || localIsoDate());
-        const amount = Number(r.amount) || 0;
-        const description = String(r.description || '');
-        const currency = String(r.currency || 'USD');
-        const extractionConfidence = Math.max(0, Math.min(100, Number(r.confidence) || 0));
-
-        // Categorize — non-fatal if AI fails for one row.
-        let category = 'Other Expenses';
-        let categoryConfidence = 0;
-        if (vendor && amount > 0) {
-            try {
-                const s = await suggestExpenseCategory(vendor, description, amount);
-                category = s.mappedCategory;
-                categoryConfidence = s.confidence;
-            } catch { /* leave default */ }
-        }
-
-        // Duplicate + policy (pure-local, never fail).
-        const dup = checkExpenseDuplicate({ vendor, amount, date, category });
-        const policyFlags = checkExpensePolicy({ category, amount, date, hasReceipt: false });
-
-        out.push({
-            id: `bulk-${Date.now()}-${i}`,
-            vendor,
-            date,
-            amount,
-            currency,
-            description,
-            category,
-            categoryConfidence,
-            extractionConfidence,
-            isDuplicate: dup.isDuplicate,
-            duplicateOfId: dup.matches[0]?.expenseId || null,
-            policyFlags,
-        });
-    }
-    return out;
+    return hydrateBulkExpenseRows(rawRows);
 }
 
 
