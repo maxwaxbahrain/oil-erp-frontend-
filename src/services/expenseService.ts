@@ -1300,87 +1300,178 @@ export async function parseBulkExpenses(input: BulkInput): Promise<ParsedExpense
 
 
 // ─── STEP 8 — Mileage Tracker ───────────────────────────────────────
-// Pure-local CRUD for mileage entries (localStorage), plus an AI
-// distance estimator using the exact prompt from the master file.
+// Tenant mileage settings + trip log via backend API, plus AI distance
+// estimator.
 
-export interface MileageEntry {
-    id: string;
-    date: string;                  // YYYY-MM-DD
-    fromLocation: string;
-    toLocation: string;
-    distanceKm: number;
+const MILEAGE_API = `${getOilErpApiBase()}/expenses/mileage`;
+
+export type DistanceUnit = 'miles' | 'km';
+
+export interface MileageSettings {
+    distance_unit: DistanceUnit;
+    mileage_rate: number;
+}
+
+export interface MileageTrip {
+    id: number;
+    date: string;
+    origin: string;
+    destination: string;
+    distance: number;
+    unit: string;
+    rate: number;
+    round_trip: boolean;
+    purpose: string | null;
+    amount: number;
+    expense_id: number | null;
+}
+
+export interface MileageTripList {
+    items: MileageTrip[];
+    count: number;
+    total_distance: number;
+    total_amount: number;
+}
+
+function _mileageTripFromApi(raw: Record<string, unknown>): MileageTrip {
+    const dateRaw = raw.date != null ? String(raw.date) : '';
+    return {
+        id: Number(raw.id),
+        date: dateRaw.slice(0, 10),
+        origin: String(raw.origin ?? ''),
+        destination: String(raw.destination ?? ''),
+        distance: Number(raw.distance ?? 0),
+        unit: String(raw.unit ?? 'miles'),
+        rate: Number(raw.rate ?? 0),
+        round_trip: Boolean(raw.round_trip),
+        purpose: raw.purpose != null ? String(raw.purpose) : null,
+        amount: Number(raw.amount ?? 0),
+        expense_id: raw.expense_id != null ? Number(raw.expense_id) : null,
+    };
+}
+
+export async function getMileageSettings(): Promise<MileageSettings> {
+    const r = await authFetch(`${MILEAGE_API}/settings`);
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to load mileage settings (HTTP ${r.status})`);
+    }
+    const body = await r.json() as { distance_unit?: string; mileage_rate?: number };
+    const unit = body.distance_unit === 'km' ? 'km' : 'miles';
+    return {
+        distance_unit: unit,
+        mileage_rate: Number(body.mileage_rate ?? 0.7),
+    };
+}
+
+export async function patchMileageSettings(patch: Partial<MileageSettings>): Promise<MileageSettings> {
+    const payload: Record<string, unknown> = {};
+    if (patch.distance_unit != null) payload.distance_unit = patch.distance_unit;
+    if (patch.mileage_rate != null) payload.mileage_rate = patch.mileage_rate;
+    const r = await authFetch(`${MILEAGE_API}/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to save mileage settings (HTTP ${r.status})`);
+    }
+    const body = await r.json() as { distance_unit?: string; mileage_rate?: number };
+    const unit = body.distance_unit === 'km' ? 'km' : 'miles';
+    return {
+        distance_unit: unit,
+        mileage_rate: Number(body.mileage_rate ?? 0.7),
+    };
+}
+
+export async function listMileageTrips(month?: string): Promise<MileageTripList> {
+    const query = month ? `?month=${encodeURIComponent(month)}` : '';
+    const r = await authFetch(`${MILEAGE_API}/trips${query}`);
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to load mileage trips (HTTP ${r.status})`);
+    }
+    const body = await r.json() as {
+        items?: unknown[];
+        count?: number;
+        total_distance?: number;
+        total_amount?: number;
+    };
+    const items = Array.isArray(body.items)
+        ? body.items.map(row => _mileageTripFromApi(row as Record<string, unknown>))
+        : [];
+    return {
+        items,
+        count: Number(body.count ?? items.length),
+        total_distance: Number(body.total_distance ?? 0),
+        total_amount: Number(body.total_amount ?? 0),
+    };
+}
+
+export async function createMileageTrip(payload: {
+    date: string;
+    origin: string;
+    destination: string;
+    distance: number;
     roundTrip: boolean;
-    ratePerKm: number;
-    totalAmount: number;
-    purpose: string;
-    linkedExpenseId: string | null;
-    createdAt: string;
+    purpose?: string;
+    createExpense: boolean;
+}): Promise<MileageTrip> {
+    const r = await authFetch(`${MILEAGE_API}/trips`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            date: payload.date,
+            origin: payload.origin,
+            destination: payload.destination,
+            distance: payload.distance,
+            roundTrip: payload.roundTrip,
+            purpose: payload.purpose ?? null,
+            createExpense: payload.createExpense,
+        }),
+    });
+    if (!r.ok) {
+        const detail = await _readErrorDetail(r);
+        throw new Error(detail || `Failed to save mileage trip (HTTP ${r.status})`);
+    }
+    const body = await r.json() as Record<string, unknown>;
+    return _mileageTripFromApi(body);
 }
 
-const MILEAGE_KEY = 'zavi_mileage_entries';
-
-export async function getMileageEntries(): Promise<MileageEntry[]> {
-    return new Promise(resolve => {
-        const raw = localStorage.getItem(MILEAGE_KEY);
-        const list: MileageEntry[] = raw ? JSON.parse(raw) : [];
-        // Newest first.
-        list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        setTimeout(() => resolve(list), 50);
+export async function deleteMileageTrip(id: number): Promise<void> {
+    const r = await authFetch(`${MILEAGE_API}/trips/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
     });
-}
-
-export async function saveMileageEntry(entry: Partial<MileageEntry>): Promise<MileageEntry> {
-    return new Promise(resolve => {
-        const raw = localStorage.getItem(MILEAGE_KEY);
-        const list: MileageEntry[] = raw ? JSON.parse(raw) : [];
-        let saved: MileageEntry;
-        if (entry.id) {
-            const idx = list.findIndex(e => e.id === entry.id);
-            if (idx >= 0) {
-                list[idx] = { ...list[idx], ...entry } as MileageEntry;
-                saved = list[idx];
-            } else {
-                saved = { ...entry, id: entry.id } as MileageEntry;
-                list.push(saved);
-            }
-        } else {
-            saved = {
-                id: 'MIL-' + Date.now(),
-                date: entry.date || localIsoDate(),
-                fromLocation: entry.fromLocation || '',
-                toLocation: entry.toLocation || '',
-                distanceKm: Number(entry.distanceKm) || 0,
-                roundTrip: Boolean(entry.roundTrip),
-                ratePerKm: Number(entry.ratePerKm) || 0.45,
-                totalAmount: Number(entry.totalAmount) || 0,
-                purpose: entry.purpose || '',
-                linkedExpenseId: entry.linkedExpenseId ?? null,
-                createdAt: new Date().toISOString(),
-            };
-            list.push(saved);
-        }
-        localStorage.setItem(MILEAGE_KEY, JSON.stringify(list));
-        setTimeout(() => resolve(saved), 50);
-    });
+    if (r.status === 204) return;
+    const detail = await _readErrorDetail(r);
+    throw new Error(detail || `Failed to delete mileage trip (HTTP ${r.status})`);
 }
 
 export interface MileageEstimate {
-    distanceKm: number;
+    distance: number;
+    unit: DistanceUnit;
     confidence: 'exact' | 'approximate' | 'rough';
     note: string;
 }
 
-export async function estimateMileage(from: string, to: string): Promise<MileageEstimate> {
+export async function estimateMileage(
+    from: string,
+    to: string,
+    unit: DistanceUnit = 'miles',
+): Promise<MileageEstimate> {
     if (!from?.trim() || !to?.trim()) {
         throw new Error('Enter both From and To locations.');
     }
+    const unitLabel = unit === 'km' ? 'km' : 'miles';
+    const distanceField = unit === 'km' ? 'distance_km' : 'distance_miles';
     const system =
-        'Estimate the driving distance in km between:\n' +
+        `Estimate the driving distance in ${unitLabel} between:\n` +
         'From: ' + from.trim() + '\n' +
         'To: ' + to.trim() + '\n\n' +
         'Return ONLY valid JSON:\n' +
         '{\n' +
-        '  "distance_km": number,\n' +
+        `  "${distanceField}": number,\n` +
         '  "confidence": "exact" | "approximate" | "rough",\n' +
         '  "note": "string if approximate"\n' +
         '}\n' +
@@ -1410,10 +1501,20 @@ export async function estimateMileage(from: string, to: string): Promise<Mileage
     const conf = String(parsed.confidence || 'rough');
     const safeConf: MileageEstimate['confidence'] =
         conf === 'exact' || conf === 'approximate' || conf === 'rough' ? conf : 'rough';
+    const primary = Number(parsed[distanceField]) || 0;
+    let distance = Math.max(0, primary);
+    if (!distance) {
+        const km = Number(parsed.distance_km) || 0;
+        const mi = Number(parsed.distance_miles) || 0;
+        if (unit === 'km' && mi > 0) distance = mi * 1.60934;
+        else if (unit === 'miles' && km > 0) distance = km / 1.60934;
+        else distance = Math.max(km, mi);
+    }
     return {
-        distanceKm: Math.max(0, Number(parsed.distance_km) || 0),
+        distance,
+        unit,
         confidence: safeConf,
-        note:       String(parsed.note || ''),
+        note: String(parsed.note || ''),
     };
 }
 
@@ -1539,7 +1640,6 @@ export interface ExpenseSettings {
         };
     };
     autoApproveThreshold:         number;
-    mileageRatePerKm:             number;
     aiFeaturesEnabled: {
         ocr:                 boolean;
         categorization:      boolean;
@@ -1561,7 +1661,6 @@ export const DEFAULT_SETTINGS: ExpenseSettings = {
         enabled: { meal: true, receipt: true, late: true, round: true },
     },
     autoApproveThreshold: 100,
-    mileageRatePerKm:     0.45,
     aiFeaturesEnabled: {
         ocr:                true,
         categorization:     true,
@@ -1589,7 +1688,6 @@ export function getExpenseSettings(): ExpenseSettings {
                 },
             },
             autoApproveThreshold: parsed.autoApproveThreshold ?? DEFAULT_SETTINGS.autoApproveThreshold,
-            mileageRatePerKm:     parsed.mileageRatePerKm     ?? DEFAULT_SETTINGS.mileageRatePerKm,
             aiFeaturesEnabled: {
                 ...DEFAULT_SETTINGS.aiFeaturesEnabled,
                 ...((parsed.aiFeaturesEnabled) || {}),
