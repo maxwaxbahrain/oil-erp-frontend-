@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Plus, CheckCircle, Trash2, Edit2, Search, Download, Eye, Wallet,
@@ -7,12 +7,11 @@ import {
 import * as XLSX from 'xlsx';
 import { type Supplier, type PurchaseOrder, deleteSupplier } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
+import { getOilErpApiBase } from '../../config/apiBase';
 import { assessTerms } from '../../utils/supplierTerms';
 
-const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
-    .trim()
-    .replace(/\/+$/, '');
-const SUPPLIERS_API = `${API_HOST}/api/suppliers`;
+/** Same base as purchasesService — VITE_API_BASE_URL or VITE_API_URL/api. */
+const SUPPLIERS_API = `${getOilErpApiBase()}/suppliers`;
 
 const C = {
     bg: '#060f1c',
@@ -132,89 +131,97 @@ export default function SupplierList() {
     const location = useLocation();
     const [suppliers, setSuppliers] = useState<EnrichedSupplier[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [showSuccess, setShowSuccess] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [search, setSearch] = useState('');
     const [filterTab, setFilterTab] = useState<FilterTab>('all');
 
-    useEffect(() => {
+    const loadSuppliers = useCallback(async () => {
+        setLoading(true);
+        setError(null);
         try {
-            localStorage.removeItem('suppliers');
-            localStorage.removeItem('supplier_payments');
-            localStorage.removeItem('purchase_orders');
-        } catch { /* ignore */ }
-
-        const fetchSuppliers = async () => {
-            setLoading(true);
+            const res = await authFetch(`${SUPPLIERS_API}/`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            let rows: unknown;
             try {
-                const res = await authFetch(`${SUPPLIERS_API}/`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const rows = await res.json();
-                const list: any[] = Array.isArray(rows) ? rows : [];
-                const today = new Date();
-
-                const enriched = await Promise.all(
-                    list.map(async (s) => {
-                        let balance = 0;
-                        let purchases: PurchaseOrder[] = [];
-                        try {
-                            const [br, pr] = await Promise.all([
-                                authFetch(`${SUPPLIERS_API}/${s.id}/balance`),
-                                authFetch(`${SUPPLIERS_API}/${s.id}/purchases`),
-                            ]);
-                            if (br.ok) {
-                                const j = await br.json();
-                                balance = Number(j.balance) || 0;
-                            }
-                            if (pr.ok) {
-                                const pRows = await pr.json();
-                                purchases = Array.isArray(pRows) ? pRows : [];
-                            }
-                        } catch { /* ignore one supplier */ }
-
-                        const base: Supplier = {
-                            id: String(s.id),
-                            name: s.name || '',
-                            code: s.code || '',
-                            contactPerson: s.contact_person || '',
-                            email: s.email || '',
-                            phone: s.phone || '',
-                            address: s.address || '',
-                            taxId: s.tax_id || '',
-                            status: (s.status === 'Blocked' ? 'Blocked' : 'Active') as 'Active' | 'Blocked',
-                            paymentTerms: s.payment_terms || 'Net 30',
-                            currency: s.currency || 'USD',
-                            rating: s.rating || undefined,
-                        };
-
-                        const { isOverdue, isDueSoon } = assessTerms(balance, base.paymentTerms, purchases, today);
-                        const isTest = isTestSupplier(base);
-                        const row: EnrichedSupplier = {
-                            ...base,
-                            balance,
-                            productsSupplied: extractProducts(purchases),
-                            performance: null,
-                            leadTime: null,
-                            isOverdue,
-                            isDueSoon,
-                            isTest,
-                            rowStatus: 'Active',
-                        };
-                        row.rowStatus = getRowStatus(row);
-                        return row;
-                    }),
-                );
-
-                setSuppliers(enriched);
-            } catch (error) {
-                console.error('[SupplierList] Failed to fetch suppliers:', error);
-            } finally {
-                setLoading(false);
+                rows = await res.json();
+            } catch {
+                throw new Error('Server returned a web page instead of supplier data');
             }
-        };
+            if (!Array.isArray(rows)) {
+                throw new Error('Unexpected supplier list response');
+            }
+            const list = rows as any[];
+            const today = new Date();
 
-        void fetchSuppliers();
+            const enriched = await Promise.all(
+                list.map(async (s) => {
+                    let balance = 0;
+                    let purchases: PurchaseOrder[] = [];
+                    try {
+                        const [br, pr] = await Promise.all([
+                            authFetch(`${SUPPLIERS_API}/${s.id}/balance`),
+                            authFetch(`${SUPPLIERS_API}/${s.id}/purchases`),
+                        ]);
+                        if (br.ok) {
+                            const j = await br.json();
+                            balance = Number(j.balance) || 0;
+                        }
+                        if (pr.ok) {
+                            const pRows = await pr.json();
+                            purchases = Array.isArray(pRows) ? pRows : [];
+                        }
+                    } catch { /* ignore one supplier */ }
 
+                    const base: Supplier = {
+                        id: String(s.id),
+                        name: s.name || '',
+                        code: s.code || '',
+                        contactPerson: s.contact_person || '',
+                        email: s.email || '',
+                        phone: s.phone || '',
+                        address: s.address || '',
+                        taxId: s.tax_id || '',
+                        status: (s.status === 'Blocked' ? 'Blocked' : 'Active') as 'Active' | 'Blocked',
+                        paymentTerms: s.payment_terms || 'Net 30',
+                        currency: s.currency || 'USD',
+                        rating: s.rating || undefined,
+                    };
+
+                    const { isOverdue, isDueSoon } = assessTerms(balance, base.paymentTerms, purchases, today);
+                    const isTest = isTestSupplier(base);
+                    const row: EnrichedSupplier = {
+                        ...base,
+                        balance,
+                        productsSupplied: extractProducts(purchases),
+                        performance: null,
+                        leadTime: null,
+                        isOverdue,
+                        isDueSoon,
+                        isTest,
+                        rowStatus: 'Active',
+                    };
+                    row.rowStatus = getRowStatus(row);
+                    return row;
+                }),
+            );
+
+            setSuppliers(enriched);
+        } catch (err) {
+            console.error('[SupplierList] Failed to fetch suppliers:', err);
+            setSuppliers([]);
+            setError(err instanceof Error ? err.message : 'Could not load suppliers');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadSuppliers();
+    }, [loadSuppliers]);
+
+    useEffect(() => {
         if (location.state?.success) {
             setShowSuccess(true);
             setSuccessMessage(location.state.message || 'Supplier created successfully!');
@@ -419,6 +426,27 @@ export default function SupplierList() {
                 </div>
             )}
 
+            {error && (
+                <div
+                    role="alert"
+                    style={{
+                        ...panel,
+                        background: 'rgba(239,68,68,.08)',
+                        border: '1px solid rgba(239,68,68,.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                    }}
+                >
+                    <AlertTriangle size={18} style={{ color: '#FCA5A5', flexShrink: 0 }} />
+                    <p style={{ flex: '1 1 200px', margin: 0, fontSize: 12, fontWeight: 600, color: '#FCA5A5' }}>{error}</p>
+                    <button type="button" onClick={() => void loadSuppliers()} style={{ ...primaryBtn, fontSize: 10 }}>
+                        Retry
+                    </button>
+                </div>
+            )}
+
             {/* KPI cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
                 {[
@@ -549,9 +577,14 @@ export default function SupplierList() {
                 </div>
             </div>
 
-            {/* Table */}
+            {/* Table — "No suppliers found" only after a successful empty load, never on failure */}
             <div style={{ ...panel, padding: 0, overflow: 'hidden' }}>
-                {filtered.length === 0 ? (
+                {error ? (
+                    <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: '#FCA5A5', margin: 0 }}>Could not load suppliers.</p>
+                        <p style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>Use Retry above — this is not an empty catalogue.</p>
+                    </div>
+                ) : filtered.length === 0 ? (
                     <div style={{ padding: '48px 16px', textAlign: 'center' }}>
                         <Package2 size={40} style={{ color: C.dim, margin: '0 auto 12px' }} />
                         <p style={{ fontSize: 13, fontWeight: 600, color: C.muted }}>No suppliers found</p>
