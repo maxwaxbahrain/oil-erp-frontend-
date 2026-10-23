@@ -1,0 +1,12 @@
+SOLTOL SAFETY RULES — always follow:
+- Before starting: pull latest staging. Staging only — never main/production.
+- Only change files listed for the task. If you need App.tsx, Dashboard.tsx,
+  routes.tsx, Sidebar.tsx, api.ts, database.py, gl_*, or ledger_reports.py —
+  STOP and ask the owner.
+- Never merge any PR unless the owner explicitly says "merge PR #N".
+  Open the PR and stop.
+- No database/schema changes, no data deletion, no secrets printed,
+  no login attempts with guessed passwords.
+- One fix per PR. Run tests + VITE_APP_ENV=staging build before opening a PR.
+- Never search or read folders outside this repo (user profile, AppData)
+  without asking the owner.
