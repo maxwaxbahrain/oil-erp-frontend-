@@ -129,6 +129,7 @@ export default function DayBook() {
     const [typeOptions, setTypeOptions] = useState<DayBookSummary['by_type']>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
     const [expandAll, setExpandAll] = useState(false);
 
@@ -186,7 +187,7 @@ export default function DayBook() {
         return () => {
             cancelled = true;
         };
-    }, [startDate, endDate, sourceType, accountId]);
+    }, [startDate, endDate, sourceType, accountId, reloadKey]);
 
     const multiDay = startDate !== endDate;
     const entries = book?.entries ?? [];
@@ -431,8 +432,15 @@ export default function DayBook() {
             )}
 
             {error && !loading && (
-                <div style={errorBanner} role="alert">
-                    {error}
+                <div style={{ ...errorBanner, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="alert">
+                    <span style={{ flex: '1 1 200px' }}>{error}</span>
+                    <button
+                        type="button"
+                        onClick={() => setReloadKey((k) => k + 1)}
+                        className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase bg-indigo-600 text-white hover:bg-indigo-500 print:hidden"
+                    >
+                        Retry
+                    </button>
                 </div>
             )}
 

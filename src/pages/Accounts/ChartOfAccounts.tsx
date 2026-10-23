@@ -471,11 +471,14 @@ export default function ChartOfAccounts() {
                 </div>
             </div>
 
-            {/* Error */}
+            {/* Error — never silent zeros when load failed */}
             {error && (
-                <div style={{ ...panel, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ ...panel, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="alert">
                     <XCircle size={18} style={{ color: '#EF4444', flexShrink: 0 }} />
-                    <p style={{ fontSize: 11, fontWeight: 600, color: '#FCA5A5', margin: 0 }}>{error}</p>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: '#FCA5A5', margin: 0, flex: '1 1 200px' }}>{error}</p>
+                    <button type="button" onClick={() => void loadGl()} disabled={loading} style={{ ...ghostBtn, color: '#93C5FD', borderColor: 'rgba(79,142,247,.35)' }}>
+                        Retry
+                    </button>
                 </div>
             )}
 
