@@ -55,6 +55,8 @@ export interface Product {
     sku: string;
     barcode?: string;
     category: string;
+    categoryName?: string | null;
+    barcodes?: { barcode: string; packQty: number | null; isPrimary: boolean }[];
     subCategory?: string;
     brand?: string;
     categoryId?: number | null;
@@ -222,6 +224,76 @@ function parseProductsJson(payload: unknown): Record<string, unknown>[] {
     return [];
 }
 
+function optCategoryName(raw: Record<string, unknown>): string | null {
+    const value = raw.category_name ?? raw.categoryName;
+    if (value == null) return null;
+    const text = String(value).trim();
+    return text || null;
+}
+
+function mapBarcodes(value: unknown): Product['barcodes'] {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => {
+        const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        return {
+            barcode: row.barcode != null ? String(row.barcode) : '',
+            packQty: optFloat(row.pack_qty ?? row.packQty) ?? null,
+            isPrimary: optBool(row.is_primary ?? row.isPrimary) === true,
+        };
+    });
+}
+
+export interface CsvImportFailure {
+    row: number;
+    external_id: string | null;
+    error: string;
+}
+
+export interface CsvImportResult {
+    created: number;
+    updated?: number;
+    failed: CsvImportFailure[];
+}
+
+/** GET /api/v1/csv/export/products — the server file, not a client-built CSV. */
+export async function exportProductsCsv(): Promise<Blob> {
+    const response = await authFetch(apiUrl('v1/csv/export/products'), { cache: 'no-store' });
+    if (!response.ok) {
+        const raw = await response.text().catch(() => '');
+        throw new Error(apiErrorDetail(raw) || `HTTP ${response.status}`);
+    }
+    return response.blob();
+}
+
+/** POST /api/v1/csv/import/products as multipart field "file". */
+export async function importProductsCsv(file: File): Promise<CsvImportResult> {
+    const body = new FormData();
+    body.append('file', file);
+    const response = await authFetch(apiUrl('v1/csv/import/products'), { method: 'POST', body });
+    const raw = await response.text().catch(() => '');
+    if (!response.ok) throw new Error(apiErrorDetail(raw) || `HTTP ${response.status}`);
+    let parsed: Record<string, unknown> = {};
+    try {
+        parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    } catch {
+        throw new Error('Import response was not JSON');
+    }
+    const failed = Array.isArray(parsed.failed) ? parsed.failed : [];
+    return {
+        created: num(parsed.created),
+        updated: parsed.updated == null ? undefined : num(parsed.updated),
+        failed: failed.map((item) => {
+            const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+            const error = row.error;
+            return {
+                row: num(row.row),
+                external_id: row.external_id == null ? null : String(row.external_id),
+                error: typeof error === 'string' ? error : JSON.stringify(error ?? ''),
+            };
+        }),
+    };
+}
+
 /** Map FastAPI product row to the rich `Product` shape used by the catalog UI. */
 function mapApiProductToProduct(raw: Record<string, unknown>): Product {
     const id = String(raw.id ?? '');
@@ -244,6 +316,8 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         sku,
         barcode,
         category,
+        categoryName: optCategoryName(raw),
+        barcodes: mapBarcodes(raw.barcodes),
         brand: optText(raw.brand),
         categoryId: optInt(raw.category_id),
         baseUnit: optText(raw.base_unit),
