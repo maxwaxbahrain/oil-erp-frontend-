@@ -29,7 +29,12 @@ const ALLOWED_ADDED_ROUTES = new Set<string>([
   '/purchases/payments',
   '/warehouse/dashboard',
   '/warehouse/stock',
+  // Dashboard nav restored to the real page (was `/`, which bounced staging admins to Nexus).
+  '/dashboard',
 ]);
+
+/** Routes intentionally removed when replaced by ALLOWED_ADDED_ROUTES. */
+const ALLOWED_REMOVED_ROUTES = new Set<string>(['/']);
 
 const ALWAYS_HIDDEN = [
   { route: '/finance/accounting', label: 'Accounting', flag: 'finance_accounting_dashboard' },
@@ -169,19 +174,22 @@ describe('sidebar arrangement completeness', () => {
         const afterRoutes = routesOf(after);
         const beforeSet = new Set(beforeRoutes);
         const afterSet = new Set(afterRoutes);
-        const missing = beforeRoutes.filter((route) => !afterSet.has(route));
+        const missingAll = beforeRoutes.filter((route) => !afterSet.has(route));
+        const missing = missingAll.filter((route) => !ALLOWED_REMOVED_ROUTES.has(route));
+        const allowedRemoved = missingAll.filter((route) => ALLOWED_REMOVED_ROUTES.has(route));
         const added = afterRoutes.filter((route) => !beforeSet.has(route));
         const illegalAdded = added.filter((route) => !ALLOWED_ADDED_ROUTES.has(route));
         const allowedAdded = added.filter((route) => ALLOWED_ADDED_ROUTES.has(route));
         const allowedAddedCount = added.length - illegalAdded.length;
-        const unexplainedGap = (afterRoutes.length - beforeRoutes.length) - allowedAddedCount;
+        const unexplainedGap =
+          (afterRoutes.length - beforeRoutes.length) - allowedAddedCount + allowedRemoved.length;
         rows.push(
-          `${role} | ${build} | ${beforeRoutes.length} | ${afterRoutes.length} | ${missing.join(', ') || '—'} | ${added.join(', ') || '—'}`,
+          `${role} | ${build} | ${beforeRoutes.length} | ${afterRoutes.length} | ${missingAll.join(', ') || '—'} | ${added.join(', ') || '—'}`,
         );
         if (
           missing.length
           || illegalAdded.length
-          || afterRoutes.length !== beforeRoutes.length + allowedAdded.length
+          || afterRoutes.length !== beforeRoutes.length + allowedAdded.length - allowedRemoved.length
           || unexplainedGap !== 0
         ) {
           problems.push(

@@ -42,6 +42,7 @@ export const SALES_PREMIUM_ROLES: AuthRole[] = SALES_INTEL_ROLES;
 /** Sales sidebar whitelist — only these paths render for sales role */
 export const SALES_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/',
+    '/dashboard',
     '/portal',
     '/customers',
     '/sales/orders',
@@ -65,6 +66,7 @@ export const SALES_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
 /** Driver sidebar whitelist — SPOD field minus sales + voice, plus logistics */
 export const DRIVER_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/',
+    '/dashboard',
     '/portal',
     '/products',
     '/pulse',

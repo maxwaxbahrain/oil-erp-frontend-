@@ -207,18 +207,24 @@ export default function Sidebar({
 
             <nav className="flex-1 mt-4 px-3 space-y-1 overflow-y-auto scrollbar-hide pb-10">
 
-                {showNav('/') && (
+                {(showNav('/dashboard') || showNav('/')) && (
                 <>
                 <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-1">
                     Dashboard
                 </div>
-                <NavItem to="/" icon={LayoutDashboard} label="Dashboard" />
+                <NavItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
 
-                {isStaging && canSeeManagement && (
+                {isStaging && canSeeManagement && showNav('/agent/nexus') && (
+                <>
+                <div className="text-[9px] font-black uppercase tracking-[0.25em] text-redwood-secondary/60 px-4 py-2 mt-1">
+                    Zava
+                </div>
                 <NavItem to="/agent/nexus" icon={Bot} label="Zava" />
+                <div className="h-px bg-white/5 my-3 mx-2" />
+                </>
                 )}
 
                 {showSalesSection && (
