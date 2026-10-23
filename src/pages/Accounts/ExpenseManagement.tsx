@@ -183,17 +183,35 @@ export default function ExpenseManagement() {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [customers, setCustomers] = useState<CustomerComboboxOption[]>([]);
-    const { banks, defaultBank, reload: reloadBanks } = useBankingAccounts();
+    const {
+        banks,
+        defaultBank,
+        loading: banksLoading,
+        error: banksError,
+        reload: reloadBanks,
+    } = useBankingAccounts();
     const [chartAccounts, setChartAccounts] = useState<GLAccount[]>([]);
+    const [chartLoading, setChartLoading] = useState(true);
+    const [chartError, setChartError] = useState<string | null>(null);
     const reloadChartAccounts = useCallback(async () => {
+        setChartLoading(true);
         try {
             const rows = await getGLAccounts();
             setChartAccounts(Array.isArray(rows) ? rows : []);
+            setChartError(null);
         } catch (error) {
-            console.warn('Could not load chart accounts for paid-from bank', error);
             setChartAccounts([]);
+            setChartError(error instanceof Error ? error.message : 'Could not load chart accounts');
+        } finally {
+            setChartLoading(false);
         }
     }, []);
+    const accountsLoading = Boolean(banksLoading) || chartLoading;
+    const accountsError = banksError || chartError || null;
+    const reloadAccounts = useCallback(() => {
+        void reloadBanks();
+        void reloadChartAccounts();
+    }, [reloadBanks, reloadChartAccounts]);
     const paidFromAccounts = useMemo(
         () => companyPaymentAccounts(chartAccounts, banks),
         [chartAccounts, banks],
@@ -1074,6 +1092,9 @@ export default function ExpenseManagement() {
                             customers={customers}
                             banks={paidFromAccounts}
                             defaultBank={defaultBank}
+                            accountsLoading={accountsLoading}
+                            accountsError={accountsError}
+                            reloadAccounts={reloadAccounts}
                             onClose={() => {
                                 setShowManualForm(false);
                                 setEditingExpense(null);
