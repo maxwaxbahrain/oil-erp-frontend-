@@ -81,6 +81,9 @@ export function ExpenseManualForm({
     customers,
     banks,
     defaultBank,
+    accountsLoading = false,
+    accountsError = null,
+    reloadAccounts,
     onClose,
     onSaved,
     onOpenChart,
@@ -92,6 +95,9 @@ export function ExpenseManualForm({
     customers: CustomerComboboxOption[];
     banks: BankingAccount[];
     defaultBank: BankingAccount | null;
+    accountsLoading?: boolean;
+    accountsError?: string | null;
+    reloadAccounts?: () => void;
     onClose: () => void;
     onSaved: () => Promise<void> | void;
     onOpenChart: () => void;
@@ -400,7 +406,11 @@ export function ExpenseManualForm({
         .map((flag, index) => flag.severity === 'error' ? index : -1)
         .filter(index => index >= 0);
     const unackedErrors = errorPolicyIdxs.filter(index => !policyErrorAcks[index]);
-    const saveBlocked = saving || (hasHighDup && !dupAcknowledged) || unackedErrors.length > 0;
+    const paidFromBlocked =
+        !expenseMethodIsCash(paymentMethod)
+        && !expensePosted
+        && (accountsLoading || Boolean(accountsError) || paymentAccountId === '');
+    const saveBlocked = saving || paidFromBlocked || (hasHighDup && !dupAcknowledged) || unackedErrors.length > 0;
     const existingImage = !receiptPreview && receiptUrl && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(receiptUrl);
 
     return (
@@ -618,6 +628,9 @@ export function ExpenseManualForm({
                         value={paymentAccountId}
                         onChange={setPaymentAccountId}
                         posted={expensePosted}
+                        loading={accountsLoading}
+                        error={accountsError}
+                        onRetry={reloadAccounts}
                     />
                     {saveError && <p className="expense-error" role="alert">{saveError}</p>}
 
