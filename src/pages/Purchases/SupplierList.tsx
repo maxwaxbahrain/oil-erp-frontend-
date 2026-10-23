@@ -218,6 +218,16 @@ export default function SupplierList() {
     }, []);
 
     useEffect(() => {
+        // Wipe legacy browser-only supplier/PO/payment caches on open so
+        // purchasesService.migrateLocalStorageOnce() cannot POST another
+        // company's leftover rows into an empty tenant, and so getSuppliers()
+        // / PO / payment fallbacks cannot show stale local rows as live.
+        try {
+            localStorage.removeItem('suppliers');
+            localStorage.removeItem('supplier_payments');
+            localStorage.removeItem('purchase_orders');
+        } catch { /* ignore */ }
+
         void loadSuppliers();
     }, [loadSuppliers]);
 

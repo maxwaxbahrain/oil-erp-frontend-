@@ -132,4 +132,17 @@ describe('SupplierList empty vs failed', () => {
     expect(text()).toContain('SUP-42');
     expect(text()).not.toContain('No suppliers found');
   });
+
+  it('opening Supplier Master clears suppliers, supplier_payments, and purchase_orders', async () => {
+    localStorage.setItem('suppliers', JSON.stringify([{ id: 'SUP-LEGACY', name: 'Old Co' }]));
+    localStorage.setItem('supplier_payments', JSON.stringify([{ id: 'pay-1', amount: 10 }]));
+    localStorage.setItem('purchase_orders', JSON.stringify([{ id: 'po-1', poNumber: 'PO-1' }]));
+    authFetch.mockResolvedValue(jsonResponse(true, 200, []));
+
+    await renderPage();
+
+    expect(localStorage.getItem('suppliers')).toBeNull();
+    expect(localStorage.getItem('supplier_payments')).toBeNull();
+    expect(localStorage.getItem('purchase_orders')).toBeNull();
+  });
 });
