@@ -40,9 +40,11 @@ export type NexusPlanet = {
   status: PlanetStatus;
   /** Longer label for tooltips / list rows. */
   metricLabel: string;
-  /** Short value under the orbit icon (design: "$7,118", "6 low"). */
+  /** Short value under the orbit icon — never a bare em dash. */
   orbitValue: string;
   connected: boolean;
+  /** False = hide tile (no source yet / module not connected). */
+  visible: boolean;
 };
 
 export type TimelineLaneId = 'money' | 'goods' | 'team';
@@ -152,6 +154,11 @@ export type PlanetInputs = {
   cards: NexusSignalCard[];
   /** False if /api/agent/signals or /api/agent/data-health failed. */
   cardsLoadOk: boolean;
+  /**
+   * Signals + data-health settle state for progressive Finance/Reports tiles.
+   * `unavailable` = still loading (hide); `error` = failed; `ok` = ready.
+   */
+  cardsLoad?: SourceResult<true>;
   owedToUs: SourceResult<number>;
   openPoCount: SourceResult<number>;
   /** Shared low-stock rule counts (same helper as Dashboard / header). */
@@ -161,7 +168,7 @@ export type PlanetInputs = {
   pendingExpenses: SourceResult<number>;
   /**
    * Sales invoice-today count. `unavailable` when we intentionally skip the
-   * unfiltered GET /invoices/ download (no date filter on that API).
+   * unfiltered GET /invoices/ download (no date filter on that API) → tile hidden.
    */
   invoiceCountToday: SourceResult<number>;
 };
@@ -169,21 +176,41 @@ export type PlanetInputs = {
 function metricForSource<T>(
   src: SourceResult<T>,
   whenOk: (value: T) => { label: string; orbit: string },
-  unavailableLabel = 'Not connected yet',
-): { connected: boolean; statusBase: PlanetStatus; metricLabel: string; orbitValue: string } {
+  _unavailableLabel = 'Not connected yet',
+): {
+  connected: boolean;
+  statusBase: PlanetStatus;
+  metricLabel: string;
+  orbitValue: string;
+  visible: boolean;
+} {
   if (src.state === 'error') {
-    return { connected: false, statusBase: 'error', metricLabel: "Couldn't load", orbitValue: '—' };
+    return {
+      connected: false,
+      statusBase: 'error',
+      metricLabel: "Couldn't load",
+      orbitValue: 'Retry',
+      visible: true,
+    };
   }
   if (src.state === 'unavailable') {
+    // No source yet (still loading) or module not wired — hide the tile.
     return {
       connected: false,
       statusBase: 'offline',
-      metricLabel: unavailableLabel,
-      orbitValue: '—',
+      metricLabel: '',
+      orbitValue: '',
+      visible: false,
     };
   }
   const both = whenOk(src.value);
-  return { connected: true, statusBase: 'good', metricLabel: both.label, orbitValue: both.orbit };
+  return {
+    connected: true,
+    statusBase: 'good',
+    metricLabel: both.label,
+    orbitValue: both.orbit,
+    visible: true,
+  };
 }
 
 export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
@@ -232,33 +259,28 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
     orbit: String(v),
   }));
 
-  // Sales: no date-filtered invoice list — open the module; status from cards only.
-  const salesMetric =
-    input.invoiceCountToday.state === 'ok'
-      ? metricForSource(input.invoiceCountToday, (v) => ({
-          label: `${v} invoice${v === 1 ? '' : 's'} today`,
-          orbit: String(v),
-        }))
-      : input.invoiceCountToday.state === 'error'
-        ? metricForSource(input.invoiceCountToday, () => ({ label: '', orbit: '—' }))
-        : {
-            connected: true,
-            statusBase: 'good' as PlanetStatus,
-            metricLabel: 'Open sales',
-            orbitValue: '·',
-          };
+  // Sales today: no date-filtered invoice API → hide until we have a real source.
+  const salesMetric = metricForSource(input.invoiceCountToday, (v) => ({
+    label: `${v} invoice${v === 1 ? '' : 's'} today`,
+    orbit: String(v),
+  }));
 
   const collectionsStatus =
     input.owedToUs.state === 'ok' && input.owedToUs.value > 0.005
       ? byPlanet.get('collections') || 'info'
       : byPlanet.get('collections') || 'good';
 
-  const financeLabel = !input.cardsLoadOk
-    ? "Couldn't load"
-    : byPlanet.has('finance')
-      ? 'Books check'
-      : 'Books quiet';
-  const reportsLabel = !input.cardsLoadOk ? "Couldn't load" : 'Open reports';
+  const cardsLoad: SourceResult<true> =
+    input.cardsLoad ??
+    (input.cardsLoadOk ? { state: 'ok', value: true } : { state: 'error' });
+  const financeMetric = metricForSource(cardsLoad, () => ({
+    label: byPlanet.has('finance') ? 'Books check' : 'Books quiet',
+    orbit: byPlanet.has('finance') ? '!' : 'OK',
+  }));
+  const reportsMetric = metricForSource(cardsLoad, () => ({
+    label: 'Open reports',
+    orbit: '···',
+  }));
 
   const planets: NexusPlanet[] = [
     {
@@ -273,6 +295,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
           : 'offline',
       metricLabel: salesMetric.metricLabel,
       orbitValue: salesMetric.orbitValue,
+      visible: salesMetric.visible,
     },
     {
       id: 'collections',
@@ -282,6 +305,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       status: collections.statusBase === 'error' ? 'error' : collections.connected ? collectionsStatus : 'offline',
       metricLabel: collections.metricLabel,
       orbitValue: collections.orbitValue,
+      visible: collections.visible,
     },
     {
       id: 'purchase',
@@ -296,6 +320,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             : 'offline',
       metricLabel: purchase.metricLabel,
       orbitValue: purchase.orbitValue,
+      visible: purchase.visible,
     },
     {
       id: 'inventory',
@@ -312,6 +337,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             : 'offline',
       metricLabel: inventory.metricLabel,
       orbitValue: inventory.orbitValue,
+      visible: inventory.visible,
     },
     {
       id: 'delivery',
@@ -326,15 +352,22 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             : 'offline',
       metricLabel: delivery.metricLabel,
       orbitValue: delivery.orbitValue,
+      visible: delivery.visible,
     },
     {
       id: 'finance',
       label: 'Finance',
       href: '/finance/dashboard',
-      connected: input.cardsLoadOk,
-      status: input.cardsLoadOk ? byPlanet.get('finance') || 'good' : 'error',
-      metricLabel: financeLabel,
-      orbitValue: input.cardsLoadOk ? (byPlanet.has('finance') ? '!' : 'OK') : '—',
+      connected: financeMetric.connected,
+      status:
+        financeMetric.statusBase === 'error'
+          ? 'error'
+          : financeMetric.connected
+            ? byPlanet.get('finance') || 'good'
+            : 'offline',
+      metricLabel: financeMetric.metricLabel,
+      orbitValue: financeMetric.orbitValue,
+      visible: financeMetric.visible,
     },
     {
       id: 'expenses',
@@ -351,6 +384,7 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
             : 'offline',
       metricLabel: expenses.metricLabel,
       orbitValue: expenses.orbitValue,
+      visible: expenses.visible,
     },
     {
       id: 'payroll',
@@ -358,8 +392,9 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       href: '/finance/payroll',
       connected: false,
       status: 'offline',
-      metricLabel: 'Not connected yet',
-      orbitValue: '—',
+      metricLabel: '',
+      orbitValue: '',
+      visible: false,
     },
     {
       id: 'ai_team',
@@ -367,17 +402,24 @@ export function buildPlanets(input: PlanetInputs): NexusPlanet[] {
       href: '/ai/hub',
       connected: false,
       status: 'offline',
-      metricLabel: 'Not connected yet',
-      orbitValue: '—',
+      metricLabel: '',
+      orbitValue: '',
+      visible: false,
     },
     {
       id: 'reports',
       label: 'Reports',
       href: '/finance/financial-statement',
-      connected: input.cardsLoadOk,
-      status: input.cardsLoadOk ? byPlanet.get('reports') || 'good' : 'error',
-      metricLabel: reportsLabel,
-      orbitValue: input.cardsLoadOk ? '···' : '—',
+      connected: reportsMetric.connected,
+      status:
+        reportsMetric.statusBase === 'error'
+          ? 'error'
+          : reportsMetric.connected
+            ? byPlanet.get('reports') || 'good'
+            : 'offline',
+      metricLabel: reportsMetric.metricLabel,
+      orbitValue: reportsMetric.orbitValue,
+      visible: reportsMetric.visible,
     },
   ];
 

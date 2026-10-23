@@ -328,13 +328,16 @@ export function formatWelcomeLine(opts: {
   if (!opts.cardsLoadOk) {
     return "I couldn't load your updates right now.";
   }
-  const n = opts.updateCount;
-  const updates = `I have ${n} update${n === 1 ? '' : 's'}.`;
-  if (opts.needsYou <= 0) {
-    return `Welcome back, ${opts.firstName}. ${updates}`;
+  // Never claim "0 updates" when Needs you is non-zero (alert-bar problems).
+  if (opts.needsYou > 0) {
+    const x = opts.needsYou;
+    return `Welcome back, ${opts.firstName}. ${x} thing${x === 1 ? '' : 's'} need you.`;
   }
-  const x = opts.needsYou;
-  return `Welcome back, ${opts.firstName}. ${updates} ${x} need${x === 1 ? 's' : ''} you.`;
+  if (opts.updateCount <= 0) {
+    return `Welcome back, ${opts.firstName}. Nothing needs you right now.`;
+  }
+  const n = opts.updateCount;
+  return `Welcome back, ${opts.firstName}. I have ${n} update${n === 1 ? '' : 's'}.`;
 }
 
 export function formatCardSpeech(card: {
