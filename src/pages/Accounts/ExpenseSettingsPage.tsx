@@ -13,14 +13,20 @@ import {
 import {
     getExpenseCategories,
     getExpenseSettings, saveExpenseSettings,
+    getMileageSettings, patchMileageSettings,
     DEFAULT_SETTINGS,
     type ExpenseCategory, type ExpenseSettings,
+    type MileageSettings, type DistanceUnit,
 } from '../../services/expenseService';
 
 export default function ExpenseSettingsPage() {
     const navigate = useNavigate();
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [settings, setSettings] = useState<ExpenseSettings>(DEFAULT_SETTINGS);
+    const [mileageSettings, setMileageSettings] = useState<MileageSettings>({
+        distance_unit: 'miles',
+        mileage_rate: 0.7,
+    });
     const [loading, setLoading] = useState(true);
     const [savedFlash, setSavedFlash] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -38,6 +44,9 @@ export default function ExpenseSettingsPage() {
             try {
                 await refreshCategories();
                 setSettings(getExpenseSettings());
+                setMileageSettings(await getMileageSettings());
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to load settings.');
             } finally {
                 setLoading(false);
             }
@@ -56,12 +65,18 @@ export default function ExpenseSettingsPage() {
     };
 
     const handleSaveSettings = () => {
-        try {
-            saveExpenseSettings(settings);
-            flash('✓ Settings saved.');
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Save failed.');
-        }
+        void (async () => {
+            try {
+                saveExpenseSettings(settings);
+                await patchMileageSettings({
+                    distance_unit: mileageSettings.distance_unit,
+                    mileage_rate: mileageSettings.mileage_rate,
+                });
+                flash('✓ Settings saved.');
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'Save failed.');
+            }
+        })();
     };
 
     return (
@@ -220,16 +235,31 @@ export default function ExpenseSettingsPage() {
                         <h2 className="text-sm font-black text-gray-900 uppercase tracking-widest">Mileage Rate</h2>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                        <span className="text-xs font-bold text-gray-700">Default rate per km</span>
+                        <span className="text-xs font-bold text-gray-700">Distance unit</span>
+                        <select
+                            value={mileageSettings.distance_unit}
+                            onChange={e => setMileageSettings(s => ({
+                                ...s,
+                                distance_unit: e.target.value as DistanceUnit,
+                            }))}
+                            className="px-2 py-1 border border-gray-200 rounded-lg text-xs font-bold focus:outline-none focus:border-gray-900"
+                        >
+                            <option value="miles">Miles</option>
+                            <option value="km">Kilometers</option>
+                        </select>
+                        <span className="text-xs font-bold text-gray-700">Default rate per {mileageSettings.distance_unit === 'km' ? 'km' : 'mile'}</span>
                         <span className="text-xs text-gray-500">$</span>
                         <input
                             type="number"
                             step="0.01"
-                            value={settings.mileageRatePerKm}
-                            onChange={e => setSettings(s => ({ ...s, mileageRatePerKm: Number(e.target.value) || 0 }))}
+                            value={mileageSettings.mileage_rate}
+                            onChange={e => setMileageSettings(s => ({
+                                ...s,
+                                mileage_rate: Number(e.target.value) || 0,
+                            }))}
                             className="w-28 px-2 py-1 border border-gray-200 rounded-lg font-mono text-right focus:outline-none focus:border-gray-900"
                         />
-                        <span className="text-[10px] text-gray-500 ml-2">Used as the default on the Mileage Tracker.</span>
+                        <span className="text-[10px] text-gray-500 ml-2">Used on the Mileage Tracker for every trip; drivers cannot change it per trip.</span>
                     </div>
                 </section>
 
