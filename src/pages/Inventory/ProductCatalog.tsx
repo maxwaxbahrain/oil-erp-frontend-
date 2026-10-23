@@ -4,6 +4,7 @@ import {
     getProducts,
     deleteProduct,
     saveProduct,
+    formatPack,
     type Product,
     type ProductImage,
 } from '../../services/productService';
@@ -87,6 +88,9 @@ export default function ProductCatalog() {
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [brandFilter, setBrandFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
+    const [showDiscontinued, setShowDiscontinued] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [uploadSuccess, setUploadSuccess] = useState(false);
     const [imageUrl, setImageUrl] = useState('');
@@ -227,6 +231,9 @@ export default function ProductCatalog() {
     };
 
     const filteredProducts = products.filter((p) => {
+        if (!showDiscontinued && p.isDiscontinued) return false;
+        if (brandFilter.trim() && !(p.brand || '').toLowerCase().includes(brandFilter.trim().toLowerCase())) return false;
+        if (categoryFilter.trim() && !(p.category || '').toLowerCase().includes(categoryFilter.trim().toLowerCase())) return false;
         const q = searchQuery.toLowerCase();
         const asin = deriveAsin(p)?.toLowerCase() || '';
         return (
@@ -341,6 +348,31 @@ export default function ProductCatalog() {
                         outline: 'none',
                     }}
                 />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                    aria-label="Brand filter"
+                    placeholder="Brand"
+                    value={brandFilter}
+                    onChange={(e) => setBrandFilter(e.target.value)}
+                    style={{ height: 30, background: C.bg3, border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '0 10px', fontSize: 11, color: C.text }}
+                />
+                <input
+                    aria-label="Category filter"
+                    placeholder="Category"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    style={{ height: 30, background: C.bg3, border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '0 10px', fontSize: 11, color: C.text }}
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.muted }}>
+                    <input
+                        type="checkbox"
+                        aria-label="Show discontinued"
+                        checked={showDiscontinued}
+                        onChange={(e) => setShowDiscontinued(e.target.checked)}
+                    />
+                    Show discontinued
+                </label>
             </div>
 
             {/* KPI strip */}
@@ -522,6 +554,14 @@ export default function ProductCatalog() {
                                 <div style={{ padding: '10px 12px' }}>
                                     <div style={{ fontSize: 11, fontWeight: 500, color: C.text, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.name}</div>
                                     <div style={{ fontSize: 9, color: C.dim, fontFamily: 'monospace', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis' }}>{product.sku}</div>
+                                    <div style={{ display: 'flex', gap: 8, fontSize: 9, color: C.muted, marginBottom: 6, flexWrap: 'wrap' }}>
+                                        <span>Brand {product.brand || '—'}</span>
+                                        <span>Category {product.category || '—'}</span>
+                                        <span>Pack {formatPack(product.packQty, product.packUnit) || '—'}</span>
+                                        {product.isDiscontinued && (
+                                            <span style={{ background: 'rgba(239,68,68,.12)', color: C.red, borderRadius: 20, padding: '1px 6px', fontWeight: 600 }}>Discontinued</span>
+                                        )}
+                                    </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 5 }}>
                                         <span style={{ color: C.green, fontFamily: 'monospace', fontWeight: 500 }}>{formatCurrency(product.pricing.sellingPrice)}</span>
                                         <span style={{ color: isOut ? C.red : isLow ? C.amber : C.muted }}>{totalStock} units</span>

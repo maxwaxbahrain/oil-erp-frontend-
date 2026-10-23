@@ -210,4 +210,73 @@ describe('productService', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.image).toBe('data:image/jpeg;base64,primary');
   });
+
+  it('sends catalog fields when set and omits them when absent', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(mockResp(true, 201, { id: 9, stock: 1, is_active: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const base = productFixture({
+      locations: [{ id: 'L1', name: 'Warehouse', type: 'Warehouse', currentStock: 1 }],
+    });
+    await saveProduct(base);
+    const plain = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(plain.pack_qty).toBeUndefined();
+    expect(plain.cost_method).toBeUndefined();
+    expect(plain.lot_tracked).toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+
+    await saveProduct({ ...base, leadTimeDays: 0 });
+    const zeroLead = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(zeroLead.lead_time_days).toBeUndefined();
+
+    await saveProduct({
+      ...base,
+      id: '9',
+      brand: 'Mobil',
+      categoryId: 3,
+      baseUnit: 'qt',
+      packQty: 12,
+      packUnit: 'case',
+      reorderPoint: 4,
+      reorderQty: 6,
+      maxStock: 40,
+      leadTimeDays: 5,
+      preferredSupplierId: 8,
+      supplierSku: 'SUP-1',
+      lotTracked: true,
+      shelfLifeDays: 30,
+      expiryTracked: true,
+      hazmatClass: '3',
+      weightKg: 1.2,
+      volumeL: 4,
+      costMethod: 'fifo',
+      isDiscontinued: false,
+    });
+    const rich = JSON.parse(fetchMock.mock.calls[2][1].body as string);
+    expect(fetchMock.mock.calls[2][1].method).toBe('PUT');
+    expect(rich).toMatchObject({
+      brand: 'Mobil',
+      category_id: 3,
+      base_unit: 'qt',
+      pack_qty: 12,
+      pack_unit: 'case',
+      reorder_point: 4,
+      reorder_qty: 6,
+      max_stock: 40,
+      lead_time_days: 5,
+      preferred_supplier_id: 8,
+      supplier_sku: 'SUP-1',
+      lot_tracked: true,
+      shelf_life_days: 30,
+      expiry_tracked: true,
+      hazmat_class: '3',
+      weight_kg: 1.2,
+      volume_l: 4,
+      cost_method: 'fifo',
+      is_discontinued: false,
+    });
+    expect(rich.pack_count).toBeUndefined();
+  });
 });

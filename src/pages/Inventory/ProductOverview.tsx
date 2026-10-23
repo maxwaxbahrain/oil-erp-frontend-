@@ -26,7 +26,8 @@ import {
     MessageSquare,
     Phone
 } from 'lucide-react';
-import { getProductById, getProducts, saveProduct, getAIInsights, type Product } from '../../services/productService';
+import { getProductById, getProducts, saveProduct, getAIInsights, formatPack, type Product } from '../../services/productService';
+import { getSuppliers } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 import { getMovements, type InventoryMovement } from '../../services/inventoryLedgerService';
 import clsx from 'clsx';
@@ -55,6 +56,7 @@ export default function ProductOverview() {
     const { id } = useParams();
     const navigate = useNavigate();
     const [product, setProduct] = useState<Product | null>(null);
+    const [preferredSupplierName, setPreferredSupplierName] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<TabType>('Performance');
     const [aiInsights, setAiInsights] = useState<string[]>([]);
@@ -71,6 +73,27 @@ export default function ProductOverview() {
             loadProduct(id);
         }
     }, [id]);
+
+    useEffect(() => {
+        const supplierId = product?.preferredSupplierId;
+        if (supplierId == null) {
+            setPreferredSupplierName(null);
+            return;
+        }
+        let cancelled = false;
+        getSuppliers()
+            .then((rows) => {
+                if (cancelled) return;
+                const match = rows.find((row) => String(row.id) === String(supplierId));
+                setPreferredSupplierName(match?.name || null);
+            })
+            .catch(() => {
+                if (!cancelled) setPreferredSupplierName(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.preferredSupplierId]);
 
     async function loadProduct(prodId: string) {
         try {
@@ -255,6 +278,12 @@ export default function ProductOverview() {
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">BC: {product.barcode || 'N/A'}</span>
                                 <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category: {product.category}</span>
+                            </div>
+                            <div className="flex items-center gap-4 mt-2 flex-wrap">
+                                {product.brand && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Brand: {product.brand}</span>}
+                                {formatPack(product.packQty, product.packUnit) && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pack: {formatPack(product.packQty, product.packUnit)}</span>}
+                                {product.reorderPoint != null && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reorder point: {product.reorderPoint}</span>}
+                                {preferredSupplierName && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Preferred supplier: {preferredSupplierName}</span>}
                             </div>
                             <div className="flex items-center gap-2 mt-4">
                                 <div className={clsx("w-2 h-2 rounded-full", product.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300')}></div>
