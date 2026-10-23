@@ -7,7 +7,9 @@ import PurchaseReturnFormPage from '../PurchaseReturnFormPage';
 import * as purchaseReturnService from '../../../services/purchaseReturnService';
 import * as purchasesService from '../../../services/purchasesService';
 import * as api from '../../../services/api';
+import * as productService from '../../../services/productService';
 import type { PurchaseReturn } from '../../../services/purchaseReturnService';
+import type { Product } from '../../../services/productService';
 
 vi.mock('../../../services/purchaseReturnService', () => ({
   create: vi.fn(),
@@ -22,6 +24,11 @@ vi.mock('../../../services/purchasesService', () => ({
 
 vi.mock('../../../services/api', () => ({
   getProducts: vi.fn(),
+}));
+
+vi.mock('../../../services/productService', () => ({
+  getProducts: vi.fn(),
+  lookupProductByBarcode: vi.fn(),
 }));
 
 vi.mock('../../../hooks/useCompanyPaymentAccounts', () => ({
@@ -64,6 +71,7 @@ describe('Purchase return form', () => {
         current_stock: 10,
       },
     ]);
+    vi.mocked(productService.getProducts).mockResolvedValue([]);
     vi.mocked(purchaseReturnService.create).mockResolvedValue({
       id: 11,
       number: 'PR-11',
@@ -146,7 +154,52 @@ describe('Purchase return form', () => {
       refund_mode: 'none',
       refund_amount: null,
       refund_account_id: null,
-      lines: [{ product_id: 9, quantity: 2, reason: '' }],
+      lines: [{
+        product_id: 9,
+        quantity: 2,
+        reason: '',
+        entered_qty: 2,
+        entered_uom: 'base',
+        entered_unit_price: 2.5,
+      }],
+    });
+  });
+
+  it('keeps a pack return price read-only at cost times pack qty', async () => {
+    vi.mocked(api.getProducts).mockResolvedValue([
+      { id: '9', name: 'Oil', sku: 'OIL', unit_price: 20, cost_price: 8, current_stock: 40 },
+    ]);
+    vi.mocked(productService.getProducts).mockResolvedValue([
+      { id: '9', packQty: 12, packUnit: 'case', baseUnit: 'qt', uom: 'qt' } as Product,
+    ]);
+    await renderForm();
+    await act(async () => {
+      setValue(container.querySelector('select[aria-label="Supplier"]') as HTMLSelectElement, '3');
+      setValue(container.querySelector('select[aria-label="Product"]') as HTMLSelectElement, '9');
+    });
+    const pack = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'case');
+    expect(pack).toBeTruthy();
+    await act(async () => {
+      pack?.click();
+    });
+    const price = container.querySelector('input[aria-label="Price per pack"]') as HTMLInputElement;
+    expect(price.readOnly).toBe(true);
+    expect(price.value).toBe('96');
+    await act(async () => {
+      setValue(price, '1');
+    });
+    expect(price.value).toBe('96');
+    await act(async () => {
+      clickSaveDraft();
+    });
+    await flush();
+    const body = vi.mocked(purchaseReturnService.create).mock.calls.at(-1)?.[0];
+    expect(body?.lines[0]).toMatchObject({
+      product_id: 9,
+      quantity: 12,
+      entered_qty: 1,
+      entered_uom: 'pack',
+      entered_unit_price: 96,
     });
   });
 });

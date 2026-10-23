@@ -2,6 +2,7 @@ import { getPurchaseOrders, receiptFailureReason, updatePurchaseOrder, type Purc
 import { getOilErpApiBase } from '../config/apiBase';
 import { authFetch } from '../api/axios';
 import { localIsoDate } from '../utils/localDate';
+import { readDocumentEntry, roundMoney } from '../utils/packEntry';
 
 // FIX W3-1 — Path B (this module) now writes stock to the SAME backend
 // endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
@@ -25,6 +26,10 @@ export interface GRNItem {
     rejectedQty: number;
     unitCost: number;
     totalCost: number;
+    enteredQty?: number;
+    enteredUom?: 'base' | 'pack';
+    enteredUnitPrice?: number;
+    packQtySnapshot?: number | null;
 }
 
 export interface GRN {
@@ -92,6 +97,8 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
     // lines stay editable afterward for partial receipts.
     const grnItems: GRNItem[] = po.items.map(item => {
         const orderedQty = item.quantity;
+        const entry = readDocumentEntry(item as unknown as Record<string, unknown>, orderedQty, item.unitPrice);
+        const pack = entry.enteredUom === 'pack' && (entry.packQtySnapshot || 0) > 0;
         return {
             productId: item.productId,
             productName: item.productName,
@@ -102,7 +109,11 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
             acceptedQty: orderedQty,
             rejectedQty: 0,
             unitCost: item.unitPrice,
-            totalCost: orderedQty * item.unitPrice,
+            totalCost: pack ? roundMoney(entry.enteredQty * entry.enteredUnitPrice) : orderedQty * item.unitPrice,
+            enteredQty: pack ? entry.enteredQty : orderedQty,
+            enteredUom: pack ? 'pack' : 'base',
+            enteredUnitPrice: pack ? entry.enteredUnitPrice : item.unitPrice,
+            packQtySnapshot: pack ? entry.packQtySnapshot : null,
         };
     });
 
@@ -280,6 +291,9 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
                     productId: line.productId,
                     quantity: line.quantity,
                     unitCost: line.unitCost,
+                    entered_qty: line.quantity,
+                    entered_uom: 'base',
+                    entered_unit_price: line.unitCost,
                 })),
             }),
         });

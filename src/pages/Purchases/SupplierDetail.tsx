@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 // ITEM 16 — Escape closes the Send Payment modal.
 import { useEscape } from '../../hooks/useEscape';
+import { formatLineQuantity } from '../../utils/packEntry';
 import * as XLSX from 'xlsx';
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from '../../utils/documentGenerator';
@@ -2176,7 +2177,7 @@ export default function SupplierDetail() {
                                                     <p className="text-sm font-black text-gray-900 uppercase tracking-tight">{item.productName}</p>
                                                     <p className="text-[10px] text-gray-400 font-bold uppercase mt-1 italic">UOM: {item.uom}</p>
                                                 </td>
-                                                <td className="py-5 text-sm font-black text-gray-700 text-center font-mono">{item.quantity}</td>
+                                                <td className="py-5 text-sm font-black text-gray-700 text-center font-mono">{formatLineQuantity(item)}</td>
                                                 <td className="py-5 text-sm font-bold text-gray-600 text-right font-mono">{item.unitPrice.toLocaleString()}</td>
                                                 <td className="py-5 text-sm font-black text-gray-900 text-right font-mono">{selectedCurrency.symbol}{item.total.toLocaleString()}</td>
                                             </tr>

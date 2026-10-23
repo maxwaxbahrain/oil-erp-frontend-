@@ -61,7 +61,14 @@ describe('receive stock API URLs', () => {
     const body = JSON.parse(String(init?.body));
     expect(body.grnSourceId).toBe('PO-URL-1');
     expect(body.supplierId).toBe(42);
-    expect(body.lines).toEqual([{ productId: 123, quantity: 50, unitCost: 10 }]);
+    expect(body.lines).toEqual([{
+      productId: 123,
+      quantity: 50,
+      unitCost: 10,
+      entered_qty: 50,
+      entered_uom: 'base',
+      entered_unit_price: 10,
+    }]);
     expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/add-stock'))).toBeUndefined();
   });
 
@@ -121,5 +128,86 @@ describe('receive stock API URLs', () => {
 
     const addStockUrl = fetchMock.mock.calls.find(([url]) => String(url).includes('/add-stock'));
     expect(addStockUrl).toBeUndefined();
+  });
+
+  it('postGRN sends a pack PO line as base units', async () => {
+    const packPo: PurchaseOrder = {
+      ...po,
+      items: [
+        {
+          productId: '123',
+          productName: 'Test Product',
+          uom: 'case',
+          quantity: 36,
+          unitPrice: 7.5,
+          taxRate: 0,
+          discount: 0,
+          total: 270,
+          entered_uom: 'pack',
+          entered_qty: 3,
+          entered_unit_price: 90,
+          pack_qty_snapshot: 12,
+        },
+      ],
+    };
+    localStorage.setItem('purchase_orders', JSON.stringify([packPo]));
+    localStorage.setItem(
+      'grns',
+      JSON.stringify([
+        {
+          id: 'GRN-PACK-1',
+          grnNumber: 'GRN-PACK-1',
+          poReference: packPo.poNumber,
+          poId: packPo.id,
+          warehouse: 'Main Warehouse',
+          receivedBy: 'Tester',
+          receivedDate: '2026-05-29',
+          status: 'Draft',
+          items: [
+            {
+              productId: '123',
+              productName: 'Test Product',
+              sku: 'TEST-123',
+              uom: 'case',
+              orderedQty: 36,
+              receivedQty: 36,
+              acceptedQty: 36,
+              rejectedQty: 0,
+              unitCost: 7.5,
+              totalCost: 270,
+              enteredUom: 'pack',
+              enteredQty: 3,
+              enteredUnitPrice: 90,
+              packQtySnapshot: 12,
+            },
+          ],
+          goodsValue: 270,
+          freightCost: 0,
+          landedCost: 270,
+          createdAt: '2026-05-29T00:00:00.000Z',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
+      .mockResolvedValueOnce(okResponse({ lines_processed: 1, total_amount: 270 }))
+      .mockResolvedValueOnce(okResponse({ ...packPo, status: 'GRN' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await postGRN('GRN-PACK-1');
+
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    const body = JSON.parse(String((grnReceiveCall?.[1] as RequestInit).body));
+    expect(body.lines).toEqual([
+      {
+        productId: 123,
+        quantity: 36,
+        unitCost: 7.5,
+        entered_qty: 36,
+        entered_uom: 'base',
+        entered_unit_price: 7.5,
+      },
+    ]);
   });
 });

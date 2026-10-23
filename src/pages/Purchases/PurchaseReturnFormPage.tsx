@@ -12,6 +12,9 @@ import {
   type PurchaseReturnWriteBody,
   type RefundMode,
 } from '../../services/purchaseReturnService';
+import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import { planBarcodeScan, readDocumentEntry, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 
 const POST_CONFIRM = 'Post this return? Stock will go down and the supplier balance will be reduced.';
 const ESTIMATE_LABEL = 'Estimated — final cost is set when posted';
@@ -21,6 +24,8 @@ interface DraftLine {
   product_id: string;
   quantity: string;
   reason: string;
+  enteredUom?: 'base' | 'pack';
+  packQtySnapshot?: number | null;
 }
 
 function todayIsoLocal(): string {
@@ -55,6 +60,7 @@ export default function PurchaseReturnFormPage() {
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +85,22 @@ export default function PurchaseReturnFormPage() {
         if (cancelled) return;
         setSuppliers(supplierRows);
         setProducts(productRows);
+        try {
+          const catalog = await getCatalogProducts();
+          const packs = new Map<string, PackProduct>();
+          for (const row of catalog) {
+            packs.set(String(row.id), {
+              id: row.id,
+              packQty: row.packQty,
+              packUnit: row.packUnit,
+              baseUnit: row.baseUnit || row.uom,
+              unit: row.uom,
+            });
+          }
+          setCatalogPacks(packs);
+        } catch {
+          setCatalogPacks(new Map());
+        }
         if (!editId) return;
         const row = await get(editId);
         if (cancelled) return;
@@ -96,12 +118,17 @@ export default function PurchaseReturnFormPage() {
         setRefundAccountId(row.refund_account_id == null ? '' : String(row.refund_account_id));
         setLines(
           row.lines && row.lines.length > 0
-            ? row.lines.map((line) => ({
+            ? row.lines.map((line) => {
+                const entry = readDocumentEntry(line as unknown as Record<string, unknown>, line.quantity, line.unit_cost || 0);
+                return {
                 key: String(line.id),
                 product_id: String(line.product_id),
-                quantity: String(line.quantity),
+                quantity: entry.enteredUom === 'pack' ? String(entry.enteredQty) : String(line.quantity),
                 reason: line.reason || '',
-              }))
+                enteredUom: entry.enteredUom,
+                packQtySnapshot: entry.packQtySnapshot,
+                };
+              })
             : [blankLine()],
         );
       } catch (e) {
@@ -121,9 +148,27 @@ export default function PurchaseReturnFormPage() {
     return map;
   }, [products]);
 
+  function linePack(line: DraftLine): { pack: boolean; snapshot: number; price: number } {
+    const product = productById.get(line.product_id);
+    const catalog = catalogPacks.get(line.product_id);
+    const snapshot = line.enteredUom === 'pack'
+      ? Number(line.packQtySnapshot || catalog?.packQty || 0)
+      : 0;
+    const pack = line.enteredUom === 'pack' && snapshot > 0;
+    const cost = product?.cost_price ?? 0;
+    return { pack, snapshot, price: pack ? cost * snapshot : cost };
+  }
+
+  function lineBaseQty(line: DraftLine): number {
+    const qty = Number(line.quantity);
+    const info = linePack(line);
+    if (!info.pack) return qty;
+    return qty * info.snapshot;
+  }
+
   function lineEstimate(line: DraftLine): number | null {
     const product = productById.get(line.product_id);
-    const qty = Number(line.quantity);
+    const qty = lineBaseQty(line);
     if (!product || product.cost_price == null || !(qty > 0)) return null;
     return qty * product.cost_price;
   }
@@ -133,13 +178,77 @@ export default function PurchaseReturnFormPage() {
     let any = false;
     for (const line of lines) {
       const product = productById.get(line.product_id);
-      const qty = Number(line.quantity);
+      const qty = lineBaseQty(line);
       if (!product || product.cost_price == null || !(qty > 0)) continue;
       sum += qty * product.cost_price;
       any = true;
     }
     return any ? sum : null;
-  }, [lines, productById]);
+  }, [lines, productById, catalogPacks]);
+
+  function onLineEntry(key: string, value: PackEntryValue) {
+    const line = lines.find((row) => row.key === key);
+    const catalog = catalogPacks.get(line?.product_id || '');
+    const snapshot = value.enteredUom === 'pack'
+      ? (line?.enteredUom === 'pack' && line.packQtySnapshot ? line.packQtySnapshot : catalog?.packQty ?? null)
+      : null;
+    updateLine(key, {
+      quantity: value.enteredQty ? String(value.enteredQty) : '',
+      enteredUom: value.enteredUom,
+      packQtySnapshot: snapshot,
+    });
+  }
+
+  async function handleBarcodeScan(code: string) {
+    try {
+      const found = await lookupProductByBarcode(code);
+      const product = found.product;
+      const pack: PackProduct = {
+        id: product.id,
+        packQty: product.packQty,
+        packUnit: product.packUnit,
+        baseUnit: product.baseUnit || product.uom,
+        unit: product.uom,
+      };
+      setCatalogPacks((prev) => {
+        const next = new Map(prev);
+        next.set(String(product.id), pack);
+        return next;
+      });
+      const cost = products.find((row) => String(row.id) === String(product.id))?.cost_price
+        ?? (Number(product.pricing?.landedCost) || 0);
+      setLines((current) => {
+        const plan = planBarcodeScan(
+          current.map((line) => ({
+            productId: line.product_id,
+            enteredUom: line.enteredUom,
+            enteredQty: Number(line.quantity) || 0,
+            quantity: line.enteredUom === 'pack'
+              ? (Number(line.quantity) || 0) * Number(line.packQtySnapshot || pack.packQty || 0)
+              : Number(line.quantity) || 0,
+          })),
+          { ...pack, id: String(product.id) },
+          found.matchedPackQty,
+          cost,
+        );
+        const blank = current.findIndex((line) => !line.product_id && !line.quantity.trim());
+        const index = plan.index >= 0 ? plan.index : blank;
+        const nextQty = plan.mode === 'pack' ? plan.enteredQty : plan.quantity;
+        const patch: DraftLine = {
+          key: index >= 0 ? current[index].key : blankLine().key,
+          product_id: String(product.id),
+          quantity: String(nextQty),
+          reason: index >= 0 ? current[index].reason : '',
+          enteredUom: plan.mode,
+          packQtySnapshot: plan.packQtySnapshot,
+        };
+        if (index >= 0) return current.map((line, i) => (i === index ? { ...line, ...patch, key: line.key } : line));
+        return [...current, patch];
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Barcode lookup failed');
+    }
+  }
 
   function updateLine(key: string, patch: Partial<DraftLine>) {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
@@ -161,8 +270,8 @@ export default function PurchaseReturnFormPage() {
         setError('Select a product on each line');
         return null;
       }
-      const qty = Number(line.quantity);
-      if (!(qty > 0)) {
+      const visibleQty = Number(line.quantity);
+      if (!(visibleQty > 0)) {
         setError('Quantity must be greater than 0');
         return null;
       }
@@ -171,10 +280,22 @@ export default function PurchaseReturnFormPage() {
         setError('Select a product on each line');
         return null;
       }
+      const info = linePack(line);
+      const catalog = catalogPacks.get(line.product_id);
+      const priced = toLinePayload({
+        enteredQty: visibleQty,
+        enteredUom: info.pack ? 'pack' : 'base',
+        enteredUnitPrice: info.price,
+        packQty: catalog?.packQty,
+        packQtySnapshot: info.pack ? info.snapshot : null,
+      });
       payloadLines.push({
         product_id: productId,
-        quantity: qty,
+        quantity: Number(priced.quantity),
         reason: line.reason.trim(),
+        entered_qty: Number(priced.entered_qty),
+        entered_uom: String(priced.entered_uom),
+        entered_unit_price: Number(priced.entered_unit_price),
       });
     }
     if (refundMode === 'bank' && !refundAccountId) {
@@ -299,6 +420,7 @@ export default function PurchaseReturnFormPage() {
       <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-black uppercase tracking-wide text-gray-700">Lines</h2>
+          <BarcodeScanField onScan={handleBarcodeScan} />
           <button
             type="button"
             onClick={() => setLines((current) => [...current, blankLine()])}
@@ -309,9 +431,11 @@ export default function PurchaseReturnFormPage() {
         </div>
         {lines.map((line) => {
           const product = productById.get(line.product_id);
-          const qty = Number(line.quantity);
+          const qty = lineBaseQty(line);
           const stock = product?.current_stock;
           const overStock = product != null && stock != null && qty > stock;
+          const info = linePack(line);
+          const catalog = catalogPacks.get(line.product_id);
           const estimate = lineEstimate(line);
           return (
             <div key={line.key} className="grid gap-2 sm:grid-cols-12 items-start border-t border-gray-100 pt-3">
@@ -333,14 +457,17 @@ export default function PurchaseReturnFormPage() {
               </label>
               <label className="sm:col-span-2 text-xs font-bold text-gray-600">
                 Quantity
-                <input
-                  aria-label="Quantity"
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={line.quantity}
-                  onChange={(e) => updateLine(line.key, { quantity: e.target.value })}
-                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                <PackQtyInput
+                  product={catalog || null}
+                  value={{
+                    enteredQty: Number(line.quantity) || 0,
+                    enteredUom: info.pack ? 'pack' : 'base',
+                    enteredUnitPrice: info.price,
+                  }}
+                  basePrice={product?.cost_price ?? 0}
+                  priceEditable={false}
+                  packQtySnapshot={line.packQtySnapshot}
+                  onChange={(value) => onLineEntry(line.key, value)}
                 />
               </label>
               <label className="sm:col-span-3 text-xs font-bold text-gray-600">

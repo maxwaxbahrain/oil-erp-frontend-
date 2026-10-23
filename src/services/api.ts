@@ -198,6 +198,11 @@ export interface Invoice {
     rate: number;
     amount: number;
     productId?: string;
+    /** Echoed pack entry. Absent on legacy lines. */
+    entered_qty?: number;
+    entered_uom?: string;
+    entered_unit_price?: number;
+    pack_qty_snapshot?: number | null;
   }>;
   subtotal: number;
   taxRate: number;
@@ -1071,6 +1076,30 @@ function sliceDatePart(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
+function invoiceLineEntry(it: Record<string, unknown>): {
+  entered_qty?: number;
+  entered_uom?: string;
+  entered_unit_price?: number;
+  pack_qty_snapshot?: number | null;
+} {
+  const uom = it.entered_uom ?? it.enteredUom;
+  const qty = it.entered_qty ?? it.enteredQty;
+  const price = it.entered_unit_price ?? it.enteredUnitPrice;
+  const snapshot = it.pack_qty_snapshot ?? it.packQtySnapshot;
+  if (uom == null && qty == null && price == null && snapshot == null) return {};
+  const out: {
+    entered_qty?: number;
+    entered_uom?: string;
+    entered_unit_price?: number;
+    pack_qty_snapshot?: number | null;
+  } = {};
+  if (qty != null && qty !== '') out.entered_qty = Number(qty);
+  if (uom != null && uom !== '') out.entered_uom = String(uom);
+  if (price != null && price !== '') out.entered_unit_price = Number(price);
+  if (snapshot != null && snapshot !== '') out.pack_qty_snapshot = Number(snapshot);
+  return out;
+}
+
 export function invoiceLineProductId(it: Record<string, unknown>): string {
   const raw = it.product_id ?? it.productId;
   if (raw == null || raw === '') return '';
@@ -1088,6 +1117,7 @@ export function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       rate: Number(it.rate) || 0,
       amount: Number(it.amount) || 0,
       productId: invoiceLineProductId(it),
+      ...invoiceLineEntry(it),
     }));
   }
   const grandTotal = Number(inv.total ?? inv.total_amount ?? inv.grand_total ?? inv.grandTotal ?? 0);

@@ -11,6 +11,10 @@ export interface PurchaseOrderItem {
     taxRate: number;
     discount: number;
     total: number;
+    entered_qty?: number;
+    entered_uom?: string;
+    entered_unit_price?: number;
+    pack_qty_snapshot?: number | null;
 }
 
 export type POStatus = 'Pending' | 'Approved' | 'GRN' | 'Paid' | 'Received' | 'Completed' | 'Draft' | 'Rejected';
@@ -396,6 +400,14 @@ export const createPurchaseOrder = async (po: Omit<PurchaseOrder, 'id'>): Promis
             taxRate: finiteNum(it.taxRate),
             discount: finiteNum(it.discount),
             total: finiteNum(it.total),
+            ...(it.entered_uom
+                ? {
+                    entered_qty: finiteNum(it.entered_qty),
+                    entered_uom: it.entered_uom,
+                    entered_unit_price: finiteNum(it.entered_unit_price),
+                    pack_qty_snapshot: it.pack_qty_snapshot ?? null,
+                }
+                : {}),
         })),
     };
 
@@ -714,6 +726,9 @@ export const confirmGRN = async (id: string): Promise<GRNResult> => {
                         productId: line.productId,
                         quantity: line.quantity,
                         unitCost: line.unitCost,
+                        entered_qty: line.quantity,
+                        entered_uom: 'base',
+                        entered_unit_price: line.unitCost,
                     })),
                 }),
             });
