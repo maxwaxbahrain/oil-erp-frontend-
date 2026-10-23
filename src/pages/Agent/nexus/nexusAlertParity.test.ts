@@ -6,16 +6,24 @@ import {
   attentionFactsFromAlerts,
   computeAlertCounts,
   formatAttentionWelcome,
+  shellLoadFailureLines,
 } from '../../../utils/alertCounts';
 import { buildPlanets, type SourceResult } from './nexusModel';
 
 const ok = <T>(value: T): SourceResult<T> => ({ state: 'ok', value });
 const none = <T = never>(): SourceResult<T> => ({ state: 'unavailable' });
 
+const loadsOk = {
+  productsLoad: 'ok' as const,
+  invoicesLoad: 'ok' as const,
+  paymentsLoad: 'ok' as const,
+  arLoad: 'ok' as const,
+};
+
 describe('Nexus alert parity', () => {
   it('same count as alert bar helper', () => {
     const input = {
-      productsLoad: 'ok' as const,
+      ...loadsOk,
       invoices: [
         {
           id: 'inv-1',
@@ -43,15 +51,34 @@ describe('Nexus alert parity', () => {
     );
   });
 
+  it('invoices failed → never Nothing needs you', () => {
+    const counts = computeAlertCounts({
+      ...loadsOk,
+      invoicesLoad: 'failed',
+      invoices: [],
+      payments: [],
+      products: [{ id: 1, is_active: true, current_stock: 0, min_stock: 1 }],
+      arSummary: null,
+    });
+    const line = formatAttentionWelcome({
+      firstName: 'Zohaib',
+      shellReady: true,
+      facts: attentionFactsFromAlerts(counts),
+      loadFailures: shellLoadFailureLines(counts),
+    });
+    expect(line).not.toMatch(/Nothing needs you/i);
+    expect(line).toContain("couldn't load invoices");
+  });
+
   it('failed load is never spoken as 0 updates', () => {
     const line = formatAttentionWelcome({
       firstName: 'Zohaib',
       shellReady: true,
-      shellFailed: true,
       facts: [],
+      loadFailures: ["I couldn't load invoices right now."],
     });
-    expect(line).toBe("I couldn't load your updates right now.");
     expect(line).not.toMatch(/0 update/i);
+    expect(line).not.toMatch(/Nothing needs you/i);
   });
 
   it('hides tiles with no source', () => {

@@ -92,7 +92,12 @@ function App() {
     purchaseOrders: [],
     arSummary: null,
     productsLoad: 'loading',
+    invoicesLoad: 'loading',
+    paymentsLoad: 'loading',
+    arLoad: 'loading',
   });
+  const [shellReloadKey, setShellReloadKey] = useState(0);
+  const reloadShell = useCallback(() => setShellReloadKey((k) => k + 1), []);
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
   // by this state. Default closed on all viewports.
@@ -174,6 +179,9 @@ function App() {
         products: aiCtx.products,
         arSummary: aiCtx.arSummary,
         productsLoad: aiCtx.productsLoad,
+        invoicesLoad: aiCtx.invoicesLoad,
+        paymentsLoad: aiCtx.paymentsLoad,
+        arLoad: aiCtx.arLoad,
       }),
     [aiCtx],
   );
@@ -231,27 +239,43 @@ function App() {
   }, [notifsOpen]);
 
   useEffect(() => {
+    setAiCtx((prev) => ({
+      ...prev,
+      productsLoad: 'loading',
+      invoicesLoad: 'loading',
+      paymentsLoad: 'loading',
+      arLoad: 'loading',
+    }));
     Promise.all([
-      getInvoices().catch(() => []),
+      getInvoices()
+        .then((inv) => ({ ok: true as const, invoices: Array.isArray(inv) ? inv : [] }))
+        .catch(() => ({ ok: false as const, invoices: [] as any[] })),
       getCustomers().catch(() => []),
       getProductsStrict()
         .then((p) => ({ ok: true as const, products: Array.isArray(p) ? p : [] }))
         .catch(() => ({ ok: false as const, products: [] as any[] })),
-      getPayments().catch(() => []),
+      getPayments()
+        .then((pays) => ({ ok: true as const, payments: Array.isArray(pays) ? pays : [] }))
+        .catch(() => ({ ok: false as const, payments: [] as any[] })),
       getPurchaseOrders().catch(() => []),
-      getArSummary().catch(() => null),
-    ]).then(([inv, cust, prodResult, pays, pos, ar]) => {
+      getArSummary()
+        .then((ar) => ({ ok: true as const, ar }))
+        .catch(() => ({ ok: false as const, ar: null })),
+    ]).then(([invResult, cust, prodResult, payResult, pos, arResult]) => {
       setAiCtx({
-        invoices: inv,
+        invoices: invResult.invoices,
         customers: cust,
         products: prodResult.products,
-        payments: pays,
+        payments: payResult.payments,
         purchaseOrders: pos,
-        arSummary: ar,
+        arSummary: arResult.ar,
         productsLoad: prodResult.ok ? 'ok' : 'failed',
+        invoicesLoad: invResult.ok ? 'ok' : 'failed',
+        paymentsLoad: payResult.ok ? 'ok' : 'failed',
+        arLoad: arResult.ok ? 'ok' : 'failed',
       });
     });
-  }, []);
+  }, [shellReloadKey]);
 
   // Global keyboard shortcut: Escape closes the advisor panel, then the
   // drawer overlay (any viewport) before falling back to history.back.
@@ -339,7 +363,7 @@ function App() {
   const showAlertStrip = showAlertBar && hasAlerts;
 
   return (
-    <ErpShellProvider value={aiCtx}>
+    <ErpShellProvider value={aiCtx} reloadShell={reloadShell}>
     <div className="flex h-screen flex-col bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
       {/* Trial slot — always mounted; fixed height when visible avoids mount/unmount reflow */}
       <div

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useErpShell } from '../../../contexts/ErpShellContext';
+import { useErpShell, useErpShellReload } from '../../../contexts/ErpShellContext';
 import { isStaging } from '../../../config/appEnv';
 import { getPayments, getVanLocations } from '../../../services/api';
 import { getExpenseStats } from '../../../services/expenseService';
@@ -27,6 +27,7 @@ import {
   attentionFactsFromAlerts,
   computeAlertCounts,
   formatAttentionWelcome,
+  shellLoadFailureLines,
 } from '../../../utils/alertCounts';
 import { firstName } from '../zavaCopy';
 import { companyAmount, signalFigure, signalWhy } from '../signalCards';
@@ -124,6 +125,7 @@ const CY = VIEW / 2;
 export default function NexusPage() {
   const { user } = useAuth();
   const shell = useErpShell();
+  const reloadShell = useErpShellReload();
   const navigate = useNavigate();
   const name = firstName(user?.full_name || user?.username);
   const [cards, setCards] = useState<NexusSignalCard[]>([]);
@@ -155,10 +157,14 @@ export default function NexusPage() {
         products: shell.products,
         arSummary: shell.arSummary,
         productsLoad: shell.productsLoad,
+        invoicesLoad: shell.invoicesLoad,
+        paymentsLoad: shell.paymentsLoad,
+        arLoad: shell.arLoad,
       }),
     [shell],
   );
   const shellReady = alertShellReady(shell);
+  const loadFailures = useMemo(() => shellLoadFailureLines(alertCounts), [alertCounts]);
   const attentionFacts = useMemo(() => attentionFactsFromAlerts(alertCounts), [alertCounts]);
   const cardsLoadOk = cardsLoad.state === 'ok';
   const welcomeLine = useMemo(
@@ -166,10 +172,10 @@ export default function NexusPage() {
       formatAttentionWelcome({
         firstName: name,
         shellReady,
-        shellFailed: alertCounts.productsLoadFailed && attentionFacts.length === 0,
         facts: attentionFacts,
+        loadFailures,
       }),
-    [name, shellReady, alertCounts.productsLoadFailed, attentionFacts],
+    [name, shellReady, attentionFacts, loadFailures],
   );
 
   useEffect(() => {
@@ -324,7 +330,7 @@ export default function NexusPage() {
   const voice = useNexusVoice({
     firstName: name,
     cards,
-    cardsLoadOk: shellReady && !alertCounts.productsLoading,
+    cardsLoadOk: shellReady && !alertCounts.shellLoading,
     needsYou: needs,
     speakable,
     activeCardId,
@@ -478,7 +484,20 @@ export default function NexusPage() {
           </div>
 
           {!shellReady && <Muted>Loading…</Muted>}
-          {shellReady && attentionFacts.length === 0 && signalNeeds.length === 0 && (
+          {shellReady && loadFailures.length > 0 && (
+            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                {loadFailures.join(' ')}
+              </div>
+              <button type="button" style={primaryBtn} onClick={() => reloadShell()}>
+                Retry
+              </button>
+            </div>
+          )}
+          {shellReady
+            && loadFailures.length === 0
+            && attentionFacts.length === 0
+            && signalNeeds.length === 0 && (
             <Muted>Nothing needs you right now.</Muted>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { ArSummary } from '../services/customerService';
-import type { ProductsLoadState } from '../utils/alertCounts';
+import type { ShellLoadState } from '../utils/alertCounts';
 
 /** ERP payload App loads once for the alert bar / AI assistant / Nexus. */
 export type ErpShellData = {
@@ -10,7 +10,16 @@ export type ErpShellData = {
   payments: unknown[];
   purchaseOrders: unknown[];
   arSummary: ArSummary | null;
-  productsLoad: ProductsLoadState;
+  productsLoad: ShellLoadState;
+  invoicesLoad: ShellLoadState;
+  paymentsLoad: ShellLoadState;
+  arLoad: ShellLoadState;
+};
+
+export type ErpShellContextValue = {
+  shell: ErpShellData;
+  /** Re-run App's shell Promise.all (Nexus Retry). */
+  reloadShell: () => void;
 };
 
 const defaultShell: ErpShellData = {
@@ -21,20 +30,36 @@ const defaultShell: ErpShellData = {
   purchaseOrders: [],
   arSummary: null,
   productsLoad: 'loading',
+  invoicesLoad: 'loading',
+  paymentsLoad: 'loading',
+  arLoad: 'loading',
 };
 
-const ErpShellContext = createContext<ErpShellData>(defaultShell);
+const ErpShellContext = createContext<ErpShellContextValue>({
+  shell: defaultShell,
+  reloadShell: () => undefined,
+});
 
 export function ErpShellProvider({
   value,
+  reloadShell,
   children,
 }: {
   value: ErpShellData;
+  reloadShell: () => void;
   children: ReactNode;
 }) {
-  return <ErpShellContext.Provider value={value}>{children}</ErpShellContext.Provider>;
+  return (
+    <ErpShellContext.Provider value={{ shell: value, reloadShell }}>
+      {children}
+    </ErpShellContext.Provider>
+  );
 }
 
 export function useErpShell(): ErpShellData {
-  return useContext(ErpShellContext);
+  return useContext(ErpShellContext).shell;
+}
+
+export function useErpShellReload(): () => void {
+  return useContext(ErpShellContext).reloadShell;
 }
