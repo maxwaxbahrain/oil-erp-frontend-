@@ -42,14 +42,14 @@ import { isProduction, isStaging, appEnv } from '../config/appEnv';
 import { postLoginHomePath } from '../config/stagingHome';
 import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { getInvoices, getCustomers, getProductsStrict, getPayments, isCustomerPayment } from '../services/api';
+import { getInvoices, getCustomers, getProductsStrict, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
-import { getArSummary, type ArSummary } from '../services/customerService';
-import { outstandingTotals } from '../utils/outstandingTotals';
-import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
+import { getArSummary } from '../services/customerService';
+import { computeAlertCounts } from '../utils/alertCounts';
 import { formatLowStockShort, summarizeLowStock } from '../utils/lowStock';
 import api from '../api/axios';
 import { HandsFreeHeaderChip } from '../pages/Agent/handsFree/HandsFreeProvider';
+import { ErpShellProvider, type ErpShellData } from '../contexts/ErpShellContext';
 
 // Six role dashboards — pill cycles through these; each route must exist.
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
@@ -84,15 +84,20 @@ function App() {
   const canSeeFinance = hasRole(...FINANCE_ROLES);
   const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
   const canSeeAdmin = hasRole(...ADMIN_ROLES);
-  const [aiCtx, setAiCtx] = useState<any>({
+  const [aiCtx, setAiCtx] = useState<ErpShellData>({
     invoices: [],
     customers: [],
     products: [],
     payments: [],
     purchaseOrders: [],
     arSummary: null,
-    productsLoad: 'loading' as 'loading' | 'ok' | 'failed',
+    productsLoad: 'loading',
+    invoicesLoad: 'loading',
+    paymentsLoad: 'loading',
+    arLoad: 'loading',
   });
+  const [shellReloadKey, setShellReloadKey] = useState(0);
+  const reloadShell = useCallback(() => setShellReloadKey((k) => k + 1), []);
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
   // by this state. Default closed on all viewports.
@@ -166,37 +171,20 @@ function App() {
     try { return sessionStorage.getItem('soltol_alert_dismissed') !== '1'; } catch { return true; }
   });
   const [trialBanner, setTrialBanner] = useState<{ daysLeft: number } | null>(null);
-  const alertCounts = useMemo(() => {
-    const invs = (aiCtx.invoices as any[]) || [];
-    const pays = ((aiCtx.payments as any[]) || []).filter(isCustomerPayment);
-    const prods = (aiCtx.products as any[]) || [];
-    const receivables = calculateReceivables(invs, pays, new Date());
-    const ar = aiCtx.arSummary as ArSummary | null | undefined;
-    const ledgerByCustomer =
-      ar && Array.isArray(ar.per_customer)
-        ? new Map(ar.per_customer.map((c) => [String(c.id), c.balance]))
-        : null;
-    const capped = capReceivablesByLedger(receivables, ledgerByCustomer);
-    const headline = outstandingTotals(ar);
-    const unpaid = capped.invoices.length;
-    const unpaidTotal = headline ? headline.owedToUs : capped.total;
-    const creditTotal = headline ? Math.abs(headline.customerCredits) : 0;
-    const netTotal = headline ? headline.netReceivable : unpaidTotal;
-    const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
-    const productsOk = aiCtx.productsLoad === 'ok';
-    const lowStockSummary = summarizeLowStock(prods);
-    return {
-      unpaid,
-      unpaidTotal,
-      creditTotal,
-      netTotal,
-      overdue,
-      // Hide stock alerts when products failed — never show a false "0 out of stock"
-      lowStock: productsOk ? lowStockSummary.alertCount : 0,
-      lowStockLabel: productsOk ? formatLowStockShort(lowStockSummary) : '',
-      productsLoadFailed: aiCtx.productsLoad === 'failed',
-    };
-  }, [aiCtx]);
+  const alertCounts = useMemo(
+    () =>
+      computeAlertCounts({
+        invoices: aiCtx.invoices,
+        payments: aiCtx.payments,
+        products: aiCtx.products,
+        arSummary: aiCtx.arSummary,
+        productsLoad: aiCtx.productsLoad,
+        invoicesLoad: aiCtx.invoicesLoad,
+        paymentsLoad: aiCtx.paymentsLoad,
+        arLoad: aiCtx.arLoad,
+      }),
+    [aiCtx],
+  );
 
   // Trial banner — fetch once on mount (not per navigation). Change guards
   // avoid re-renders when the API returns the same days_left.
@@ -251,27 +239,43 @@ function App() {
   }, [notifsOpen]);
 
   useEffect(() => {
+    setAiCtx((prev) => ({
+      ...prev,
+      productsLoad: 'loading',
+      invoicesLoad: 'loading',
+      paymentsLoad: 'loading',
+      arLoad: 'loading',
+    }));
     Promise.all([
-      getInvoices().catch(() => []),
+      getInvoices()
+        .then((inv) => ({ ok: true as const, invoices: Array.isArray(inv) ? inv : [] }))
+        .catch(() => ({ ok: false as const, invoices: [] as any[] })),
       getCustomers().catch(() => []),
       getProductsStrict()
         .then((p) => ({ ok: true as const, products: Array.isArray(p) ? p : [] }))
         .catch(() => ({ ok: false as const, products: [] as any[] })),
-      getPayments().catch(() => []),
+      getPayments()
+        .then((pays) => ({ ok: true as const, payments: Array.isArray(pays) ? pays : [] }))
+        .catch(() => ({ ok: false as const, payments: [] as any[] })),
       getPurchaseOrders().catch(() => []),
-      getArSummary().catch(() => null),
-    ]).then(([inv, cust, prodResult, pays, pos, ar]) => {
+      getArSummary()
+        .then((ar) => ({ ok: true as const, ar }))
+        .catch(() => ({ ok: false as const, ar: null })),
+    ]).then(([invResult, cust, prodResult, payResult, pos, arResult]) => {
       setAiCtx({
-        invoices: inv,
+        invoices: invResult.invoices,
         customers: cust,
         products: prodResult.products,
-        payments: pays,
+        payments: payResult.payments,
         purchaseOrders: pos,
-        arSummary: ar,
+        arSummary: arResult.ar,
         productsLoad: prodResult.ok ? 'ok' : 'failed',
+        invoicesLoad: invResult.ok ? 'ok' : 'failed',
+        paymentsLoad: payResult.ok ? 'ok' : 'failed',
+        arLoad: arResult.ok ? 'ok' : 'failed',
       });
     });
-  }, []);
+  }, [shellReloadKey]);
 
   // Global keyboard shortcut: Escape closes the advisor panel, then the
   // drawer overlay (any viewport) before falling back to history.back.
@@ -359,6 +363,7 @@ function App() {
   const showAlertStrip = showAlertBar && hasAlerts;
 
   return (
+    <ErpShellProvider value={aiCtx} reloadShell={reloadShell}>
     <div className="flex h-screen flex-col bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
       {/* Trial slot — always mounted; fixed height when visible avoids mount/unmount reflow */}
       <div
@@ -1007,6 +1012,7 @@ function App() {
       />
     </div>
     </div>
+    </ErpShellProvider>
   );
 }
 

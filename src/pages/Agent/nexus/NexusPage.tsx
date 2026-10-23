@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -14,15 +14,21 @@ import {
 } from 'lucide-react';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useErpShell, useErpShellReload } from '../../../contexts/ErpShellContext';
 import { isStaging } from '../../../config/appEnv';
-import { getArSummary } from '../../../services/customerService';
-import { getPayments, getProducts, getVanLocations } from '../../../services/api';
-import { getPurchaseOrders } from '../../../services/purchasesService';
+import { getPayments, getVanLocations } from '../../../services/api';
 import { getExpenseStats } from '../../../services/expenseService';
 import { listDeliveryNotes } from '../../../services/deliveryService';
 import { getAllLeaveRequests } from '../../../services/leaveService';
 import { deriveVanLiveStatus } from '../../../lib/vanLiveStatus';
 import { summarizeLowStock } from '../../../utils/lowStock';
+import {
+  alertShellReady,
+  attentionFactsFromAlerts,
+  computeAlertCounts,
+  formatAttentionWelcome,
+  shellLoadFailureLines,
+} from '../../../utils/alertCounts';
 import { firstName } from '../zavaCopy';
 import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
@@ -30,11 +36,9 @@ import {
   PLANET_STATUS_COLOR,
   buildPlanets,
   buildTimelineEvents,
-  businessHealthScore,
   comingUpCards,
   countOpenPurchaseOrders,
   needsYouCards,
-  needsYouCount,
   owedToUsFromArSummary,
   type NexusPlanet,
   type NexusSignalCard,
@@ -120,11 +124,13 @@ const CY = VIEW / 2;
 
 export default function NexusPage() {
   const { user } = useAuth();
+  const shell = useErpShell();
+  const reloadShell = useErpShellReload();
   const navigate = useNavigate();
   const name = firstName(user?.full_name || user?.username);
   const [cards, setCards] = useState<NexusSignalCard[]>([]);
-  const [cardsLoadOk, setCardsLoadOk] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [cardsLoad, setCardsLoad] = useState<SourceResult<true>>(unavailableResult());
+  const [loadingExtras, setLoadingExtras] = useState(true);
   const [loadMs, setLoadMs] = useState<number | null>(null);
   const [requestCount, setRequestCount] = useState(0);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
@@ -143,132 +149,177 @@ export default function NexusPage() {
   });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
 
+  const alertCounts = useMemo(
+    () =>
+      computeAlertCounts({
+        invoices: shell.invoices,
+        payments: shell.payments,
+        products: shell.products,
+        arSummary: shell.arSummary,
+        productsLoad: shell.productsLoad,
+        invoicesLoad: shell.invoicesLoad,
+        paymentsLoad: shell.paymentsLoad,
+        arLoad: shell.arLoad,
+      }),
+    [shell],
+  );
+  const shellReady = alertShellReady(shell);
+  const loadFailures = useMemo(() => shellLoadFailureLines(alertCounts), [alertCounts]);
+  const attentionFacts = useMemo(() => attentionFactsFromAlerts(alertCounts), [alertCounts]);
+  const cardsLoadOk = cardsLoad.state === 'ok';
+  const welcomeLine = useMemo(
+    () =>
+      formatAttentionWelcome({
+        firstName: name,
+        shellReady,
+        facts: attentionFacts,
+        loadFailures,
+      }),
+    [name, shellReady, attentionFacts, loadFailures],
+  );
+
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(t);
   }, []);
 
-  const load = useCallback(async () => {
+  // Reuse App shell data for Collections / Inventory / Purchase — no re-fetch.
+  useEffect(() => {
+    if (!isStaging || !shellReady) return;
+    const owed = owedToUsFromArSummary(shell.arSummary);
+    const low =
+      shell.productsLoad === 'ok'
+        ? (() => {
+            const s = summarizeLowStock(shell.products as any[]);
+            return okResult({
+              alertCount: s.alertCount,
+              outOfStock: s.outOfStock,
+              belowMin: s.belowMin,
+            });
+          })()
+        : errResult<{ alertCount: number; outOfStock: number; belowMin: number }>();
+    setPlanetInputs((prev) => ({
+      ...prev,
+      owedToUs: owed != null ? okResult(owed) : okResult(0),
+      openPoCount: okResult(countOpenPurchaseOrders(shell.purchaseOrders as Array<{ status?: string | null }>)),
+      lowStockCount: low,
+      invoiceCountToday: unavailableResult(),
+    }));
+  }, [shell, shellReady]);
+
+  // Progressive extras: signals, vans, expenses, timeline — settle one-by-one.
+  useEffect(() => {
     if (!isStaging) return;
-    setLoading(true);
+    let cancelled = false;
     const started = performance.now();
     let requests = 0;
-    const track = async <T,>(p: Promise<T>): Promise<T> => {
-      requests += 1;
-      return p;
+    setLoadingExtras(true);
+    setCardsLoad(unavailableResult());
+
+    const patch = (partial: Partial<typeof planetInputs>) => {
+      if (cancelled) return;
+      setPlanetInputs((prev) => ({ ...prev, ...partial }));
     };
 
-    const day = todayIsoLocal();
-    const settled = await Promise.allSettled([
-      track(api.get<{ cards: NexusSignalCard[] }>('/api/agent/signals')),
-      track(api.get<HealthBody>('/api/agent/data-health')),
-      track(getArSummary()),
-      track(getPurchaseOrders()),
-      track(getProducts()),
-      track(getVanLocations()),
-      track(getExpenseStats()),
-      track(getPayments({ start_date: day, end_date: day })),
-      track(listDeliveryNotes({ delivery_date: day })),
-      track(getAllLeaveRequests()),
-    ]);
+    const run = async <T,>(p: Promise<T>): Promise<PromiseSettledResult<T>> => {
+      requests += 1;
+      try {
+        const value = await p;
+        return { status: 'fulfilled', value };
+      } catch (reason) {
+        return { status: 'rejected', reason };
+      }
+    };
 
-    const [
-      signalsSettled,
-      healthSettled,
-      arSettled,
-      posSettled,
-      productsSettled,
-      vansSettled,
-      expensesSettled,
-      paymentsSettled,
-      dnsSettled,
-      leaveSettled,
-    ] = settled;
+    void (async () => {
+      const day = todayIsoLocal();
 
-    const signalsOk = signalsSettled.status === 'fulfilled';
-    const healthOk = healthSettled.status === 'fulfilled';
-    const loadOk = signalsOk && healthOk;
-    setCardsLoadOk(loadOk);
+      void run(api.get<{ cards: NexusSignalCard[] }>('/api/agent/signals')).then((signalsSettled) => {
+        void run(api.get<HealthBody>('/api/agent/data-health')).then((healthSettled) => {
+          if (cancelled) return;
+          const signalsOk = signalsSettled.status === 'fulfilled';
+          const healthOk = healthSettled.status === 'fulfilled';
+          const loadOk = signalsOk && healthOk;
+          const signalCards =
+            signalsOk && Array.isArray(signalsSettled.value.data?.cards)
+              ? signalsSettled.value.data.cards
+              : [];
+          const healthCards =
+            healthOk && Array.isArray(healthSettled.value.data?.data_health)
+              ? healthSettled.value.data.data_health
+              : [];
+          const merged = loadOk ? [...signalCards, ...healthCards] : [];
+          setCards(merged);
+          setActiveCardId(merged[0]?.id ?? null);
+          setCardsLoad(loadOk ? okResult(true) : errResult());
+        });
+      });
 
-    const signalCards =
-      signalsOk && Array.isArray(signalsSettled.value.data?.cards) ? signalsSettled.value.data.cards : [];
-    const healthCards =
-      healthOk && Array.isArray(healthSettled.value.data?.data_health)
-        ? healthSettled.value.data.data_health
-        : [];
-    const merged = loadOk ? [...signalCards, ...healthCards] : [];
-    setCards(merged);
-    setActiveCardId(merged[0]?.id ?? null);
+      void run(getVanLocations()).then((vansSettled) => {
+        if (cancelled) return;
+        if (vansSettled.status === 'fulfilled') {
+          const list = vansSettled.value;
+          patch({
+            vansOnline: okResult(
+              list.filter((v) => deriveVanLiveStatus(v.recorded_at, v.speed) !== 'offline').length,
+            ),
+            vansTotal: okResult(list.length),
+          });
+        } else {
+          patch({ vansOnline: errResult(), vansTotal: errResult() });
+        }
+      });
 
-    setPlanetInputs({
-      owedToUs:
-        arSettled.status === 'fulfilled'
-          ? okResult(owedToUsFromArSummary(arSettled.value) ?? 0)
-          : errResult(),
-      openPoCount:
-        posSettled.status === 'fulfilled'
-          ? okResult(countOpenPurchaseOrders(posSettled.value))
-          : errResult(),
-      lowStockCount:
-        productsSettled.status === 'fulfilled'
-          ? (() => {
-              const s = summarizeLowStock(productsSettled.value);
-              return okResult({
-                alertCount: s.alertCount,
-                outOfStock: s.outOfStock,
-                belowMin: s.belowMin,
-              });
-            })()
-          : errResult(),
-      vansOnline:
-        vansSettled.status === 'fulfilled'
-          ? okResult(
-              vansSettled.value.filter((v) => deriveVanLiveStatus(v.recorded_at, v.speed) !== 'offline')
-                .length,
-            )
-          : errResult(),
-      vansTotal: vansSettled.status === 'fulfilled' ? okResult(vansSettled.value.length) : errResult(),
-      pendingExpenses:
-        expensesSettled.status === 'fulfilled'
-          ? okResult(Number(expensesSettled.value.pending_approval_count || 0))
-          : errResult(),
-      invoiceCountToday: unavailableResult(),
-    });
+      void run(getExpenseStats()).then((expensesSettled) => {
+        if (cancelled) return;
+        patch({
+          pendingExpenses:
+            expensesSettled.status === 'fulfilled'
+              ? okResult(Number(expensesSettled.value.pending_approval_count || 0))
+              : errResult(),
+        });
+      });
 
-    const payments = paymentsSettled.status === 'fulfilled' ? paymentsSettled.value : [];
-    const dns = dnsSettled.status === 'fulfilled' ? dnsSettled.value : [];
-    const leave = leaveSettled.status === 'fulfilled' ? leaveSettled.value : [];
-    setTimeline(
-      buildTimelineEvents({
-        now: new Date(),
-        payments,
-        deliveryNotes: dns,
-        leaveRequests: leave,
-      }),
-    );
+      const [paymentsSettled, dnsSettled, leaveSettled] = await Promise.all([
+        run(getPayments({ start_date: day, end_date: day })),
+        run(listDeliveryNotes({ delivery_date: day })),
+        run(getAllLeaveRequests()),
+      ]);
+      if (cancelled) return;
+      const payments = paymentsSettled.status === 'fulfilled' ? paymentsSettled.value : [];
+      const dns = dnsSettled.status === 'fulfilled' ? dnsSettled.value : [];
+      const leave = leaveSettled.status === 'fulfilled' ? leaveSettled.value : [];
+      setTimeline(
+        buildTimelineEvents({
+          now: new Date(),
+          payments,
+          deliveryNotes: dns,
+          leaveRequests: leave,
+        }),
+      );
+      setRequestCount(requests);
+      setLoadMs(Math.round(performance.now() - started));
+      setLoadingExtras(false);
+    })();
 
-    setRequestCount(requests);
-    setLoadMs(Math.round(performance.now() - started));
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load, reloadKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   const planets = useMemo(
     () =>
       buildPlanets({
         cards,
         cardsLoadOk,
+        cardsLoad,
         ...planetInputs,
-      }),
-    [cards, cardsLoadOk, planetInputs],
+      }).filter((p) => p.visible),
+    [cards, cardsLoadOk, cardsLoad, planetInputs],
   );
 
-  const health = businessHealthScore(cards, cardsLoadOk);
-  const needs = cardsLoadOk ? needsYouCount(cards) : 0;
-  const needsList = (cardsLoadOk ? needsYouCards(cards) : []).filter((c) => !dismissed.has(c.id));
+  const needs = attentionFacts.length;
+  const signalNeeds = cardsLoadOk ? needsYouCards(cards).filter((c) => !dismissed.has(c.id)) : [];
   const speakable = cards.filter((c) => !dismissed.has(c.id));
   const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
   const upcoming = comingUpCards(speakable, activeCard?.id);
@@ -279,16 +330,22 @@ export default function NexusPage() {
   const voice = useNexusVoice({
     firstName: name,
     cards,
-    cardsLoadOk,
+    cardsLoadOk: shellReady && !alertCounts.shellLoading,
     needsYou: needs,
     speakable,
     activeCardId,
     setActiveCardId,
     setActivePlanetId,
     navigate,
+    welcomeReady: shellReady,
+    welcomeLine,
   });
 
   const onPlanet = (planet: NexusPlanet) => {
+    if (planet.status === 'error') {
+      setReloadKey((k) => k + 1);
+      return;
+    }
     setActivePlanetId(planet.id);
     const match = cards.find((c) => String(c.module || '').toLowerCase().includes(planet.id.split('_')[0]));
     if (match) setActiveCardId(match.id);
@@ -362,11 +419,9 @@ export default function NexusPage() {
                 <span style={whoStyle}>ZAVA</span>
                 {voice.zavaLine
                   ? ` ${voice.zavaLine}`
-                  : cardsLoadOk
-                    ? ` Welcome back, ${name}. I have ${cards.length} update${cards.length === 1 ? '' : 's'}.${
-                        needs > 0 ? ` ${needs} need${needs === 1 ? 's' : ''} you.` : ''
-                      }`
-                    : " I couldn't load your updates right now."}
+                  : shellReady
+                    ? ` ${welcomeLine}`
+                    : ' Loading your numbers…'}
               </p>
               <p style={{ marginTop: 8 }}>
                 <span style={{ ...whoStyle, color: '#60A5FA' }}>YOU</span>
@@ -421,25 +476,61 @@ export default function NexusPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
             <SectionTitle style={{ marginBottom: 0 }}>Needs you</SectionTitle>
-            {cardsLoadOk && (
+            {shellReady && needs > 0 && (
               <span style={{ fontSize: 11, fontWeight: 800, color: '#F87171', letterSpacing: '0.08em' }}>
-                {needs} URGENT
+                {needs} NEED YOU
               </span>
             )}
           </div>
 
-          {!cardsLoadOk && (
-            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Couldn&apos;t load signals</div>
-              <button type="button" style={primaryBtn} onClick={() => setReloadKey((k) => k + 1)}>
+          {!shellReady && <Muted>Loading…</Muted>}
+          {shellReady && loadFailures.length > 0 && (
+            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                {loadFailures.join(' ')}
+              </div>
+              <button type="button" style={primaryBtn} onClick={() => reloadShell()}>
                 Retry
               </button>
             </div>
           )}
-          {loading && cardsLoadOk && <Muted>—</Muted>}
-          {!loading && cardsLoadOk && needsList.length === 0 && <Muted>Nothing urgent right now.</Muted>}
+          {shellReady
+            && loadFailures.length === 0
+            && attentionFacts.length === 0
+            && signalNeeds.length === 0 && (
+            <Muted>Nothing needs you right now.</Muted>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {needsList.map((card, idx) => (
+            {attentionFacts.map((fact, idx) => (
+              <div
+                key={fact.id}
+                style={{
+                  ...cardStyle,
+                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
+                }}
+              >
+                <strong style={{ fontSize: 13, display: 'block' }}>{fact.label}</strong>
+                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>
+                  Same figure as the top alert bar
+                </p>
+                <button
+                  type="button"
+                  style={primaryBtn}
+                  onClick={() =>
+                    navigate(
+                      fact.id === 'out_of_stock'
+                        ? '/products'
+                        : fact.id === 'owed' || fact.id === 'overdue'
+                          ? '/finance/collections'
+                          : '/dashboard',
+                    )
+                  }
+                >
+                  Open
+                </button>
+              </div>
+            ))}
+            {signalNeeds.map((card, idx) => (
               <div
                 key={card.id}
                 style={{
@@ -542,7 +633,7 @@ export default function NexusPage() {
               }}
             />
 
-            {/* Welcome + score over orb */}
+            {/* Welcome over orb — health score hidden until defined */}
             <div
               style={{
                 position: 'absolute',
@@ -559,20 +650,24 @@ export default function NexusPage() {
                 <div>Welcome back,</div>
                 <div>{name}</div>
               </div>
-              <div
-                style={{
-                  marginTop: 10,
-                  fontSize: 10,
-                  letterSpacing: '0.18em',
-                  color: 'rgba(226,232,240,0.75)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                Business health{health != null ? ' · Beta' : ''}
-              </div>
-              <div style={{ fontSize: 42, fontWeight: 900, lineHeight: 1.05, marginTop: 2 }}>
-                {loading || health == null ? '—' : health}
-              </div>
+              {shellReady && needs > 0 && (
+                <div style={{ marginTop: 12, fontSize: 22, fontWeight: 900, lineHeight: 1.05, color: '#F87171' }}>
+                  {needs}
+                </div>
+              )}
+              {shellReady && needs > 0 && (
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 10,
+                    letterSpacing: '0.14em',
+                    color: 'rgba(248,113,113,0.9)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  need you
+                </div>
+              )}
             </div>
 
             {/* Planets outside ring */}
@@ -624,13 +719,16 @@ export default function NexusPage() {
                   </div>
                   <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: '#E2E8F0', lineHeight: 1.1 }}>
                     {planet.label}
+                    {planet.metricLabel ? ` · ${planet.metricLabel}` : ''}
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 2 }}>{planet.orbitValue}</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 2 }}>
+                    {planet.status === 'error' ? 'Retry' : planet.orbitValue}
+                  </div>
                 </button>
               );
             })}
           </div>
-          {!loading && loadMs != null && (
+          {!loadingExtras && loadMs != null && (
             <div style={{ textAlign: 'center', marginTop: 4, fontSize: 10, color: '#64748B' }}>
               {requestCount} requests · {loadMs} ms
             </div>
@@ -639,9 +737,9 @@ export default function NexusPage() {
 
         {/* RIGHT */}
         <aside style={panelStyle}>
-          <SectionTitle>Zava · speaking</SectionTitle>
-          {!cardsLoadOk ? (
-            <Muted>Couldn&apos;t load signals — use Retry on the left.</Muted>
+          <SectionTitle>{voice.voiceState === 'speaking' ? 'Zava · speaking' : 'Zava'}</SectionTitle>
+          {!shellReady ? (
+            <Muted>Loading…</Muted>
           ) : activeCard ? (
             <div style={{ ...cardStyle, borderColor: 'rgba(94,234,212,0.35)', boxShadow: '0 0 24px rgba(45,212,191,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -667,14 +765,19 @@ export default function NexusPage() {
               </div>
             </div>
           ) : (
-            <Muted>{loading ? 'Loading…' : 'No updates yet.'}</Muted>
+            <Muted>
+              {attentionFacts.length > 0
+                ? welcomeLine
+                : cardsLoad.state === 'error'
+                  ? "Couldn't load signal details."
+                  : 'No extra updates yet.'}
+            </Muted>
           )}
 
           <SectionTitle style={{ marginTop: 22 }}>Coming up</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {(upcoming.length === 0 || !cardsLoadOk) && <Muted>—</Muted>}
-            {cardsLoadOk &&
-              upcoming.map((card) => {
+            {upcoming.length === 0 && <Muted>{cardsLoad.state === 'unavailable' ? 'Loading…' : 'None right now.'}</Muted>}
+            {upcoming.map((card) => {
                 const color =
                   String(card.priority).toLowerCase() === 'urgent'
                     ? PLANET_STATUS_COLOR.needs_you

@@ -192,10 +192,16 @@ describe('welcome once per session', () => {
   it('welcome line wording', () => {
     expect(
       formatWelcomeLine({ firstName: 'Zohaib', cardsLoadOk: true, updateCount: 3, needsYou: 2 }),
-    ).toBe('Welcome back, Zohaib. I have 3 updates. 2 need you.');
+    ).toBe('Welcome back, Zohaib. 2 things need you.');
+    expect(
+      formatWelcomeLine({ firstName: 'Zohaib', cardsLoadOk: true, updateCount: 0, needsYou: 0 }),
+    ).toBe('Welcome back, Zohaib. Nothing needs you right now.');
     expect(
       formatWelcomeLine({ firstName: 'Zohaib', cardsLoadOk: false, updateCount: 0, needsYou: 0 }),
     ).toBe("I couldn't load your updates right now.");
+    expect(
+      formatWelcomeLine({ firstName: 'Zohaib', cardsLoadOk: true, updateCount: 0, needsYou: 3 }),
+    ).not.toMatch(/0 update/i);
   });
 });
 

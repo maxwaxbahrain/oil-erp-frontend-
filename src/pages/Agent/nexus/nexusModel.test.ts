@@ -140,10 +140,11 @@ describe('nexusModel', () => {
     ).toBe(3);
   });
 
-  it('marks Payroll and AI & Team offline; Purchase uses open PO count', () => {
+  it('hides Payroll, AI & Team, and Sales-today; Purchase uses open PO count', () => {
     const planets = buildPlanets({
       cards: [],
       cardsLoadOk: true,
+      cardsLoad: ok(true),
       owedToUs: ok(100),
       openPoCount: ok(4),
       lowStockCount: lowStockOk(2, 0),
@@ -152,11 +153,34 @@ describe('nexusModel', () => {
       pendingExpenses: ok(0),
       invoiceCountToday: none(),
     });
-    expect(planets.find((p) => p.id === 'payroll')?.metricLabel).toBe('Not connected yet');
-    expect(planets.find((p) => p.id === 'ai_team')?.status).toBe('offline');
+    expect(planets.find((p) => p.id === 'payroll')?.visible).toBe(false);
+    expect(planets.find((p) => p.id === 'ai_team')?.visible).toBe(false);
+    expect(planets.find((p) => p.id === 'sales')?.visible).toBe(false);
     expect(planets.find((p) => p.id === 'purchase')?.metricLabel).toBe('4 open POs');
     expect(planets.find((p) => p.id === 'collections')?.metricLabel).toContain('100');
     expect(planets.find((p) => p.id === 'inventory')?.metricLabel).toBe('2 out of stock');
+    expect(planets.every((p) => !p.visible || p.orbitValue !== '—')).toBe(true);
+  });
+
+  it('error tiles show Couldn\'t load / Retry — never a bare em dash', () => {
+    const planets = buildPlanets({
+      cards: [],
+      cardsLoadOk: false,
+      cardsLoad: err(),
+      owedToUs: err(),
+      openPoCount: err(),
+      lowStockCount: err(),
+      vansOnline: err(),
+      vansTotal: err(),
+      pendingExpenses: err(),
+      invoiceCountToday: none(),
+    });
+    const visible = planets.filter((p) => p.visible);
+    expect(visible.length).toBeGreaterThan(0);
+    for (const p of visible) {
+      expect(p.orbitValue).not.toBe('—');
+      expect(p.metricLabel).toBe("Couldn't load");
+    }
   });
 
   it('hasRealTimestamp rejects date-only and midnight', () => {
