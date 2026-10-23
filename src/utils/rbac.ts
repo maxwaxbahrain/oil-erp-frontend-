@@ -61,6 +61,7 @@ export const SALES_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/news',
     '/voice/dashboard',
     '/voice/calls',
+    '/field/fleet-mileage',
 ]);
 
 /** Driver sidebar whitelist — SPOD field minus sales + voice, plus logistics */
@@ -78,6 +79,7 @@ export const DRIVER_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/logistics/pod',
     '/logistics/operations',
     '/logistics/routes',
+    '/field/fleet-mileage',
 ]);
 
 export function isSpodFieldRole(role: AuthRole | undefined): boolean {

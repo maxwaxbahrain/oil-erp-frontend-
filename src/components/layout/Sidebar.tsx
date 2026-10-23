@@ -28,7 +28,7 @@ import {
     TrendingUp,
     User,
     MapPin
-, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key , ClipboardCheck } from 'lucide-react';
+, CalendarDays , Tag , BookOpen , Scale , Clock , AlertTriangle , Brain , ShoppingCart , DollarSign , Bot , Headphones , Shield , Newspaper , Megaphone , Zap , Send , Calculator  , Database , Receipt , Upload , CheckCircle2 , Mail , LogOut , Sparkles , Lock , Activity , Inbox , MessageSquare , Key , ClipboardCheck , Gauge } from 'lucide-react';
 import clsx from 'clsx';
 import { getCompanyProfile } from '../../services/settingsService';
 import { isProduction, isStaging } from '../../config/appEnv';
@@ -118,7 +118,8 @@ export default function Sidebar({
         || (canSeeManagement && (showNav('/finance/collections') || showNav('/reports/outstanding-bills')))
         || showSalesIntelExtras;
     const showDeliverySection = (canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
-        || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')));
+        || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')))
+        || showNav('/field/fleet-mileage');
     const showWarehouseSection = showNav('/warehouse/dashboard') || showNav('/warehouse/stock');
     const showInventorySection = showNav('/products')
         || (canSeeManagement && showNav('/inventory/adjustments'));
@@ -307,6 +308,9 @@ export default function Sidebar({
                 <NavItem to="/logistics/routes" icon={MapPin} label="Route Stops" />
                 {canSeeManagement && <NavItem to="/logistics/route-planning" icon={CalendarDays} label="Weekly Route Plan" />}
                 {canSeeManagement && <NavItem to="/logistics/tracking" icon={MapPin} label="Live Van Tracking" />}
+                {showNav('/field/fleet-mileage') && (
+                    <NavItem to="/field/fleet-mileage" icon={Gauge} label="Fleet mileage" />
+                )}
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}
