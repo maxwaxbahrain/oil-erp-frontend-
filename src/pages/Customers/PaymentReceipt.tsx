@@ -51,6 +51,7 @@ export function DepositAccountField({
         disabled={picker.disabled}
         className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-sm font-bold focus:border-[#4F8EF7] focus:ring-4 focus:ring-[#4F8EF7]/10 outline-none transition-all bg-white disabled:bg-gray-100"
       >
+        {!picker.disabled && <option value="">Choose bank account</option>}
         {picker.options.map((account) => (
           <option key={account.id} value={String(account.id)}>
             {account.code} — {account.name}
@@ -104,7 +105,7 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
   const [applyError, setApplyError] = useState<string | null>(null);
   const [amountFollowsAllocations, setAmountFollowsAllocations] = useState(true);
 
-  const { cash, banks, defaultBank, loading: accountsLoading, error: accountsLoadError } = useCompanyPaymentAccounts();
+  const { cash, banks, loading: accountsLoading, error: accountsLoadError } = useCompanyPaymentAccounts();
   const [depositAccountId, setDepositAccountId] = useState<string>('');
   const depositOptions = accountsLoadError
     ? []
@@ -134,9 +135,9 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
     }
     setDepositAccountId((prev) => {
       if (banks.some((account) => String(account.id) === prev)) return prev;
-      return defaultBank ? String(defaultBank.id) : '';
+      return '';
     });
-  }, [accountsLoading, accountsLoadError, paymentMethod, cash, banks, defaultBank]);
+  }, [accountsLoading, accountsLoadError, paymentMethod, cash, banks]);
 
   // FIX #2B — the outstanding set is EXACTLY what the API returns via
   // getUnpaidInvoices, which is derived from PaymentAllocation rows by the 2A
@@ -221,10 +222,20 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
 
   const depositReady =
     !accountsLoading && !accountsLoadError && depositOptions.length > 0 && depositAccountId !== '';
+  const bankAccountRequired =
+    !accountsLoading
+    && !accountsLoadError
+    && depositOptions.length > 0
+    && !methodIsCashReceipt(paymentMethod)
+    && depositAccountId === '';
   const submitDisabled = loading || !depositReady;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (bankAccountRequired) {
+      return;
+    }
 
     if (!depositReady) {
       alert(
@@ -807,6 +818,9 @@ export default function PaymentReceipt({ customer, onBack }: PaymentReceiptProps
                 onChange={setDepositAccountId}
                 errored={false}
               />
+            )}
+            {bankAccountRequired && (
+              <p className="text-sm font-bold text-red-600">Choose the bank account this payment went into</p>
             )}
           </div>
 

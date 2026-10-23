@@ -126,7 +126,7 @@ describe('PaymentReceipt invoice deposit', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(depositSelect(view.host).value).toBe('1');
+    expect(depositSelect(view.host).value).toBe('');
     await act(async () => {
       invoiceBox(view.host, 'INV-A').click();
     });
@@ -142,7 +142,7 @@ describe('PaymentReceipt invoice deposit', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(depositSelect(view.host).value).toBe('1');
+    expect(depositSelect(view.host).value).toBe('');
     await act(async () => {
       invoiceBox(view.host, 'INV-A').click();
     });
