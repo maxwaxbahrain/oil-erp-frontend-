@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { fetchPublicInvoiceByToken, type PublicInvoicePayload } from '../services/api';
 import { formatCityLine } from '../services/settingsService';
 import { Download } from 'lucide-react';
+import { formatLineQuantity } from '../utils/packEntry';
 
 const MAROON = '#800020';
 const CREAM = '#FDF8F0';
@@ -238,7 +239,15 @@ export default function PublicInvoice() {
                 items.map((raw, idx) => {
                   const product = String(raw.product ?? raw.name ?? '—');
                   const desc = String(raw.description ?? '');
-                  const qty = Number(raw.quantity) || 0;
+                  const qty = formatLineQuantity({
+                    quantity: Number(raw.quantity) || 0,
+                    entered_uom: raw.entered_uom as string | undefined,
+                    enteredUom: raw.enteredUom as string | undefined,
+                    entered_qty: raw.entered_qty as number | undefined,
+                    enteredQty: raw.enteredQty as number | undefined,
+                    pack_qty_snapshot: raw.pack_qty_snapshot as number | undefined,
+                    packQtySnapshot: raw.packQtySnapshot as number | undefined,
+                  });
                   const rate = Number(raw.rate) || 0;
                   const amount = Number(raw.amount) || 0;
                   const rowBg = idx % 2 === 0 ? '#fff' : CREAM;

@@ -812,6 +812,33 @@ export async function removeProductBarcode(productId: string, barcodeId: number)
     await throwIfNotOk(response);
 }
 
+export interface ProductBarcodeLookup {
+    product: Product;
+    matchedPackQty: number | null;
+}
+
+/** GET /api/products/lookup — matched_pack_qty is set when a secondary barcode matched. */
+export async function lookupProductByBarcode(barcode: string): Promise<ProductBarcodeLookup> {
+    const response = await authFetch(
+        apiUrl(`products/lookup?barcode=${encodeURIComponent(barcode)}`),
+        { cache: 'no-store' },
+    );
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(apiErrorDetail(text) || `HTTP ${response.status}`);
+    }
+    const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const body = raw && typeof raw === 'object' ? raw : {};
+    const productRaw = (body.product && typeof body.product === 'object'
+        ? body.product
+        : body) as Record<string, unknown>;
+    const matched = body.matched_pack_qty ?? body.matchedPackQty ?? productRaw.matched_pack_qty ?? productRaw.matchedPackQty;
+    const matchedPackQty = matched == null || matched === '' || Number.isNaN(Number(matched))
+        ? null
+        : Number(matched);
+    return { product: mapApiProductToProduct(productRaw), matchedPackQty };
+}
+
 export async function deleteCategory(id: string): Promise<void> {
     return new Promise((resolve) => {
         const categories = getInitialCategories();

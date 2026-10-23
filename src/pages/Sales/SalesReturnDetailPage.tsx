@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { formatLineQuantity } from '../../utils/packEntry';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   cancelSalesReturn,
@@ -276,7 +277,12 @@ export default function SalesReturnDetailPage() {
                     data.lineItems.map((line) => (
                       <tr key={line.id}>
                         <td className="px-3 py-2 font-bold text-gray-900">{line.productName}</td>
-                        <td className="px-3 py-2 text-center font-semibold">{line.quantityReturned}</td>
+                        <td className="px-3 py-2 text-center font-semibold">{formatLineQuantity({
+                          quantity: line.quantityReturned,
+                          entered_uom: line.enteredUom,
+                          entered_qty: line.enteredQty,
+                          pack_qty_snapshot: line.packQtySnapshot,
+                        })}</td>
                         <td className="px-3 py-2 text-right font-mono font-black">${formatMoney(line.totalAmount)}</td>
                       </tr>
                     ))

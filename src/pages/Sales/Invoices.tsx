@@ -22,6 +22,7 @@ import {
   Plus } from 'lucide-react';
 import clsx from 'clsx';
 import { API_BASE_URL, getInvoices, type Invoice, voidInvoice } from '../../services/api';
+import { formatLineQuantity } from '../../utils/packEntry';
 import { useAuth } from '../../contexts/AuthContext';
 import { ACCESS_TOKEN_KEY } from '../../api/axios';
 import { getCustomers, type Customer } from '../../services/customerService';
@@ -916,7 +917,7 @@ export default function Invoices() {
                                 <p className="text-xs text-gray-500 mt-0.5">{item.description}</p>
                               ) : null}
                             </td>
-                            <td className="px-3 py-3 text-center font-bold text-gray-700">{item.quantity}</td>
+                            <td className="px-3 py-3 text-center font-bold text-gray-700">{formatLineQuantity(item)}</td>
                             <td className="px-3 py-3 text-right font-mono font-black text-gray-900">
                               ${formatMoney(item.amount)}
                             </td>

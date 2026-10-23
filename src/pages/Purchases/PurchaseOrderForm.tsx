@@ -19,6 +19,9 @@ import SearchableSelect from '../../components/common/SearchableSelect';
 import { getCurrentUser } from '../../store/authStore';
 import { formatDateOnly } from '../../utils/formatters';
 import { defaultPurchaseOrderDates } from './defaultPurchaseOrderDates';
+import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 
 interface POLineItem {
     id: string;
@@ -28,6 +31,11 @@ interface POLineItem {
     quantity: number;
     rate: number;
     amount: number;
+    enteredQty?: number;
+    enteredUom?: 'base' | 'pack';
+    enteredUnitPrice?: number;
+    packQtySnapshot?: number | null;
+    baseRate?: number;
 }
 
 interface POFormData {
@@ -265,6 +273,7 @@ export default function PurchaseOrderForm() {
     const location = useLocation();
     const [suppliers, setSuppliers] = useState<(Supplier & { balance: number })[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [showNewSupplier, setShowNewSupplier] = useState(false);
@@ -377,6 +386,22 @@ export default function PurchaseOrderForm() {
 
                 setSuppliers(suppliersWithBalance);
                 setProducts(productsData);
+                try {
+                    const catalog = await getCatalogProducts();
+                    const packs = new Map<string, PackProduct>();
+                    for (const row of catalog) {
+                        packs.set(String(row.id), {
+                            id: row.id,
+                            packQty: row.packQty,
+                            packUnit: row.packUnit,
+                            baseUnit: row.baseUnit || row.uom,
+                            unit: row.uom,
+                        });
+                    }
+                    setCatalogPacks(packs);
+                } catch {
+                    setCatalogPacks(new Map());
+                }
             } catch (error) {
                 console.error('Failed to fetch suppliers and products:', error);
                 alert('Failed to load suppliers/products');
@@ -470,11 +495,119 @@ export default function PurchaseOrderForm() {
                     product: selectedProduct.name,
                     description: selectedProduct.name,
                     rate: selectedProduct.unit_price,
-                    amount: item.quantity * selectedProduct.unit_price
+                    amount: item.quantity * selectedProduct.unit_price,
+                    enteredUom: 'base',
+                    enteredQty: item.quantity,
+                    enteredUnitPrice: selectedProduct.unit_price,
+                    packQtySnapshot: null,
+                    baseRate: selectedProduct.unit_price,
                 };
             })
         }));
         ensureTrailingBlankRow(lineId);
+    };
+
+    const onPoEntry = (id: string, value: PackEntryValue) => {
+        const product = catalogPacks.get(String(formData.lineItems.find((line) => line.id === id)?.productId || ''));
+        setFormData((prev) => ({
+            ...prev,
+            lineItems: prev.lineItems.map((item) => {
+                if (item.id !== id) return item;
+                const staying = item.enteredUom === 'pack' && value.enteredUom === 'pack';
+                const snapshot = value.enteredUom !== 'pack'
+                    ? null
+                    : staying && item.packQtySnapshot != null && Number(item.packQtySnapshot) > 0
+                        ? Number(item.packQtySnapshot)
+                        : (Number(product?.packQty) > 0 ? Number(product?.packQty) : null);
+                const priced = toLinePayload({
+                    ...value,
+                    packQty: product?.packQty,
+                    packQtySnapshot: snapshot,
+                }, { price: 'unitPrice', amount: 'total' });
+                return {
+                    ...item,
+                    enteredQty: value.enteredQty,
+                    enteredUom: value.enteredUom,
+                    enteredUnitPrice: value.enteredUnitPrice,
+                    packQtySnapshot: snapshot,
+                    baseRate: value.enteredUom === 'base' ? value.enteredUnitPrice : (item.baseRate ?? item.rate),
+                    quantity: Number(priced.quantity) || 0,
+                    rate: Number(priced.unitPrice) || 0,
+                    amount: Number(priced.total) || 0,
+                };
+            }),
+        }));
+        ensureTrailingBlankRow(id);
+    };
+
+    const handleBarcodeScan = async (code: string) => {
+        try {
+            const found = await lookupProductByBarcode(code);
+            const product = found.product;
+            const pack: PackProduct = {
+                id: product.id,
+                packQty: product.packQty,
+                packUnit: product.packUnit,
+                baseUnit: product.baseUnit || product.uom,
+                unit: product.uom,
+            };
+            setCatalogPacks((prev) => {
+                const next = new Map(prev);
+                next.set(String(product.id), pack);
+                return next;
+            });
+            const basePrice = Number(product.pricing?.sellingPrice) || 0;
+            setFormData((prev) => {
+                const plan = planBarcodeScan(prev.lineItems, { ...pack, id: String(product.id) }, found.matchedPackQty, basePrice);
+                const apply = (item: POLineItem): POLineItem => {
+                    const priced = toLinePayload({
+                        enteredQty: plan.enteredQty,
+                        enteredUom: plan.mode,
+                        enteredUnitPrice: plan.mode === 'pack' && item.enteredUom === 'pack'
+                            ? Number(item.enteredUnitPrice) || plan.enteredUnitPrice
+                            : plan.enteredUnitPrice,
+                        packQty: pack.packQty,
+                        packQtySnapshot: plan.mode === 'pack' ? (item.packQtySnapshot ?? plan.packQtySnapshot) : null,
+                    }, { price: 'unitPrice', amount: 'total' });
+                    return {
+                        ...item,
+                        productId: String(product.id),
+                        product: product.name,
+                        description: item.description || product.name,
+                        enteredQty: plan.enteredQty,
+                        enteredUom: plan.mode,
+                        enteredUnitPrice: Number(priced.entered_unit_price) || 0,
+                        packQtySnapshot: plan.packQtySnapshot,
+                        baseRate: basePrice,
+                        quantity: Number(priced.quantity) || 0,
+                        rate: Number(priced.unitPrice) || 0,
+                        amount: Number(priced.total) || 0,
+                    };
+                };
+                if (plan.index >= 0) {
+                    return { ...prev, lineItems: prev.lineItems.map((item, index) => (index === plan.index ? apply(item) : item)) };
+                }
+                const blank = prev.lineItems.findIndex((item) => isPoLineBlank(item));
+                const fresh: POLineItem = {
+                    id: `${Date.now()}`,
+                    productId: String(product.id),
+                    product: product.name,
+                    description: product.name,
+                    quantity: 0,
+                    rate: basePrice,
+                    amount: 0,
+                    baseRate: basePrice,
+                };
+                if (blank >= 0) {
+                    const lineItems = prev.lineItems.slice();
+                    lineItems[blank] = apply({ ...fresh, id: prev.lineItems[blank].id });
+                    return { ...prev, lineItems };
+                }
+                return { ...prev, lineItems: [...prev.lineItems, apply(fresh)] };
+            });
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Barcode lookup failed');
+        }
     };
 
     const handleLineItemChange = (id: string, field: keyof POLineItem, value: string | number) => {
@@ -499,7 +632,12 @@ export default function PurchaseOrderForm() {
                 const updatedItem = { ...item, [field]: value };
 
                 if (field === 'quantity' || field === 'rate') {
+                    if (updatedItem.enteredUom === 'pack') return item;
                     updatedItem.amount = updatedItem.quantity * updatedItem.rate;
+                    updatedItem.enteredQty = updatedItem.quantity;
+                    updatedItem.enteredUnitPrice = updatedItem.rate;
+                    updatedItem.baseRate = updatedItem.rate;
+                    updatedItem.enteredUom = 'base';
                 }
 
                 return updatedItem;
@@ -564,16 +702,29 @@ export default function PurchaseOrderForm() {
                 supplierName: formData.supplierName,
                 date: formData.date,
                 expectedDate: formData.expectedDate,
-                items: linesToSubmit.map(item => ({
+                items: linesToSubmit.map(item => {
+                    const pack = item.enteredUom === 'pack';
+                    const priced = toLinePayload({
+                        enteredQty: pack ? Number(item.enteredQty) || 0 : item.quantity,
+                        enteredUom: pack ? 'pack' : 'base',
+                        enteredUnitPrice: pack ? Number(item.enteredUnitPrice) || 0 : item.rate,
+                        packQtySnapshot: item.packQtySnapshot,
+                    }, { price: 'unitPrice', amount: 'total' });
+                    return {
                     productId: item.productId,
                     productName: item.product?.trim() || item.description?.trim() || 'Item',
-                    uom: 'Units',
-                    quantity: item.quantity,
-                    unitPrice: item.rate,
+                    uom: pack ? (catalogPacks.get(String(item.productId))?.packUnit || 'pack') : 'Units',
+                    quantity: Number(priced.quantity) || 0,
+                    unitPrice: Number(priced.unitPrice) || 0,
                     taxRate: formData.taxRate,
                     discount: 0,
-                    total: item.amount
-                }) as PurchaseOrderItem),
+                    total: Number(priced.total) || 0,
+                    entered_qty: Number(priced.entered_qty) || 0,
+                    entered_uom: String(priced.entered_uom),
+                    entered_unit_price: Number(priced.entered_unit_price) || 0,
+                    pack_qty_snapshot: pack ? item.packQtySnapshot ?? catalogPacks.get(String(item.productId))?.packQty ?? null : null,
+                } as PurchaseOrderItem;
+                }),
                 subtotal: formData.subtotal,
                 taxTotal: formData.taxAmount,
                 grandTotal: formData.grandTotal,
@@ -955,9 +1106,6 @@ export default function PurchaseOrderForm() {
                                         const skuErrorStyle = rowErrors?.sku
                                             ? { boxShadow: '0 0 0 1px #EF4444', borderRadius: 8 }
                                             : undefined;
-                                        const qtyErrorStyle = rowErrors?.quantity
-                                            ? { borderColor: '#EF4444', boxShadow: '0 0 0 1px rgba(239,68,68,.35)' }
-                                            : undefined;
                                         const rateErrorStyle = rowErrors?.rate
                                             ? { borderColor: '#EF4444', boxShadow: '0 0 0 1px rgba(239,68,68,.35)' }
                                             : undefined;
@@ -990,12 +1138,16 @@ export default function PurchaseOrderForm() {
                                                 />
                                             </td>
                                             <td style={{ ...tdStyle, textAlign: 'center', minWidth: 80 }}>
-                                                <input
-                                                    type="number"
-                                                    value={item.quantity || ''}
-                                                    onChange={(e) => handleLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    style={{ ...lineNumberInputStyle, textAlign: 'center', fontFamily: 'monospace', ...qtyErrorStyle }}
-                                                    placeholder="0"
+                                                <PackQtyInput
+                                                    product={catalogPacks.get(String(item.productId)) || null}
+                                                    value={{
+                                                        enteredQty: item.enteredUom === 'pack' ? Number(item.enteredQty) || 0 : item.quantity,
+                                                        enteredUom: item.enteredUom === 'pack' ? 'pack' : 'base',
+                                                        enteredUnitPrice: item.enteredUom === 'pack' ? Number(item.enteredUnitPrice) || 0 : item.rate,
+                                                    }}
+                                                    basePrice={Number(item.baseRate ?? item.rate) || 0}
+                                                    packQtySnapshot={item.packQtySnapshot}
+                                                    onChange={(value) => onPoEntry(item.id, value)}
                                                 />
                                                 {rowErrors?.quantity && (
                                                     <div style={{ fontSize: 9, color: '#EF4444', fontWeight: 600, marginTop: 4 }}>
@@ -1007,6 +1159,7 @@ export default function PurchaseOrderForm() {
                                                 <input
                                                     type="number"
                                                     value={item.rate || ''}
+                                                    readOnly={item.enteredUom === 'pack'}
                                                     onChange={(e) => handleLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
                                                     style={{ ...lineNumberInputStyle, textAlign: 'center', fontFamily: 'monospace', ...rateErrorStyle }}
                                                     placeholder="0.00"
@@ -1036,6 +1189,9 @@ export default function PurchaseOrderForm() {
                             </table>
                         </div>
 
+                        <div style={{ marginTop: 10 }}>
+                            <BarcodeScanField onScan={handleBarcodeScan} />
+                        </div>
                         <button
                             type="button"
                             onClick={handleAddLineItem}

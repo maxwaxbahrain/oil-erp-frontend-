@@ -29,6 +29,15 @@ import { authFetch } from '../../api/axios';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
+import { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import {
+    planBarcodeScan,
+    readDocumentEntry,
+    toLinePayload,
+    type PackEntryValue,
+    type PackProduct,
+} from '../../utils/packEntry';
 import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 // ITEM 7G — Real PDF download (mirrors payslip/receipt PDFs).
 import { generateInvoicePDF } from '../../utils/invoicePDF';
@@ -137,6 +146,47 @@ function vanSelectLabel(v: Van): string {
     return `${vanNumber} — ${driver}`;
 }
 
+function catalogPack(product: { id: string; packQty?: number | null; packUnit?: string | null; baseUnit?: string | null; uom?: string }): PackProduct {
+    return {
+        id: product.id,
+        packQty: product.packQty,
+        packUnit: product.packUnit,
+        baseUnit: product.baseUnit || product.uom,
+        unit: product.uom,
+    };
+}
+
+function applyInvoiceEntry(
+    item: InvoiceLineItem,
+    value: PackEntryValue,
+    product: PackProduct | null | undefined,
+): InvoiceLineItem {
+    const stayingPack = item.enteredUom === 'pack' && value.enteredUom === 'pack';
+    const snapshot = value.enteredUom !== 'pack'
+        ? null
+        : stayingPack && item.packQtySnapshot != null && Number(item.packQtySnapshot) > 0
+            ? Number(item.packQtySnapshot)
+            : (Number(product?.packQty) > 0 ? Number(product?.packQty) : item.packQtySnapshot ?? null);
+    const priced = toLinePayload({
+        ...value,
+        packQty: product?.packQty,
+        packQtySnapshot: snapshot,
+    }, { price: 'rate', amount: 'amount' });
+    return {
+        ...item,
+        enteredQty: value.enteredQty,
+        enteredUom: value.enteredUom,
+        enteredUnitPrice: value.enteredUnitPrice,
+        packQtySnapshot: snapshot,
+        baseRate: value.enteredUom === 'base' ? value.enteredUnitPrice : (item.baseRate ?? item.rate),
+        packUnit: product?.packUnit || item.packUnit,
+        baseUnit: product?.baseUnit || product?.unit || item.baseUnit,
+        quantity: Number(priced.quantity) || 0,
+        rate: Number(priced.rate) || 0,
+        amount: Number(priced.amount) || 0,
+    };
+}
+
 function vanToSelectOption(v: Van): { id: string; name: string } {
     return { id: String(v.id), name: vanSelectLabel(v) };
 }
@@ -165,14 +215,26 @@ async function persistInvoiceWithSalesmanFk(
             rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
                 ? Number(rawPid)
                 : undefined;
+        const pack = item.enteredUom === 'pack';
+        const priced = pack
+            ? toLinePayload({
+                enteredQty: Number(item.enteredQty) || 0,
+                enteredUom: 'pack',
+                enteredUnitPrice: Number(item.enteredUnitPrice) || 0,
+                packQtySnapshot: item.packQtySnapshot,
+            }, { price: 'rate', amount: 'amount' })
+            : null;
         return {
             product: item.product || '',
             description: item.description || '',
-            quantity: Number(item.quantity) || 1,
-            rate: Number(item.rate) || 0,
-            amount: Number(item.amount) || 0,
+            quantity: pack ? Number(priced?.quantity) || 0 : Number(item.quantity) || 1,
+            rate: pack ? Number(priced?.rate) || 0 : Number(item.rate) || 0,
+            amount: pack ? Number(priced?.amount) || 0 : Number(item.amount) || 0,
             product_id,
             itemCode: null,
+            entered_qty: pack ? Number(item.enteredQty) || 0 : Number(item.quantity) || 0,
+            entered_uom: pack ? 'pack' : 'base',
+            entered_unit_price: pack ? Number(item.enteredUnitPrice) || 0 : Number(item.rate) || 0,
         };
     });
 
@@ -324,6 +386,7 @@ export default function InvoiceFormPage() {
     const { accounts: depositAccounts } = useCompanyPaymentAccounts();
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     // FIX 1 — inline success notice replaces the blocking alert().
@@ -450,6 +513,14 @@ export default function InvoiceFormPage() {
                 ]);
                 setCustomers(customersOpenForNewDocument(customersData));
                 setProducts(productsData);
+                const packs = new Map<string, PackProduct>();
+                try {
+                    const catalog = await getCatalogProducts();
+                    for (const row of catalog) packs.set(String(row.id), catalogPack(row));
+                } catch {
+                    packs.clear();
+                }
+                setCatalogPacks(packs);
                 setSalesmen(salesmenData);
                 // Populate form when editing - fetch from API if navigated directly by URL
                 let invoiceToEdit = existingInvoice;
@@ -589,19 +660,34 @@ export default function InvoiceFormPage() {
                         invoiceNumber: inv.invoiceNumber || '',
                         invoiceDate: inv.invoiceDate || localIsoDate(),
                         dueDate: inv.dueDate || '',
-                        lineItems: (inv.lineItems || []).map((item: any, idx: number) => ({
+                        lineItems: (inv.lineItems || []).map((item: any, idx: number) => {
+                            const quantity = Number(item.quantity) || 1;
+                            const rate = Number(item.rate) || 0;
+                            const entry = readDocumentEntry(item, quantity, rate);
+                            const pack = packs.get(String(item.productId || ''));
+                            return {
                             id: String(idx + 1),
                             productId: item.productId || '',
                             product: item.product || '',
                             description: item.description || '',
-                            quantity: Number(item.quantity) || 1,
-                            rate: Number(item.rate) || 0,
+                            quantity,
+                            rate,
                             amount: Number(item.amount) || 0,
                             isService: false,
                             // ITEM 7D — Preserve per-line discount/tax on edit.
                             lineDiscount: Number(item.lineDiscount ?? item.line_discount ?? 0) || 0,
                             lineTaxRate: Number(item.lineTaxRate ?? item.line_tax_rate ?? 0) || 0,
-                        })),
+                            enteredQty: entry.enteredQty,
+                            enteredUom: entry.enteredUom,
+                            enteredUnitPrice: entry.enteredUnitPrice,
+                            packQtySnapshot: entry.packQtySnapshot,
+                            baseRate: entry.enteredUom === 'pack' && entry.packQtySnapshot
+                                ? entry.enteredUnitPrice / entry.packQtySnapshot
+                                : rate,
+                            packUnit: pack?.packUnit || undefined,
+                            baseUnit: pack?.baseUnit || pack?.unit || undefined,
+                            };
+                        }),
                         subtotal: storedSubtotal,
                         taxRate: editTaxRate,
                         taxAmount: storedTaxAmount,
@@ -764,18 +850,92 @@ export default function InvoiceFormPage() {
                 lineItems: prev.lineItems.map(item => {
                     if (item.id !== lineId) return item;
 
+                    const pack = catalogPacks.get(String(selectedProduct.id));
                     return {
                         ...item,
                         productId: selectedProduct.id,
                         product: selectedProduct.name,
                         description: `${selectedProduct.name}${unitSuffix}`,
                         rate,
-                        amount: item.quantity * rate
+                        amount: item.quantity * rate,
+                        enteredUom: 'base' as const,
+                        enteredQty: item.quantity,
+                        enteredUnitPrice: rate,
+                        packQtySnapshot: null,
+                        baseRate: rate,
+                        packUnit: pack?.packUnit || undefined,
+                        baseUnit: pack?.baseUnit || pack?.unit || undefined,
                     };
                 })
             };
         });
-    }, [products]);
+    }, [products, catalogPacks]);
+
+    const handleEntryChange = useCallback((id: string, value: PackEntryValue) => {
+        setFormData(prev => ({
+            ...prev,
+            lineItems: prev.lineItems.map(item => {
+                if (item.id !== id) return item;
+                return applyInvoiceEntry(item, value, catalogPacks.get(String(item.productId)) || null);
+            }),
+        }));
+    }, [catalogPacks]);
+
+    const handleBarcodeScan = useCallback(async (code: string) => {
+        try {
+            const found = await lookupProductByBarcode(code);
+            const product = found.product;
+            const pack = catalogPack({ ...product, uom: product.uom });
+            const basePrice = getCustomerPrice(
+                formData.customerId,
+                String(product.id),
+                Number(product.pricing?.sellingPrice) || 0,
+            );
+            setCatalogPacks((prev) => {
+                const next = new Map(prev);
+                next.set(String(product.id), pack);
+                return next;
+            });
+            setFormData((prev) => {
+                const plan = planBarcodeScan(prev.lineItems, { ...pack, id: String(product.id) }, found.matchedPackQty, basePrice);
+                const stamp = (item: InvoiceLineItem): InvoiceLineItem => applyInvoiceEntry(item, {
+                    enteredQty: plan.enteredQty,
+                    enteredUom: plan.mode,
+                    enteredUnitPrice: plan.mode === 'pack' && item.enteredUom === 'pack' && plan.index >= 0
+                        ? Number(item.enteredUnitPrice) || plan.enteredUnitPrice
+                        : plan.enteredUnitPrice,
+                }, pack);
+                if (plan.index >= 0) {
+                    return {
+                        ...prev,
+                        lineItems: prev.lineItems.map((item, index) => (index === plan.index ? stamp(item) : item)),
+                    };
+                }
+                const blank = prev.lineItems.findIndex((item) => !item.productId && !item.product && !item.isService);
+                const fresh: InvoiceLineItem = {
+                    id: `${Date.now()}`,
+                    productId: String(product.id),
+                    product: product.name,
+                    description: product.name,
+                    quantity: 0,
+                    rate: basePrice,
+                    amount: 0,
+                    baseRate: basePrice,
+                    isService: false,
+                    lineDiscount: 0,
+                    lineTaxRate: 0,
+                };
+                if (blank >= 0) {
+                    const lineItems = prev.lineItems.slice();
+                    lineItems[blank] = stamp({ ...fresh, id: prev.lineItems[blank].id });
+                    return { ...prev, lineItems };
+                }
+                return { ...prev, lineItems: [...prev.lineItems, stamp(fresh)] };
+            });
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Barcode lookup failed');
+        }
+    }, [catalogPacks, formData.customerId]);
 
     const handleLineItemChange = useCallback((id: string, field: keyof InvoiceLineItem, value: string | number) => {
         setFormData(prev => ({
@@ -786,7 +946,12 @@ export default function InvoiceFormPage() {
                 const updatedItem = { ...item, [field]: value } as InvoiceLineItem;
 
                 if (field === 'quantity' || field === 'rate') {
+                    if (updatedItem.enteredUom === 'pack') return item;
                     updatedItem.amount = (Number(updatedItem.quantity) || 0) * (Number(updatedItem.rate) || 0);
+                    updatedItem.enteredUom = 'base';
+                    updatedItem.enteredQty = Number(updatedItem.quantity) || 0;
+                    updatedItem.enteredUnitPrice = Number(updatedItem.rate) || 0;
+                    updatedItem.baseRate = Number(updatedItem.rate) || 0;
                 }
 
                 return updatedItem;
@@ -846,6 +1011,14 @@ export default function InvoiceFormPage() {
                     product: li.product,
                     description: li.description,
                     quantity: Number(li.quantity) || 0,
+                    entered_uom: li.enteredUom,
+                    entered_qty: li.enteredQty,
+                    enteredQty: li.enteredQty,
+                    enteredUom: li.enteredUom,
+                    pack_qty_snapshot: li.packQtySnapshot,
+                    packQtySnapshot: li.packQtySnapshot,
+                    packUnit: li.packUnit,
+                    baseUnit: li.baseUnit,
                     rate: Number(li.rate) || 0,
                     discount: Number(li.lineDiscount) || 0,
                     taxRate: Number(li.lineTaxRate) || 0,
@@ -1489,8 +1662,10 @@ export default function InvoiceFormPage() {
                                         key={item.id}
                                         item={item}
                                         products={products}
+                                        packProduct={catalogPacks.get(String(item.productId)) || null}
                                         onProductSelect={handleProductSelect}
                                         onLineItemChange={handleLineItemChange}
+                                        onEntryChange={handleEntryChange}
                                         onRemove={handleRemoveLineItem}
                                     />
                                 ))}
@@ -1498,7 +1673,8 @@ export default function InvoiceFormPage() {
                         </table>
                     </div>
 
-                    <div className="flex gap-3 mt-4">
+                    <div className="flex gap-3 mt-4 flex-wrap items-center">
+                        <BarcodeScanField onScan={handleBarcodeScan} />
                         <button onClick={handleAddLineItem}
                             className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
                             <Plus size={18} /> Add Product

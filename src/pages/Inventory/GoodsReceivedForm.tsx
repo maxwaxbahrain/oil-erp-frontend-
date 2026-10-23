@@ -25,6 +25,9 @@ import {
     type GRNItem,
     type PostGRNResult,
 } from '../../services/grnService';
+import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 import { type PurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
 
@@ -179,6 +182,7 @@ export default function GoodsReceivedForm() {
 
     const [grn, setGRN] = useState<GRN | null>(null);
     const [items, setItems] = useState<GRNItem[]>([]);
+    const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
     const [warehouse, setWarehouse] = useState('Main Warehouse');
     const [freightCost, setFreightCost] = useState(0);
     const [notes, setNotes] = useState('');
@@ -206,6 +210,22 @@ export default function GoodsReceivedForm() {
     const loadData = async () => {
         setLoading(true);
         try {
+            try {
+                const catalog = await getCatalogProducts();
+                const packs = new Map<string, PackProduct>();
+                for (const row of catalog) {
+                    packs.set(String(row.id), {
+                        id: row.id,
+                        packQty: row.packQty,
+                        packUnit: row.packUnit,
+                        baseUnit: row.baseUnit || row.uom,
+                        unit: row.uom,
+                    });
+                }
+                setCatalogPacks(packs);
+            } catch {
+                setCatalogPacks(new Map());
+            }
             if (id && id !== 'new') {
                 const grnData = await getGRNById(id);
                 if (grnData) {
@@ -357,31 +377,98 @@ export default function GoodsReceivedForm() {
         setItems(updated);
     };
 
-    const handleItemChange = (index: number, field: keyof GRNItem, value: any) => {
-        const newItems = [...items];
-        const item = newItems[index];
+    const onGrnEntry = (index: number, value: PackEntryValue) => {
+        setItems((prev) => prev.map((item, i) => {
+            if (i !== index) return item;
+            const product = catalogPacks.get(String(item.productId));
+            const staying = item.enteredUom === 'pack' && value.enteredUom === 'pack';
+            const snapshot = value.enteredUom !== 'pack'
+                ? null
+                : staying && item.packQtySnapshot != null && Number(item.packQtySnapshot) > 0
+                    ? Number(item.packQtySnapshot)
+                    : (Number(product?.packQty) > 0 ? Number(product?.packQty) : null);
+            const priced = toLinePayload({
+                ...value,
+                packQty: product?.packQty,
+                packQtySnapshot: snapshot,
+            }, { price: 'unitCost', amount: 'totalCost' });
+            const baseQty = Number(priced.quantity) || 0;
+            return {
+                ...item,
+                enteredQty: value.enteredQty,
+                enteredUom: value.enteredUom,
+                enteredUnitPrice: value.enteredUnitPrice,
+                packQtySnapshot: snapshot,
+                receivedQty: baseQty,
+                acceptedQty: baseQty,
+                rejectedQty: 0,
+                unitCost: Number(priced.unitCost) || item.unitCost,
+                totalCost: Number(priced.totalCost) || 0,
+            };
+        }));
+    };
 
-        (item as any)[field] = Number(value) || 0;
-
-        if (field === 'receivedQty') {
-            item.acceptedQty = item.receivedQty;
-            item.rejectedQty = 0;
-        }
-
-        if (field === 'acceptedQty' || field === 'rejectedQty') {
-            const total = item.acceptedQty + item.rejectedQty;
-            if (total > item.receivedQty) {
-                if (field === 'acceptedQty') {
-                    item.rejectedQty = Math.max(0, item.receivedQty - item.acceptedQty);
-                } else {
-                    item.acceptedQty = Math.max(0, item.receivedQty - item.rejectedQty);
+    const handleBarcodeScan = async (code: string) => {
+        try {
+            const found = await lookupProductByBarcode(code);
+            const product = found.product;
+            const pack: PackProduct = {
+                id: product.id,
+                packQty: product.packQty,
+                packUnit: product.packUnit,
+                baseUnit: product.baseUnit || product.uom,
+                unit: product.uom,
+            };
+            setCatalogPacks((prev) => {
+                const next = new Map(prev);
+                next.set(String(product.id), pack);
+                return next;
+            });
+            setItems((prev) => {
+                const plan = planBarcodeScan(
+                    prev.map((item) => ({
+                        productId: item.productId,
+                        enteredUom: item.enteredUom,
+                        enteredQty: item.enteredQty,
+                        quantity: item.receivedQty,
+                        enteredUnitPrice: item.enteredUnitPrice,
+                    })),
+                    { ...pack, id: String(product.id) },
+                    found.matchedPackQty,
+                    Number(product.pricing?.landedCost) || 0,
+                );
+                if (plan.index < 0) {
+                    alert('This product is not on the purchase order');
+                    return prev;
                 }
-            }
+                return prev.map((item, index) => {
+                    if (index !== plan.index) return item;
+                    const priced = toLinePayload({
+                        enteredQty: plan.enteredQty,
+                        enteredUom: plan.mode,
+                        enteredUnitPrice: plan.mode === 'pack'
+                            ? (Number(item.enteredUnitPrice) || plan.enteredUnitPrice)
+                            : (item.unitCost || plan.enteredUnitPrice),
+                        packQty: pack.packQty,
+                        packQtySnapshot: plan.mode === 'pack' ? (item.packQtySnapshot ?? plan.packQtySnapshot) : null,
+                    }, { price: 'unitCost', amount: 'totalCost' });
+                    const baseQty = Number(priced.quantity) || 0;
+                    return {
+                        ...item,
+                        enteredQty: plan.enteredQty,
+                        enteredUom: plan.mode,
+                        enteredUnitPrice: Number(priced.entered_unit_price) || 0,
+                        packQtySnapshot: plan.packQtySnapshot,
+                        receivedQty: baseQty,
+                        acceptedQty: baseQty,
+                        unitCost: Number(priced.unitCost) || item.unitCost,
+                        totalCost: Number(priced.totalCost) || 0,
+                    };
+                });
+            });
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Barcode lookup failed');
         }
-
-        item.totalCost = item.acceptedQty * item.unitCost;
-
-        setItems(newItems);
     };
 
     const handleSave = async () => {
@@ -517,6 +604,10 @@ export default function GoodsReceivedForm() {
             rejectedQty: 0,
             unitCost: item.unitPrice,
             totalCost: item.quantity * item.unitPrice,
+            enteredQty: item.entered_qty,
+            enteredUom: item.entered_uom === 'pack' ? 'pack' as const : 'base' as const,
+            enteredUnitPrice: item.entered_unit_price,
+            packQtySnapshot: item.pack_qty_snapshot,
         }));
     }, [items, selectedPO]);
 
@@ -827,14 +918,23 @@ export default function GoodsReceivedForm() {
                                                         <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace' }}>{item.orderedQty}</td>
                                                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                                                             {editable ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={item.receivedQty}
-                                                                    onChange={(e) => handleItemChange(index, 'receivedQty', e.target.value)}
-                                                                    style={{ ...inputStyle, width: 72, textAlign: 'center', padding: '6px 8px' }}
+                                                                <PackQtyInput
+                                                                    product={catalogPacks.get(String(item.productId)) || null}
+                                                                    value={{
+                                                                        enteredQty: item.enteredUom === 'pack' ? Number(item.enteredQty) || 0 : item.receivedQty,
+                                                                        enteredUom: item.enteredUom === 'pack' ? 'pack' : 'base',
+                                                                        enteredUnitPrice: item.enteredUom === 'pack' ? Number(item.enteredUnitPrice) || 0 : item.unitCost,
+                                                                    }}
+                                                                    basePrice={item.unitCost}
+                                                                    packQtySnapshot={item.packQtySnapshot}
+                                                                    onChange={(value) => onGrnEntry(index, value)}
                                                                 />
                                                             ) : (
-                                                                <span style={{ fontFamily: 'monospace' }}>{item.receivedQty}</span>
+                                                                <span style={{ fontFamily: 'monospace' }}>
+                                                                    {item.enteredUom === 'pack'
+                                                                        ? `${item.enteredQty} ${catalogPacks.get(String(item.productId))?.packUnit || 'pack'} (${item.receivedQty} ${catalogPacks.get(String(item.productId))?.baseUnit || catalogPacks.get(String(item.productId))?.unit || 'unit'})`
+                                                                        : item.receivedQty}
+                                                                </span>
                                                             )}
                                                         </td>
                                                         <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{formatUsd(item.unitCost)}</td>
@@ -855,6 +955,10 @@ export default function GoodsReceivedForm() {
                                 </div>
 
                                 {grn && !isPosted && (
+                                    <>
+                                    <div style={{ marginTop: 10 }}>
+                                        <BarcodeScanField onScan={handleBarcodeScan} />
+                                    </div>
                                     <button
                                         type="button"
                                         onClick={handleReceiveAll}
@@ -862,6 +966,7 @@ export default function GoodsReceivedForm() {
                                     >
                                         Receive all quantities
                                     </button>
+                                    </>
                                 )}
 
                                 {allFullMatch && !grn && poSelected && (

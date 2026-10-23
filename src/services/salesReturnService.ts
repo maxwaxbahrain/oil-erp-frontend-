@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL, getInvoices, type Invoice } from './api';
 import { authFetch } from '../api/axios';
+import { readDocumentEntry } from '../utils/packEntry';
 
 export type ReturnStatus = 'draft' | 'pending' | 'approved' | 'completed' | 'cancelled';
 
@@ -39,6 +40,11 @@ export interface ReturnLineItem {
   unitPrice: number;
   totalAmount: number;
   lineReason?: ReturnReasonCode | '';
+  enteredQty?: number;
+  enteredUom?: 'base' | 'pack';
+  enteredUnitPrice?: number;
+  packQtySnapshot?: number | null;
+  originalEnteredQty?: number;
 }
 
 export interface SalesReturn {
@@ -165,18 +171,29 @@ async function parseError(res: Response): Promise<string> {
 
 function mapApiRow(r: Record<string, unknown>): SalesReturn {
   const items = (Array.isArray(r.items) ? r.items : []) as Record<string, unknown>[];
-  const lineItems: ReturnLineItem[] = items.map((it, idx) => ({
+  const lineItems: ReturnLineItem[] = items.map((it, idx) => {
+    const returned = Number(it.quantity_returned ?? it.quantity ?? 0);
+    const rate = Number(it.rate ?? 0);
+    const entry = readDocumentEntry(it, returned, rate);
+    const original = readDocumentEntry(it, Number(it.original_quantity ?? it.quantity ?? 0), rate);
+    return {
     id: `${idx}-${it.product ?? idx}`,
     productId: it.product_id != null ? String(it.product_id) : '',
     productName: String(it.product ?? it.name ?? ''),
     sku: String(it.item_code ?? it.sku ?? ''),
     originalQuantity: Number(it.original_quantity ?? it.quantity ?? 0),
     selected: true,
-    quantityReturned: Number(it.quantity_returned ?? it.quantity ?? 0),
-    unitPrice: Number(it.rate ?? 0),
+    quantityReturned: returned,
+    unitPrice: rate,
     totalAmount: Number(it.amount ?? 0),
     lineReason: (it.line_reason as ReturnReasonCode) || undefined,
-  }));
+    enteredQty: entry.enteredQty,
+    enteredUom: entry.enteredUom,
+    enteredUnitPrice: entry.enteredUnitPrice,
+    packQtySnapshot: entry.packQtySnapshot,
+    originalEnteredQty: original.enteredUom === 'pack' ? original.enteredQty : undefined,
+    };
+  });
 
   const rd = r.return_date as string;
   const returnDate = rd ? (rd.length >= 10 ? rd.slice(0, 10) : rd) : '';

@@ -9,6 +9,7 @@ import {
   type PurchaseReturn,
   type PurchaseReturnStatus,
 } from '../../services/purchaseReturnService';
+import { formatLineQuantity } from '../../utils/packEntry';
 
 const POST_CONFIRM = 'Post this return? Stock will go down and the supplier balance will be reduced.';
 const CANCEL_CONFIRM = 'Cancel this return? Stock will be added back and the accounting will be reversed.';
@@ -165,7 +166,12 @@ export default function PurchaseReturnDetailPage() {
             {(data.lines ?? []).map((line) => (
               <tr key={String(line.id)} className="border-t border-gray-100">
                 <td className="px-4 py-3">Product #{line.product_id}</td>
-                <td className="px-4 py-3 text-right font-mono">{line.quantity}</td>
+                <td className="px-4 py-3 text-right font-mono">{formatLineQuantity({
+                  quantity: line.quantity,
+                  entered_uom: line.entered_uom,
+                  entered_qty: line.entered_qty,
+                  pack_qty_snapshot: line.pack_qty_snapshot,
+                })}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatMoney(line.unit_cost)}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatMoney(line.amount)}</td>
                 <td className="px-4 py-3">{line.reason || '—'}</td>
