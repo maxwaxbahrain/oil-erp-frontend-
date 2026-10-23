@@ -15,6 +15,8 @@ import {
 import {
     parseBulkExpenses,
     saveExpense,
+    buildBulkExpenseSavePayload,
+    formatCollapsedReceiptNotice,
     type ParsedExpenseRow,
     type BulkInput,
 } from '../../services/expenseService';
@@ -83,22 +85,7 @@ export default function ExpensesBulkUpload() {
         setError(null);
         try {
             for (const r of rowsToImport) {
-                await saveExpense({
-                    vendor: r.vendor,
-                    amount: r.amount,
-                    currency: r.currency || 'USD',
-                    date: r.date,
-                    category: r.category,
-                    description: r.description,
-                    paymentMethod: 'Card',
-                    isRecurring: false,
-                    status: 'Draft',
-                    is_duplicate_flag: r.isDuplicate,
-                    duplicate_of_id: r.duplicateOfId,
-                    policy_flags: r.policyFlags.length > 0 ? r.policyFlags : undefined,
-                    aiExtracted: true,
-                    aiConfidence: r.extractionConfidence,
-                });
+                await saveExpense(buildBulkExpenseSavePayload(r));
             }
             const skipped = rows.length - rowsToImport.length;
             setImportStats(`✓ Imported ${rowsToImport.length} expense${rowsToImport.length === 1 ? '' : 's'}${skipped > 0 ? ` · ${skipped} flagged row${skipped === 1 ? '' : 's'} skipped` : ''}`);
@@ -276,6 +263,17 @@ export default function ExpensesBulkUpload() {
                                                     onChange={e => updateCell(r.id, 'vendor', e.target.value)}
                                                     className="text-xs w-full bg-transparent border-b border-gray-200 focus:border-gray-900 outline-none"
                                                 />
+                                                {r.documentType === 'receipt' && (
+                                                    <div className="text-[10px] font-black uppercase tracking-widest text-purple-700 mt-1">Receipt</div>
+                                                )}
+                                                {r.documentType === 'expense_list' && (
+                                                    <div className="text-[10px] font-black uppercase tracking-widest text-sky-700 mt-1">List</div>
+                                                )}
+                                                {r.collapsedReceipt && r.collapsedLineCount ? (
+                                                    <div className="text-[10px] font-bold text-purple-700 mt-1">
+                                                        {formatCollapsedReceiptNotice(r.collapsedLineCount)}
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                                 <input
