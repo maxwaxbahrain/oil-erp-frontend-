@@ -5,8 +5,11 @@ import {
     deleteProduct,
     saveProduct,
     formatPack,
+    exportProductsCsv,
+    importProductsCsv,
     type Product,
     type ProductImage,
+    type CsvImportResult,
 } from '../../services/productService';
 import { formatCurrency } from '../../services/settingsService';
 import { compressImage } from '../../utils/imageCompression';
@@ -98,9 +101,12 @@ export default function ProductCatalog() {
     const [clearProgress, setClearProgress] = useState(0);
     const [declinedActions, setDeclinedActions] = useState<Set<string>>(new Set());
     const [approvedActions, setApprovedActions] = useState<Set<string>>(new Set());
+    const [csvResult, setCsvResult] = useState<CsvImportResult | null>(null);
+    const [csvBusy, setCsvBusy] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cardFileInputRef = useRef<HTMLInputElement>(null);
+    const csvInputRef = useRef<HTMLInputElement>(null);
     const uploadTargetIdRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -155,6 +161,39 @@ export default function ProductCatalog() {
         setProducts([]);
         setClearing(false);
         window.alert(`Deleted ${done - failed} of ${count} products${failed ? ` (${failed} failed)` : ''}.`);
+    };
+
+    const handleExportCsv = async () => {
+        try {
+            setCsvBusy(true);
+            const blob = await exportProductsCsv();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'products.csv';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            window.alert(error instanceof Error ? error.message : 'Could not export products.');
+        } finally {
+            setCsvBusy(false);
+        }
+    };
+
+    const handleImportFile = async (file: File) => {
+        if (!window.confirm(`Import ${file.name}? Products will be created on the server.`)) return;
+        try {
+            setCsvBusy(true);
+            const result = await importProductsCsv(file);
+            setCsvResult(result);
+            await loadProducts();
+        } catch (error) {
+            window.alert(error instanceof Error ? error.message : 'Could not import products.');
+        } finally {
+            setCsvBusy(false);
+        }
     };
 
     const persistProductImages = useCallback(async (product: Product, newImages: ProductImage[]) => {
@@ -328,6 +367,18 @@ export default function ProductCatalog() {
         <div>
             <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files) handleBulkFiles(e.target.files); e.target.value = ''; }} />
             <input ref={cardFileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={handleCardFileChange} />
+            <input
+                ref={csvInputRef}
+                aria-label="Product CSV file"
+                type="file"
+                accept=".csv,text/csv"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void handleImportFile(file);
+                }}
+            />
 
             {/* Search (preserves filter logic) */}
             <div style={{ marginBottom: 12 }}>
@@ -373,7 +424,51 @@ export default function ProductCatalog() {
                     />
                     Show discontinued
                 </label>
+                <button
+                    type="button"
+                    aria-label="Export CSV"
+                    disabled={csvBusy}
+                    onClick={() => void handleExportCsv()}
+                    style={{ height: 30, background: C.bg3, border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '0 12px', fontSize: 11, color: C.text, cursor: 'pointer' }}
+                >
+                    Export CSV
+                </button>
+                <button
+                    type="button"
+                    aria-label="Import CSV"
+                    disabled={csvBusy}
+                    onClick={() => csvInputRef.current?.click()}
+                    style={{ height: 30, background: C.bg3, border: '0.5px solid rgba(255,255,255,.1)', borderRadius: 6, padding: '0 12px', fontSize: 11, color: C.text, cursor: 'pointer' }}
+                >
+                    Import CSV
+                </button>
             </div>
+            {csvResult && (
+                <div aria-label="CSV import result" style={{ background: C.bg2, border: '0.5px solid rgba(255,255,255,.07)', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, color: C.text, marginBottom: 6 }}>Created {csvResult.created}</div>
+                    {csvResult.updated != null && <div style={{ fontSize: 12, color: C.text, marginBottom: 6 }}>Updated {csvResult.updated}</div>}
+                    {csvResult.failed.length === 0 ? (
+                        <div style={{ fontSize: 11, color: C.muted }}>No failed rows</div>
+                    ) : (
+                        <table style={{ width: '100%', fontSize: 11, color: C.muted }}>
+                            <thead>
+                                <tr>
+                                    <th style={{ textAlign: 'left' }}>Row</th>
+                                    <th style={{ textAlign: 'left' }}>Error</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {csvResult.failed.map((row) => (
+                                    <tr key={`${row.row}-${row.error}`}>
+                                        <td>{row.row}</td>
+                                        <td>{row.error}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            )}
 
             {/* KPI strip */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 7, marginBottom: 12 }}>

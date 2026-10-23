@@ -134,6 +134,42 @@ export function getOnHand(query: OnHandQuery = {}): Promise<OnHandPage> {
   }));
 }
 
+export interface ProductLocationOnHand {
+  locationId: number | null;
+  code: string | null;
+  kind: string | null;
+  onHand: number;
+}
+
+export interface ProductOnHand {
+  onHand: number;
+  byLocation: ProductLocationOnHand[];
+}
+
+/** One product's ledger on-hand, including the per-location breakdown. */
+export async function getProductOnHand(productId: number): Promise<ProductOnHand> {
+  const page = await readJson<{
+    rows: Array<OnHandRow & {
+      by_location?: Array<{ location_id: number | null; code: string | null; kind: string | null; on_hand: number }>;
+    }>;
+  }>(ledgerQuery('/inventory/on-hand', {
+    product_id: productId,
+    by_location: true,
+    limit: 1,
+  }));
+  const row = page.rows?.[0];
+  if (!row) return { onHand: 0, byLocation: [] };
+  return {
+    onHand: Number(row.on_hand) || 0,
+    byLocation: (row.by_location ?? []).map((loc) => ({
+      locationId: loc.location_id,
+      code: loc.code,
+      kind: loc.kind,
+      onHand: Number(loc.on_hand) || 0,
+    })),
+  };
+}
+
 export function getMovements(query: MovementsQuery = {}): Promise<MovementsPage> {
   return readJson<MovementsPage>(ledgerQuery('/inventory/movements', {
     product_id: query.product_id,

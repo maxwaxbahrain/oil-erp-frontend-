@@ -29,7 +29,7 @@ import {
 import { getProductById, getProducts, saveProduct, getAIInsights, formatPack, type Product } from '../../services/productService';
 import { getSuppliers } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
-import { getMovements, type InventoryMovement } from '../../services/inventoryLedgerService';
+import { getMovements, getProductOnHand, type InventoryMovement, type ProductLocationOnHand } from '../../services/inventoryLedgerService';
 import clsx from 'clsx';
 import { formatLocalDate } from '../../utils/dates';
 import { formatMovementLabel } from '../../utils/movementLabel';
@@ -52,6 +52,21 @@ const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
 
 const HISTORY_PAGE_SIZE = 50;
 
+function reorderStatus(product: Product, onHand: number | null): string {
+    if (onHand == null) return '—';
+    if (product.reorderPoint == null || onHand > product.reorderPoint) return 'OK';
+    const raw = Math.max(product.reorderQty || 0, (product.maxStock || 0) - onHand, 0);
+    const packQty = Number(product.packQty);
+    if (packQty > 0) {
+        const packs = Math.ceil(raw / packQty);
+        const base = packs * packQty;
+        const packUnit = (product.packUnit || 'pack').trim() || 'pack';
+        const baseUnit = (product.baseUnit || product.uom || 'unit').trim() || 'unit';
+        return `Reorder — suggest ${packs} ${packUnit} = ${base} ${baseUnit}`;
+    }
+    return `Reorder — suggest ${raw}`;
+}
+
 export default function ProductOverview() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -67,6 +82,9 @@ export default function ProductOverview() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
     const [historyReload, setHistoryReload] = useState(0);
+    const [onHandTotal, setOnHandTotal] = useState<number | null>(null);
+    const [onHandLocations, setOnHandLocations] = useState<ProductLocationOnHand[] | null>(null);
+    const [onHandFailed, setOnHandFailed] = useState(false);
 
     useEffect(() => {
         if (id) {
@@ -94,6 +112,27 @@ export default function ProductOverview() {
             cancelled = true;
         };
     }, [product?.preferredSupplierId]);
+
+    useEffect(() => {
+        if (!product?.id) return;
+        let cancelled = false;
+        setOnHandTotal(null);
+        setOnHandLocations(null);
+        setOnHandFailed(false);
+        getProductOnHand(Number(product.id))
+            .then((row) => {
+                if (cancelled) return;
+                setOnHandTotal(row.onHand);
+                setOnHandLocations(row.byLocation);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setOnHandFailed(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.id]);
 
     async function loadProduct(prodId: string) {
         try {
@@ -277,17 +316,21 @@ export default function ProductOverview() {
                                 <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">BC: {product.barcode || 'N/A'}</span>
                                 <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category: {product.category}</span>
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category: {product.categoryName || product.category}</span>
                             </div>
                             <div className="flex items-center gap-4 mt-2 flex-wrap">
                                 {product.brand && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Brand: {product.brand}</span>}
                                 {formatPack(product.packQty, product.packUnit) && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pack: {formatPack(product.packQty, product.packUnit)}</span>}
+                                {product.baseUnit && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Base unit: {product.baseUnit}</span>}
                                 {product.reorderPoint != null && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reorder point: {product.reorderPoint}</span>}
                                 {preferredSupplierName && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Preferred supplier: {preferredSupplierName}</span>}
                             </div>
                             <div className="flex items-center gap-2 mt-4">
                                 <div className={clsx("w-2 h-2 rounded-full", product.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300')}></div>
                                 <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{product.status}</span>
+                                {product.isDiscontinued && (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-700 border border-rose-100">Discontinued</span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -388,6 +431,91 @@ export default function ProductOverview() {
             <div className="grid grid-cols-1 gap-6">
                 {activeTab === 'Performance' && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
+                        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm" data-testid="stock-card">
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Stock</h3>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Ledger on hand</p>
+                            <p className="text-3xl font-black text-gray-900 tracking-tighter mt-6" data-testid="stock-on-hand">
+                                {onHandFailed || onHandTotal == null ? '—' : onHandTotal}
+                            </p>
+                            <div className="mt-6 overflow-x-auto border border-gray-100 rounded-2xl">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Code</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Kind</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">On hand</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {onHandFailed || !onHandLocations || onHandLocations.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={3} className="px-4 py-4 text-sm text-gray-400">—</td>
+                                            </tr>
+                                        ) : onHandLocations.map((loc) => (
+                                            <tr key={`${loc.locationId ?? 'none'}-${loc.code ?? ''}`}>
+                                                <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{loc.code || '—'}</td>
+                                                <td className="px-4 py-3 text-xs uppercase tracking-widest text-gray-600">{loc.kind || '—'}</td>
+                                                <td className="px-4 py-3 text-right font-mono font-black text-gray-900">{loc.onHand}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {(() => {
+                                const status = reorderStatus(product, onHandFailed ? null : onHandTotal);
+                                return (
+                                    <p
+                                        data-testid="reorder-status"
+                                        className={clsx(
+                                            'mt-6 text-[11px] font-black uppercase tracking-widest',
+                                            status === '—' ? 'text-gray-400' : status === 'OK' ? 'text-emerald-600' : 'text-amber-600',
+                                        )}
+                                    >
+                                        {status}
+                                    </p>
+                                );
+                            })()}
+                            <div className="mt-4 flex flex-wrap gap-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                {product.leadTimeDays > 0 && <span>Lead time: {product.leadTimeDays} days</span>}
+                                {preferredSupplierName && <span>Preferred supplier: {preferredSupplierName}</span>}
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm" data-testid="barcodes-card">
+                            <div className="flex items-center justify-between gap-4">
+                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Barcodes</h3>
+                                <Link to={`/products/edit/${product.id}`} className="text-[10px] font-black uppercase tracking-widest text-redwood-brand">Manage</Link>
+                            </div>
+                            {!product.barcodes || product.barcodes.length === 0 ? (
+                                <p className="mt-6 text-sm text-gray-400">—</p>
+                            ) : (
+                                <div className="mt-6 overflow-x-auto border border-gray-100 rounded-2xl">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Barcode</th>
+                                                <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Pack qty</th>
+                                                <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Primary</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {product.barcodes.map((row) => (
+                                                <tr key={`${row.barcode}-${row.isPrimary}`}>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{row.barcode}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">{row.packQty ?? '—'}</td>
+                                                    <td className="px-4 py-3">
+                                                        {row.isPrimary ? (
+                                                            <span className="px-2 py-0.5 rounded-sm text-[10px] font-black uppercase tracking-widest bg-gray-900 text-white">Primary</span>
+                                                        ) : '—'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-12">
                                 <div>
