@@ -91,6 +91,35 @@ export interface GLAccount {
   updated_at: string | null;
 }
 
+/** Path only for error messages — never host, tokens, or query strings. */
+export function apiRequestPathForDisplay(endpoint: string): string {
+  const pathOnly = String(endpoint).split(/[?#]/, 1)[0] || '';
+  const normalized = pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`;
+  let apiPrefix = '/api';
+  try {
+    const pathname = new URL(API_BASE_URL).pathname.replace(/\/$/, '');
+    if (pathname) apiPrefix = pathname;
+  } catch {
+    const trimmed = String(API_BASE_URL).replace(/\/$/, '');
+    const idx = trimmed.lastIndexOf('/api');
+    if (idx >= 0) apiPrefix = trimmed.slice(idx) || '/api';
+  }
+  return `${apiPrefix}${normalized}`;
+}
+
+function isJsonContentType(contentType: string | null): boolean {
+  if (!contentType) return true; // missing → try parse; invalid body still gets the clear error
+  return /application\/json/i.test(contentType) || /\+json/i.test(contentType);
+}
+
+function webPageInsteadOfDataError(status: number, path: string): Error & { status?: number } {
+  const err = new Error(
+    `Server returned a web page instead of data (HTTP ${status}, ${path})`,
+  ) as Error & { status?: number };
+  err.status = status;
+  return err;
+}
+
 export async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const headers: Record<string, string> = {
@@ -99,25 +128,42 @@ export async function apiRequest<T>(endpoint: string, options: RequestInit = {})
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const path = apiRequestPathForDisplay(endpoint);
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
   });
-  if (!response.ok) {
-    let rawDetail: unknown = `HTTP ${response.status}`;
+  const contentType = response.headers.get('content-type');
+  const text = await response.text();
+
+  if (!isJsonContentType(contentType)) {
+    throw webPageInsteadOfDataError(response.status, path);
+  }
+
+  let data: unknown = undefined;
+  if (text.trim()) {
     try {
-      const error = await response.json();
-      if (error?.detail) rawDetail = error.detail;
+      data = JSON.parse(text);
     } catch {
-      /* ignore malformed error payloads */
+      throw webPageInsteadOfDataError(response.status, path);
     }
+  } else if (response.ok) {
+    return undefined as T;
+  }
+
+  if (!response.ok) {
+    const rawDetail: unknown =
+      data && typeof data === 'object' && data !== null && 'detail' in data
+        ? (data as { detail: unknown }).detail
+        : `HTTP ${response.status}`;
     const message = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail);
     const err = new Error(message) as Error & { status?: number; detail?: unknown };
     err.status = response.status;
     err.detail = rawDetail;
     throw err;
   }
-  return response.json();
+
+  return data as T;
 }
 
 export function todayISO(): string {

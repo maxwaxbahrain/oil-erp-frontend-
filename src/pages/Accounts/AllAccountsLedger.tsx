@@ -162,7 +162,13 @@ export default function AllAccountsLedger() {
     const [aiQuestion, setAiQuestion] = useState('');
     const [pendingReverse, setPendingReverse] = useState<GLLedgerRow | null>(null);
     const [reversing, setReversing] = useState(false);
+    const [accountsReload, setAccountsReload] = useState(0);
     const [ledgerReload, setLedgerReload] = useState(0);
+
+    const retryLoad = () => {
+        setAccountsReload((k) => k + 1);
+        setLedgerReload((k) => k + 1);
+    };
 
     const datesInvalid = Boolean(dateFrom && dateTo && dateFrom > dateTo);
     const loading = accountsLoading || ledgerLoading;
@@ -192,7 +198,7 @@ export default function AllAccountsLedger() {
             }
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [accountsReload]);
 
     useEffect(() => {
         if (selectedAccountId == null || datesInvalid) {
@@ -448,8 +454,11 @@ export default function AllAccountsLedger() {
                 </div>
             )}
             {error && !loading && (
-                <div style={{ ...panel, borderColor: 'rgba(239,68,68,.35)', background: 'rgba(239,68,68,.08)', color: 'var(--color-brand-red-tint)', fontSize: 11, fontWeight: 600 }}>
-                    {error}
+                <div style={{ ...panel, borderColor: 'rgba(239,68,68,.35)', background: 'rgba(239,68,68,.08)', color: 'var(--color-brand-red-tint)', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="alert">
+                    <span style={{ flex: '1 1 200px' }}>{error}</span>
+                    <button type="button" onClick={retryLoad} style={{ ...ghostBtn, color: '#93C5FD', borderColor: 'rgba(79,142,247,.35)' }}>
+                        Retry
+                    </button>
                 </div>
             )}
 
