@@ -8,9 +8,15 @@ vi.mock('../api', () => ({ API_BASE_URL: 'https://api.test/api' }));
 import {
   createReorderDraftPo,
   getProductDemand,
+  getReorderRuns,
+  getReorderSettings,
   getReorderSuggestions,
   getReorderSummary,
+  getSuggestSettings,
+  runReorderNow,
   snoozeProduct,
+  unsnoozeProduct,
+  updateReorderSettings,
 } from '../reorderService';
 
 function ok(body: unknown) {
@@ -55,5 +61,36 @@ describe('reorderService URLs and bodies match app/api/reorder.py', () => {
   it('surfaces the backend detail on failure', async () => {
     authFetch.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ detail: 'Not enough permissions' }), { status: 403 })));
     await expect(snoozeProduct(3, '2026-11-01')).rejects.toThrow('Not enough permissions');
+  });
+
+  it('pins settings, run, runs, suggest-settings, and unsnooze', async () => {
+    authFetch.mockImplementation(() => ok({}));
+    await getReorderSettings();
+    await updateReorderSettings({ safety_factor: 2, digest_recipients: 'a@example.com' });
+    await runReorderNow();
+    authFetch.mockImplementation(() => ok([]));
+    await getReorderRuns();
+    await getReorderRuns(5);
+    authFetch.mockImplementation(() => ok({}));
+    await getSuggestSettings(9);
+    await unsnoozeProduct(3);
+
+    const calls = authFetch.mock.calls.map(([url, init]) => [url, init?.method ?? 'GET', init?.body ? JSON.parse(init.body) : undefined]);
+    expect(calls).toEqual([
+      ['https://api.test/api/reorder/settings', 'GET', undefined],
+      ['https://api.test/api/reorder/settings', 'PUT', { safety_factor: 2, digest_recipients: 'a@example.com' }],
+      ['https://api.test/api/reorder/run', 'POST', {}],
+      ['https://api.test/api/reorder/runs?limit=30', 'GET', undefined],
+      ['https://api.test/api/reorder/runs?limit=5', 'GET', undefined],
+      ['https://api.test/api/reorder/products/9/suggest-settings', 'GET', undefined],
+      ['https://api.test/api/reorder/snooze/3', 'DELETE', undefined],
+    ]);
+  });
+
+  it('turns a FastAPI 422 detail list into field: message', async () => {
+    authFetch.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      detail: [{ loc: ['body', 'safety_factor'], msg: 'Input should be less than or equal to 5' }],
+    }), { status: 422 })));
+    await expect(updateReorderSettings({ safety_factor: 9 })).rejects.toThrow('safety_factor: Input should be less than or equal to 5');
   });
 });

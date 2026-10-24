@@ -8,12 +8,14 @@ import {
   getProductDemand,
   getReorderSuggestions,
   getReorderSummary,
+  runReorderNow,
   snoozeProduct,
+  unsnoozeProduct,
   type DemandSeries,
   type ReorderSuggestion,
   type ReorderSummary,
 } from '../../services/reorderService';
-import { formatLocalDate } from '../../utils/dates';
+import { formatLocalDate, formatStoredDateTime } from '../../utils/dates';
 import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 
 const SNOOZE_DAYS = [7, 14, 30] as const;
@@ -22,7 +24,10 @@ const READ_ONLY_TIP = 'Only admin and manager can create draft POs or snooze';
 const COLUMNS = ['', '', 'Product', 'On hand (warehouse)', 'On order', 'Projected', 'Reorder point', 'Avg daily demand', 'Days of cover', 'Lead time', 'Suggested qty', ''];
 
 type Group = { key: string; supplierId: number | null; supplierName: string; rows: ReorderSuggestion[] };
-type Notice = { kind: 'po'; poNumber: string; supplierId: number } | { kind: 'error'; message: string };
+type Notice =
+  | { kind: 'po'; poNumber: string; supplierId: number }
+  | { kind: 'run'; dueCount: number; digestSent: boolean }
+  | { kind: 'error'; message: string };
 
 function qty(n: number | null | undefined, digits = 4): string {
   if (n == null) return '—';
@@ -72,6 +77,7 @@ export default function ReorderPlanning() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busyGroup, setBusyGroup] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [demand, setDemand] = useState<Record<number, DemandSeries | 'error'>>({});
@@ -141,6 +147,30 @@ export default function ReorderPlanning() {
     }
   }
 
+  async function unsnooze(row: ReorderSuggestion) {
+    setNotice(null);
+    try {
+      await unsnoozeProduct(row.product_id);
+      await load();
+    } catch (err: unknown) {
+      setNotice({ kind: 'error', message: err instanceof Error ? err.message : 'Could not unsnooze.' });
+    }
+  }
+
+  async function runNow() {
+    setRunning(true);
+    setNotice(null);
+    try {
+      const run = await runReorderNow();
+      setNotice({ kind: 'run', dueCount: run.due_count, digestSent: run.digest_sent });
+      await load();
+    } catch (err: unknown) {
+      setNotice({ kind: 'error', message: err instanceof Error ? err.message : 'Could not run reorder planning.' });
+    } finally {
+      setRunning(false);
+    }
+  }
+
   function toggleExpand(id: number) {
     const next = expanded === id ? null : id;
     setExpanded(next);
@@ -190,6 +220,16 @@ export default function ReorderPlanning() {
             <div style={cardValue}>{s.due_count} due · {formatCurrency(s.suggested_value)}</div>
           </div>
         ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+          <span data-testid="reorder-last-run" style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)' }}>
+            {summary?.last_run_at ? `Last run ${formatStoredDateTime(summary.last_run_at)}` : 'No runs yet'}
+          </span>
+          {canWrite && (
+            <button type="button" style={chip(false)} disabled={running} onClick={() => void runNow()}>
+              {running ? 'Running…' : 'Run now'}
+            </button>
+          )}
+        </div>
       </div>
 
       <p data-testid="on-order-note" style={{ margin: '0 0 10px', fontSize: '11px', color: 'var(--color-redwood-text-muted)' }}>
@@ -203,6 +243,11 @@ export default function ReorderPlanning() {
             {notice.poNumber}
           </Link>{' '}
           created.
+        </div>
+      )}
+      {notice?.kind === 'run' && (
+        <div data-testid="reorder-run-result" style={{ marginBottom: '10px', fontSize: '12px', color: 'var(--color-redwood-text-main)' }}>
+          Run complete: {notice.dueCount} due · {notice.digestSent ? 'digest sent' : 'digest not sent'}
         </div>
       )}
       {notice?.kind === 'error' && (
@@ -282,6 +327,16 @@ export default function ReorderPlanning() {
                               <span data-testid={`snoozed-chip-${row.product_id}`} style={snoozeChip}>
                                 Snoozed until {formatLocalDate(row.snoozed_until) || row.snoozed_until}
                               </span>
+                            )}
+                            {snoozed && canWrite && (
+                              <button
+                                type="button"
+                                aria-label={`Unsnooze ${label}`}
+                                onClick={() => void unsnooze(row)}
+                                style={{ marginLeft: '6px', background: 'none', border: 'none', padding: 0, fontSize: '10px', textDecoration: 'underline', cursor: 'pointer', color: 'var(--color-redwood-text-main)' }}
+                              >
+                                Unsnooze
+                              </button>
                             )}
                           </td>
                           <td style={num}>{qty(row.on_hand)}</td>
