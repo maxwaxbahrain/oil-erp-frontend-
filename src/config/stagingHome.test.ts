@@ -13,6 +13,7 @@ describe('postLoginHomePath', () => {
     expect(postLoginHomePath('ADMIN')).toBe('/agent/nexus');
     expect(postLoginHomePath('manager')).toBe('/dashboard');
     expect(postLoginHomePath('accountant')).toBe('/dashboard');
+    expect(postLoginHomePath('warehouse')).toBe('/warehouse/picking');
     expect(postLoginHomePath(null)).toBe('/dashboard');
   });
 
@@ -20,5 +21,6 @@ describe('postLoginHomePath', () => {
     vi.stubEnv('VITE_APP_ENV', 'production');
     const { postLoginHomePath } = await import('./stagingHome');
     expect(postLoginHomePath('admin')).toBe('/dashboard');
+    expect(postLoginHomePath('warehouse')).toBe('/warehouse/picking');
   });
 });

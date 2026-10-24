@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PickListPage from '../PickList';
 import { lookupProductByBarcode } from '../../../services/productService';
 import { getLocationsFlat } from '../../../services/stockLocationService';
+import { vanService } from '../../../services/vanService';
 
 const { authFetch, apiGet } = vi.hoisted(() => ({
   authFetch: vi.fn(),
@@ -16,6 +17,17 @@ vi.mock('../../../api/axios', () => ({
   default: { get: apiGet },
   authFetch,
   ACCESS_TOKEN_KEY: 'access_token',
+}));
+
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { username: 'admin', full_name: 'Admin', role: 'admin' },
+    hasRole: (...roles: string[]) => roles.includes('admin'),
+  }),
+}));
+
+vi.mock('../../../services/vanService', () => ({
+  vanService: { getAll: vi.fn().mockResolvedValue([]) },
 }));
 
 vi.mock('../../../services/productService', async () => {
@@ -308,5 +320,32 @@ describe('Pick list screen', () => {
     });
     await flush();
     expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/pick-lists/4/release'))).toBe(true);
+  });
+
+  it('shows Dispatch on a picked list', async () => {
+    current = detail('picked', openLines);
+    await mount();
+    expect(container.textContent).toContain('Dispatch…');
+    expect(container.querySelector('[data-testid="dispatch-summary"]')).toBeNull();
+  });
+
+  it('shows manifest info on a dispatched list', async () => {
+    current = {
+      ...detail('dispatched', openLines),
+      manifest_number: 'MF-000012',
+      van_id: 'van-9',
+      driver_id: 2,
+    };
+    apiGet.mockResolvedValue({ data: [{ id: 2, username: 'wren', full_name: 'Wren', role: 'warehouse' }] });
+    vi.mocked(vanService.getAll).mockResolvedValue([
+      { id: 'van-9', van_number: 'VAN-9', driver_name: 'Dee', vehicle_number: 'PLT-9', status: 'active' },
+    ]);
+    await mount();
+    const summary = container.querySelector('[data-testid="dispatch-summary"]');
+    expect(summary?.textContent).toContain('MF-000012');
+    expect(summary?.textContent).toContain('VAN-9');
+    expect(summary?.textContent).toContain('Wren');
+    expect(buttonIn(summary as HTMLElement, 'Manifest')).toBeTruthy();
+    expect(container.textContent).not.toContain('Dispatch…');
   });
 });

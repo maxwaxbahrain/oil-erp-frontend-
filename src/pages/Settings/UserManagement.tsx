@@ -36,6 +36,7 @@ const ROLE_STYLE: Record<AuthRole, { bg: string; color: string }> = {
   accountant: { bg: 'rgba(245,158,11,.15)', color: '#FCD34D' },
   driver: { bg: 'rgba(249,115,22,.15)', color: '#FDBA74' },
   sales: { bg: 'rgba(34,197,94,.15)', color: '#86EFAC' },
+  warehouse: { bg: 'rgba(37,99,235,.15)', color: '#93C5FD' },
 };
 
 /** Display-only labels; API values in ROLES stay unchanged. */

@@ -2,7 +2,7 @@ import { API_BASE_URL } from './api';
 import { authFetch } from '../api/axios';
 import { apiErrorDetail } from './productService';
 
-export type PickListStatus = 'draft' | 'released' | 'picking' | 'picked' | 'cancelled';
+export type PickListStatus = 'draft' | 'released' | 'picking' | 'picked' | 'dispatched' | 'cancelled';
 export type PickLineStatus = 'open' | 'picked' | 'short' | 'skipped';
 export type PickSourceKind = 'invoice' | 'route';
 
@@ -14,6 +14,9 @@ export interface PickListSummary {
   routeDate: string | null;
   vanId: string | null;
   assignedTo: number | null;
+  driverId: number | null;
+  dispatchedAt: string | null;
+  manifestNumber: string | null;
   createdAt: string | null;
   releasedAt: string | null;
   pickedAt: string | null;
@@ -85,6 +88,39 @@ export interface RecordPickInput {
   qty: number;
   pickedLocationId?: number | null;
   note?: string;
+}
+
+export interface DispatchPickListInput {
+  vanId: string;
+  driverId: number;
+  note?: string;
+}
+
+export interface PickManifestLine {
+  sku: string | null;
+  name: string | null;
+  qtyRequired: number;
+  qtyPicked: number;
+  short: boolean;
+}
+
+export interface PickManifestStop {
+  invoiceNumber: string | null;
+  customerName: string | null;
+  address: string | null;
+  phone: string | null;
+  lines: PickManifestLine[];
+  invoiceTotal: number | null;
+  paymentTerms: string | null;
+}
+
+export interface PickManifest {
+  manifestNumber: string | null;
+  dispatchedAt: string | null;
+  van: { code: string | null; plate: string | null };
+  driverName: string | null;
+  stops: PickManifestStop[];
+  totals: { stops: number; units: number; shortLines: number };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -169,6 +205,9 @@ function mapSummary(raw: Record<string, unknown>, lines?: PickLine[]): PickListS
     routeDate: optStr(raw.route_date ?? raw.routeDate),
     vanId: optStr(raw.van_id ?? raw.vanId),
     assignedTo: optNum(raw.assigned_to ?? raw.assignedTo),
+    driverId: optNum(raw.driver_id ?? raw.driverId),
+    dispatchedAt: optStr(raw.dispatched_at ?? raw.dispatchedAt),
+    manifestNumber: optStr(raw.manifest_number ?? raw.manifestNumber),
     createdAt: optStr(raw.created_at ?? raw.createdAt),
     releasedAt: optStr(raw.released_at ?? raw.releasedAt),
     pickedAt: optStr(raw.picked_at ?? raw.pickedAt),
@@ -277,4 +316,62 @@ export async function recordPick(listId: number, lineId: number, input: RecordPi
 
 export async function getPickListForInvoice(invoiceId: number): Promise<PickListDetail> {
   return mapDetail(await request(`/pick-lists/for-invoice/${invoiceId}`));
+}
+
+export async function dispatchPickList(id: number, input: DispatchPickListInput): Promise<PickListDetail> {
+  const body: Record<string, unknown> = { van_id: input.vanId, driver_id: input.driverId };
+  if (input.note) body.note = input.note;
+  return mapDetail(await request(`/pick-lists/${id}/dispatch`, { method: 'POST', body: JSON.stringify(body) }));
+}
+
+export async function undispatchPickList(id: number): Promise<PickListDetail> {
+  return mapDetail(await request(`/pick-lists/${id}/undispatch`, { method: 'POST' }));
+}
+
+function mapManifestLine(raw: Record<string, unknown>): PickManifestLine {
+  return {
+    sku: optStr(raw.sku),
+    name: optStr(raw.name ?? raw.product_name),
+    qtyRequired: num(raw.qty_required ?? raw.qtyRequired),
+    qtyPicked: num(raw.qty_picked ?? raw.qtyPicked),
+    short: Boolean(raw.short),
+  };
+}
+
+function mapManifest(raw: unknown): PickManifest {
+  const row = asRecord(raw) ?? {};
+  const van = asRecord(row.van) ?? {};
+  const totals = asRecord(row.totals) ?? {};
+  const stops = Array.isArray(row.stops) ? row.stops : [];
+  return {
+    manifestNumber: optStr(row.manifest_number ?? row.manifestNumber),
+    dispatchedAt: optStr(row.dispatched_at ?? row.dispatchedAt),
+    van: {
+      code: optStr(van.code ?? van.van_number),
+      plate: optStr(van.plate ?? van.vehicle_number),
+    },
+    driverName: optStr(row.driver_name ?? row.driverName),
+    stops: stops.map((stop) => {
+      const item = asRecord(stop) ?? {};
+      const lines = Array.isArray(item.lines) ? item.lines : [];
+      return {
+        invoiceNumber: optStr(item.invoice_number ?? item.invoiceNumber),
+        customerName: optStr(item.customer_name ?? item.customerName),
+        address: optStr(item.address),
+        phone: optStr(item.phone),
+        lines: lines.map((line) => mapManifestLine(asRecord(line) ?? {})),
+        invoiceTotal: optNum(item.invoice_total ?? item.invoiceTotal),
+        paymentTerms: optStr(item.payment_terms ?? item.paymentTerms),
+      };
+    }),
+    totals: {
+      stops: num(totals.stops),
+      units: num(totals.units),
+      shortLines: num(totals.short_lines ?? totals.shortLines),
+    },
+  };
+}
+
+export async function getManifest(id: number): Promise<PickManifest> {
+  return mapManifest(await request(`/pick-lists/${id}/manifest`));
 }

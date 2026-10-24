@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PickingPage from '../Picking';
 import * as api from '../../../services/api';
+import { vanService } from '../../../services/vanService';
 import { localIsoDate } from '../../../utils/localDate';
 import type { Invoice } from '../../../services/api';
 
@@ -21,6 +22,13 @@ vi.mock('../../../api/axios', () => ({
 
 vi.mock('../../../services/vanService', () => ({
   vanService: { getAll: vi.fn().mockResolvedValue([]) },
+}));
+
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { username: 'admin', full_name: 'Admin', role: 'admin' },
+    hasRole: (...roles: string[]) => roles.includes('admin'),
+  }),
 }));
 
 function http(body: unknown, status = 200) {
@@ -314,5 +322,98 @@ describe('Picking board', () => {
     await flush();
     expect(confirm).toHaveBeenCalled();
     expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/pick-lists/4/cancel'))).toBe(true);
+  });
+
+  it('dispatches a picked list with van, driver, and note', async () => {
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (method === 'POST' && String(url).endsWith('/dispatch')) {
+        return http({ id: 4, number: 'PK-000004', status: 'dispatched', lines: [] });
+      }
+      return http({
+        total: 1,
+        items: [{
+          id: 4,
+          number: 'PK-000004',
+          status: 'picked',
+          source_kind: 'invoice',
+          van_id: null,
+          assigned_to: 2,
+          line_count: 2,
+          picked_count: 2,
+        }],
+      });
+    });
+    vi.mocked(vanService.getAll).mockResolvedValue([
+      { id: 'van-1', van_number: 'VAN-1', driver_name: 'Dee', vehicle_number: 'PLT-9', status: 'active' },
+    ]);
+    await mount();
+    await act(() => {
+      button(container, 'Dispatch…').click();
+    });
+    await flush();
+    const dialog = container.querySelector('[aria-label="Dispatch"]') as HTMLElement;
+    await act(() => {
+      setValue(dialog.querySelector('[aria-label="Dispatch van"]') as HTMLSelectElement, 'van-1');
+      setValue(dialog.querySelector('[aria-label="Dispatch driver"]') as HTMLSelectElement, '2');
+      setValue(dialog.querySelector('[aria-label="Dispatch note"]') as HTMLTextAreaElement, 'gate');
+    });
+    await act(async () => {
+      button(dialog, 'Dispatch').click();
+      await Promise.resolve();
+    });
+    await flush();
+    const posted = calls().find((call) => call.method === 'POST' && call.url.endsWith('/pick-lists/4/dispatch'));
+    expect(posted?.body).toEqual({ van_id: 'van-1', driver_id: 2, note: 'gate' });
+  });
+
+  it('shows an undispatch 400 and lists dispatched rows with van and driver', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (method === 'POST' && String(url).endsWith('/undispatch')) {
+        return http({ detail: 'a delivery has already left pending' }, 400);
+      }
+      return http({
+        total: 1,
+        items: [{
+          id: 4,
+          number: 'PK-000004',
+          status: 'dispatched',
+          source_kind: 'invoice',
+          van_id: 'van-1',
+          driver_id: 2,
+          assigned_to: null,
+          line_count: 2,
+          picked_count: 2,
+        }],
+      });
+    });
+    vi.mocked(vanService.getAll).mockResolvedValue([
+      { id: 'van-1', van_number: 'VAN-1', driver_name: 'Dee', vehicle_number: 'PLT-9', status: 'active' },
+    ]);
+    await mount();
+    expect(container.textContent).toContain('Dispatched');
+    expect(container.querySelector('[data-testid="pick-van-4"]')?.textContent).toBe('VAN-1');
+    expect(container.querySelector('[data-testid="pick-driver-4"]')?.textContent).toBe('Wren');
+    await act(async () => {
+      button(container, 'Undispatch').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(confirm).toHaveBeenCalled();
+    expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/pick-lists/4/undispatch'))).toBe(true);
+    expect(container.querySelector('[data-testid="picking-error"]')?.textContent).toContain('a delivery has already left pending');
+  });
+
+  it('filters the list with status dispatched', async () => {
+    await mount();
+    const select = container.querySelector('[aria-label="Filter status"]') as HTMLSelectElement;
+    await act(async () => {
+      setValue(select, 'dispatched');
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.method === 'GET' && call.url.includes('status=dispatched'))).toBe(true);
   });
 });

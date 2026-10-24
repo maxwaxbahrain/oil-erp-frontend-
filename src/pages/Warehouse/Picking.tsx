@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
+import { useAuth } from '../../contexts/AuthContext';
 import { getInvoices, type Invoice } from '../../services/api';
 import {
   assignPickList,
   cancelPickList,
   createPickList,
+  dispatchPickList,
+  getManifest,
   getPickListForInvoice,
   listPickLists,
   releasePickList,
+  undispatchPickList,
   type PickListStatus,
   type PickListSummary,
+  type PickManifest,
 } from '../../services/pickingService';
 import { vanService, type Van } from '../../services/vanService';
 import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
+import DispatchDialog from './DispatchDialog';
+import ManifestPrint from './ManifestPrint';
 
 const panel: CSSProperties = {
   background: 'var(--color-redwood-bg-surface)',
@@ -48,11 +55,17 @@ interface AssignableUser {
 const PICKABLE = new Set(['unpaid', 'partial', 'paid']);
 
 function statusColor(status: string): string {
+  if (status === 'dispatched') return '#2563eb';
   if (status === 'picked') return '#22c55e';
   if (status === 'picking' || status === 'released') return '#4F8EF7';
   if (status === 'cancelled') return '#94a3b8';
   if (status === 'short') return '#f59e0b';
   return '#F59E0B';
+}
+
+function statusLabel(status: string): string {
+  if (status === 'dispatched') return 'Dispatched';
+  return status;
 }
 
 function sourceLabel(row: PickListSummary): string {
@@ -76,6 +89,8 @@ function errorText(err: unknown): string {
 
 export default function PickingPage() {
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const canDispatch = hasRole('admin', 'manager', 'warehouse');
   const [items, setItems] = useState<PickListSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +111,10 @@ export default function PickingPage() {
   const [saving, setSaving] = useState(false);
   const [assignFor, setAssignFor] = useState<number | null>(null);
   const [assignUserId, setAssignUserId] = useState('');
+  const [dispatchFor, setDispatchFor] = useState<number | null>(null);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [manifest, setManifest] = useState<PickManifest | null>(null);
 
   const userNames = useMemo(() => {
     const map = new Map<number, string>();
@@ -131,6 +150,10 @@ export default function PickingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    vanService.getAll().then(setVans).catch(() => setVans([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,6 +264,46 @@ export default function PickingPage() {
     }
   }
 
+  function vanNumber(vanId: string | null): string {
+    if (!vanId) return '—';
+    return vans.find((van) => van.id === vanId)?.van_number || vanId;
+  }
+
+  async function onDispatch(input: { vanId: string; driverId: number; note?: string }) {
+    if (dispatchFor == null) return;
+    setDispatchError(null);
+    setDispatching(true);
+    try {
+      await dispatchPickList(dispatchFor, input);
+      setDispatchFor(null);
+      await load();
+    } catch (err) {
+      setDispatchError(errorText(err));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  async function onUndispatch(id: number) {
+    if (!window.confirm('Undispatch this pick list?')) return;
+    setError(null);
+    try {
+      await undispatchPickList(id);
+      await load();
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function openManifest(id: number) {
+    setError(null);
+    try {
+      setManifest(await getManifest(id));
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
   const visibleInvoices = invoices.filter((row) => {
     const q = invoiceQuery.trim().toLowerCase();
     if (!q) return true;
@@ -266,8 +329,8 @@ export default function PickingPage() {
             style={{ ...field, marginLeft: 8 }}
           >
             <option value="">All</option>
-            {(['draft', 'released', 'picking', 'picked', 'cancelled'] as PickListStatus[]).map((status) => (
-              <option key={status} value={status}>{status}</option>
+            {(['draft', 'released', 'picking', 'picked', 'dispatched', 'cancelled'] as PickListStatus[]).map((status) => (
+              <option key={status} value={status}>{statusLabel(status)}</option>
             ))}
           </select>
         </label>
@@ -290,7 +353,7 @@ export default function PickingPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left' }}>
-              {['Number', 'Source', 'Status', 'Assigned', 'Lines', 'Created', 'Actions'].map((heading) => (
+              {['Number', 'Source', 'Status', 'Assigned', 'Van', 'Driver', 'Lines', 'Created', 'Actions'].map((heading) => (
                 <th key={heading} style={{ padding: '8px 6px', borderBottom: '1px solid var(--color-redwood-border)' }}>{heading}</th>
               ))}
             </tr>
@@ -310,11 +373,15 @@ export default function PickingPage() {
                     fontWeight: 600,
                   }}
                   >
-                    {row.status}
+                    {statusLabel(row.status)}
                   </span>
                 </td>
                 <td style={{ padding: '8px 6px' }}>
                   {row.assignedTo == null ? '—' : (userNames.get(row.assignedTo) || `User ${row.assignedTo}`)}
+                </td>
+                <td style={{ padding: '8px 6px' }} data-testid={`pick-van-${row.id}`}>{vanNumber(row.vanId)}</td>
+                <td style={{ padding: '8px 6px' }} data-testid={`pick-driver-${row.id}`}>
+                  {row.driverId == null ? '—' : (userNames.get(row.driverId) || `User ${row.driverId}`)}
                 </td>
                 <td style={{ padding: '8px 6px' }}>{progressLabel(row)}</td>
                 <td style={{ padding: '8px 6px' }}>{row.createdAt ? row.createdAt.slice(0, 16).replace('T', ' ') : '—'}</td>
@@ -327,6 +394,15 @@ export default function PickingPage() {
                   )}
                   {(row.status === 'draft' || row.status === 'released') && (
                     <button type="button" style={btn} onClick={() => void onCancel(row.id)}>Cancel</button>
+                  )}
+                  {row.status === 'picked' && canDispatch && (
+                    <button type="button" style={btn} onClick={() => { setDispatchFor(row.id); setDispatchError(null); }}>Dispatch…</button>
+                  )}
+                  {row.status === 'dispatched' && (
+                    <button type="button" style={btn} onClick={() => void openManifest(row.id)}>Manifest</button>
+                  )}
+                  {row.status === 'dispatched' && canDispatch && (
+                    <button type="button" style={btn} onClick={() => void onUndispatch(row.id)}>Undispatch</button>
                   )}
                   <Link to={`/warehouse/picking/${row.id}`} style={{ ...btn, textDecoration: 'none' }}>Open</Link>
                 </td>
@@ -409,6 +485,18 @@ export default function PickingPage() {
           </div>
         </div>
       )}
+
+      {dispatchFor != null && (
+        <DispatchDialog
+          users={users}
+          saving={dispatching}
+          error={dispatchError}
+          onClose={() => setDispatchFor(null)}
+          onSubmit={(input) => void onDispatch(input)}
+        />
+      )}
+
+      {manifest && <ManifestPrint manifest={manifest} onClose={() => setManifest(null)} />}
 
       {assignFor != null && (
         <div role="dialog" aria-label="Assign pick list" style={{ ...panel, maxWidth: 360 }}>
