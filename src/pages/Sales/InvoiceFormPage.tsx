@@ -29,6 +29,7 @@ import { authFetch } from '../../api/axios';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
+import InvoicePickListLink from './InvoicePickListLink';
 import { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
 import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
 import {
@@ -1269,6 +1270,9 @@ export default function InvoiceFormPage() {
                                 <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
                                     {formData.dueDate ? (formatLocalDate(formData.dueDate) || '—') : '—'}
                                 </span>
+                                {isEditMode && invoiceIdParam && invoiceIdParam !== 'new' ? (
+                                    <InvoicePickListLink invoiceId={Number(invoiceIdParam)} />
+                                ) : null}
                             </div>
                         </div>
                     </div>
