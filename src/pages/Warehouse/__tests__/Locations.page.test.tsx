@@ -30,7 +30,9 @@ const tree = [
         parentId: 1,
         path: 'MAIN/A',
         sortOrder: null,
-        capacityUnits: null,
+        capacityUnits: 200,
+        onHandUnits: 12,
+        pct: 6,
         barcode: null,
         children: [
           {
@@ -56,8 +58,10 @@ const tree = [
                 parentId: 3,
                 path: 'MAIN/A/R1/B1',
                 sortOrder: null,
-                capacityUnits: null,
-                barcode: null,
+                capacityUnits: 100,
+                onHandUnits: 12,
+                pct: 12,
+                barcode: 'BC-B1',
                 children: [],
               },
             ],
@@ -75,6 +79,7 @@ vi.mock('../../../services/stockLocationService', () => ({
   updateLocation: vi.fn(),
   deactivateLocation: vi.fn(),
   postTransfer: vi.fn(),
+  lookupLocationByBarcode: vi.fn(),
   allowedChildKinds: (kind: string) => (kind === 'rack' ? ['bin'] : kind === 'warehouse' ? ['zone'] : kind === 'zone' ? ['aisle'] : kind === 'aisle' ? ['rack', 'bin'] : []),
   isStockHoldingKind: (kind: string) => kind === 'bin' || kind === 'warehouse' || kind === 'van',
   flattenLocationTree: (nodes: typeof tree) => {
@@ -207,6 +212,89 @@ describe('Locations page', () => {
         quantity: 2,
       }),
     );
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('renders capacity bar from tree pct', async () => {
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const bars = container.querySelectorAll('[data-testid="capacity-bar"]');
+    expect(bars.length).toBeGreaterThan(0);
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('print labels lists descendant bins only', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const zoneBtn = container.querySelector('[data-testid="loc-node-A"]') as HTMLButtonElement;
+    await act(() => {
+      zoneBtn.click();
+    });
+    const printBtn = container.querySelector('[data-testid="print-labels-btn"]') as HTMLButtonElement;
+    await act(() => {
+      printBtn.click();
+    });
+    expect(container.querySelector('[data-testid="label-card-B1"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="label-card-MAIN"]')).toBeFalsy();
+    printSpy.mockRestore();
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('scan bin selects looked-up node and shows 404 message', async () => {
+    vi.mocked(stockLocationService.lookupLocationByBarcode).mockResolvedValue({
+      id: 5,
+      code: 'B1',
+      name: 'Bin 1',
+      kind: 'bin',
+      vanId: null,
+      isActive: true,
+      parentId: 3,
+      path: 'MAIN/A/R1/B1',
+      sortOrder: null,
+      capacityUnits: 100,
+      onHandUnits: 12,
+      pct: 12,
+      barcode: 'BC-B1',
+    });
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const scan = container.querySelector('[aria-label="Scan bin"]') as HTMLInputElement;
+    await act(() => {
+      setValue(scan, 'BC-B1');
+    });
+    await act(async () => {
+      scan.form!.requestSubmit();
+      await Promise.resolve();
+    });
+    expect(stockLocationService.lookupLocationByBarcode).toHaveBeenCalledWith('BC-B1');
+    expect(container.querySelector('h2')?.textContent).toBe('Bin 1');
+
+    vi.mocked(stockLocationService.lookupLocationByBarcode).mockRejectedValue(new Error('404'));
+    await act(() => {
+      setValue(scan, 'MISSING');
+    });
+    await act(async () => {
+      scan.form!.requestSubmit();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="scan-bin-error"]')?.textContent).toContain('No location with that code');
+
     await act(() => {
       root.unmount();
     });

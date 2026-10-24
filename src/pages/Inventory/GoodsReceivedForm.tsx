@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -27,7 +27,7 @@ import {
 } from '../../services/grnService';
 import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
 import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
-import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
+import { getLocationsFlat, isStockHoldingKind, suggestPutaway, type StockLocationNode } from '../../services/stockLocationService';
 import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 import { type PurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
@@ -66,6 +66,15 @@ const ghostBtn: CSSProperties = {
     color: C.muted,
     fontFamily: 'inherit',
 };
+
+function formatPutawayReason(reason: string): string {
+    const r = reason.toLowerCase().trim();
+    if (r.includes('already')) return 'product already here';
+    if (r.includes('default')) return 'default bin';
+    if (r.includes('free') || r.includes('capacity')) return 'free capacity';
+    if (r.includes('main') || r.includes('warehouse')) return 'main warehouse';
+    return reason;
+}
 
 const primaryBtn: CSSProperties = {
     ...ghostBtn,
@@ -198,6 +207,8 @@ export default function GoodsReceivedForm() {
 
     const [condition, setCondition] = useState<ConditionKey>('good');
     const [deliveryNote, setDeliveryNote] = useState('');
+    const lineLocationTouched = useRef(new Set<number>());
+    const [linePutawayCaptions, setLinePutawayCaptions] = useState<Record<number, string>>({});
 
     const resolveLineLocation = (productId: string, existing?: number | null) => {
         if (existing != null) return existing;
@@ -409,7 +420,29 @@ export default function GoodsReceivedForm() {
     };
 
     const onLineLocation = (index: number, locationId: number | null) => {
+        lineLocationTouched.current.add(index);
         setItems((prev) => prev.map((item, i) => (i === index ? { ...item, locationId } : item)));
+    };
+
+    const suggestLinePutaway = async (index: number) => {
+        const item = items[index];
+        if (!item?.productId) return;
+        const qty = Number(item.acceptedQty) || 0;
+        if (qty <= 0) return;
+        try {
+            const suggestion = await suggestPutaway(Number(item.productId), qty);
+            setItems((prev) => prev.map((row, i) => (i === index ? { ...row, locationId: suggestion.locationId } : row)));
+            setLinePutawayCaptions((prev) => ({ ...prev, [index]: formatPutawayReason(suggestion.reason) }));
+        } catch {
+            setLinePutawayCaptions((prev) => ({ ...prev, [index]: '—' }));
+        }
+    };
+
+    const suggestAllPutaway = async () => {
+        for (let index = 0; index < items.length; index += 1) {
+            if (lineLocationTouched.current.has(index)) continue;
+            await suggestLinePutaway(index);
+        }
     };
 
     const onGrnEntry = (index: number, value: PackEntryValue) => {
@@ -977,21 +1010,41 @@ export default function GoodsReceivedForm() {
                                                         <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{formatUsd(item.unitCost)}</td>
                                                         <td style={tdStyle}>
                                                             {editable ? (
-                                                                <select
-                                                                    aria-label={`Location for line ${index + 1}`}
-                                                                    value={item.locationId ?? mainLocationId ?? ''}
-                                                                    onChange={(e) => onLineLocation(
-                                                                        index,
-                                                                        e.target.value === '' ? null : Number(e.target.value),
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                                        <select
+                                                                            aria-label={`Location for line ${index + 1}`}
+                                                                            value={item.locationId ?? mainLocationId ?? ''}
+                                                                            onChange={(e) => onLineLocation(
+                                                                                index,
+                                                                                e.target.value === '' ? null : Number(e.target.value),
+                                                                            )}
+                                                                            style={{ fontSize: 10, maxWidth: 140 }}
+                                                                        >
+                                                                            {holdingLocations.map((loc) => (
+                                                                                <option key={loc.id} value={loc.id}>
+                                                                                    {loc.code}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                        <button
+                                                                            type="button"
+                                                                            aria-label={`Suggest location line ${index + 1}`}
+                                                                            onClick={() => void suggestLinePutaway(index)}
+                                                                            style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9 }}
+                                                                        >
+                                                                            Suggest
+                                                                        </button>
+                                                                    </div>
+                                                                    {linePutawayCaptions[index] && (
+                                                                        <span
+                                                                            data-testid={`putaway-caption-${index}`}
+                                                                            style={{ fontSize: 9, color: C.dim }}
+                                                                        >
+                                                                            {linePutawayCaptions[index]}
+                                                                        </span>
                                                                     )}
-                                                                    style={{ fontSize: 10, maxWidth: 160 }}
-                                                                >
-                                                                    {holdingLocations.map((loc) => (
-                                                                        <option key={loc.id} value={loc.id}>
-                                                                            {loc.code}
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
+                                                                </div>
                                                             ) : (
                                                                 <span style={{ fontSize: 10 }}>
                                                                     {holdingLocations.find((loc) => loc.id === item.locationId)?.code || '—'}
@@ -1019,13 +1072,23 @@ export default function GoodsReceivedForm() {
                                     <div style={{ marginTop: 10 }}>
                                         <BarcodeScanField onScan={handleBarcodeScan} />
                                     </div>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                                     <button
                                         type="button"
                                         onClick={handleReceiveAll}
-                                        style={{ ...ghostBtn, marginTop: 10, fontSize: 10, color: C.green, borderColor: 'rgba(34,197,94,.3)' }}
+                                        style={{ ...ghostBtn, fontSize: 10, color: C.green, borderColor: 'rgba(34,197,94,.3)' }}
                                     >
                                         Receive all quantities
                                     </button>
+                                    <button
+                                        type="button"
+                                        aria-label="Suggest all locations"
+                                        onClick={() => void suggestAllPutaway()}
+                                        style={{ ...ghostBtn, fontSize: 10, color: C.blue, borderColor: 'rgba(79,142,247,.3)' }}
+                                    >
+                                        Suggest all
+                                    </button>
+                                    </div>
                                     </>
                                 )}
 

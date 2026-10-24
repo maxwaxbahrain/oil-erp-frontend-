@@ -30,6 +30,7 @@ import { getProductById, getProducts, saveProduct, getAIInsights, formatPack, ty
 import { getSuppliers } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
 import { getMovements, getProductOnHand, type InventoryMovement, type ProductLocationOnHand } from '../../services/inventoryLedgerService';
+import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
 import clsx from 'clsx';
 import { formatLocalDate } from '../../utils/dates';
 import { formatMovementLabel } from '../../utils/movementLabel';
@@ -82,6 +83,8 @@ export default function ProductOverview() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
     const [historyReload, setHistoryReload] = useState(0);
+    const [historyLocationId, setHistoryLocationId] = useState('');
+    const [historyLocationOptions, setHistoryLocationOptions] = useState<StockLocationNode[]>([]);
     const [onHandTotal, setOnHandTotal] = useState<number | null>(null);
     const [onHandLocations, setOnHandLocations] = useState<ProductLocationOnHand[] | null>(null);
     const [onHandFailed, setOnHandFailed] = useState(false);
@@ -159,7 +162,25 @@ export default function ProductOverview() {
     useEffect(() => {
         setHistoryPage(0);
         setMovements(null);
+        setHistoryLocationId('');
     }, [product?.id]);
+
+    useEffect(() => {
+        if (activeTab !== 'History') return;
+        let cancelled = false;
+        getLocationsFlat()
+            .then((rows) => {
+                if (!cancelled) {
+                    setHistoryLocationOptions(rows.filter((loc) => loc.isActive && isStockHoldingKind(loc.kind)));
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setHistoryLocationOptions([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab]);
 
     useEffect(() => {
         if (activeTab !== 'History') return;
@@ -167,8 +188,10 @@ export default function ProductOverview() {
         let cancelled = false;
         setHistoryLoading(true);
         setHistoryError(null);
+        const locationId = historyLocationId === '' ? undefined : Number(historyLocationId);
         getMovements({
             product_id: Number(product.id),
+            location_id: Number.isFinite(locationId) ? locationId : undefined,
             limit: HISTORY_PAGE_SIZE,
             offset: historyPage * HISTORY_PAGE_SIZE,
         })
@@ -188,7 +211,7 @@ export default function ProductOverview() {
         return () => {
             cancelled = true;
         };
-    }, [activeTab, product?.id, historyPage, historyReload]);
+    }, [activeTab, product?.id, historyPage, historyReload, historyLocationId]);
 
     const onRefresh = async () => {
         if (!id) return;
@@ -1231,12 +1254,35 @@ export default function ProductOverview() {
 
                         {!historyLoading && !historyError && movements && movements.length > 0 && (
                             <div className="overflow-x-auto border border-gray-100 rounded-2xl">
+                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest" htmlFor="history-location-filter">
+                                        Location
+                                    </label>
+                                    <select
+                                        id="history-location-filter"
+                                        aria-label="History location filter"
+                                        value={historyLocationId}
+                                        onChange={(e) => {
+                                            setHistoryLocationId(e.target.value);
+                                            setHistoryPage(0);
+                                        }}
+                                        className="text-xs font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                                    >
+                                        <option value="">All locations</option>
+                                        {historyLocationOptions.map((loc) => (
+                                            <option key={loc.id} value={String(loc.id)}>
+                                                {loc.code}{loc.path ? ` · ${loc.path}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50">
                                         <tr>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Type</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Location</th>
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty</th>
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Before → after</th>
                                             <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit cost</th>
@@ -1256,6 +1302,13 @@ export default function ProductOverview() {
                                                         </span>
                                                     </td>
                                                     <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference || m.source_id || '—'}</td>
+                                                    <td
+                                                        className="px-4 py-3 font-mono text-xs text-gray-700"
+                                                        title={m.location_path || undefined}
+                                                        data-testid={`movement-location-${m.id}`}
+                                                    >
+                                                        {m.location_code || '—'}
+                                                    </td>
                                                     <td className={clsx('px-4 py-3 text-right font-mono font-black', inbound ? 'text-emerald-700' : 'text-rose-700')}>
                                                         {inbound ? `+${qty}` : qty}
                                                     </td>

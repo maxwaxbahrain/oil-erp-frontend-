@@ -7,6 +7,7 @@ import {
   getLocationOnHand,
   getLocationTree,
   isStockHoldingKind,
+  lookupLocationByBarcode,
   postTransfer,
   updateLocation,
   type LocationOnHandRow,
@@ -29,6 +30,44 @@ const btn: CSSProperties = {
   cursor: 'pointer',
   fontFamily: "'DM Sans',sans-serif",
 };
+
+function capacityBarColor(pct: number): string {
+  if (pct >= 100) return '#ef4444';
+  if (pct >= 80) return '#f59e0b';
+  return '#22c55e';
+}
+
+function CapacityBar(props: { pct: number }) {
+  const width = Math.min(100, Math.max(0, props.pct));
+  return (
+    <div
+      data-testid="capacity-bar"
+      aria-hidden
+      style={{
+        flex: '1 1 48px',
+        maxWidth: 80,
+        height: 4,
+        background: 'var(--color-redwood-border)',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ width: `${width}%`, height: '100%', background: capacityBarColor(props.pct) }} />
+    </div>
+  );
+}
+
+function collectDescendantBins(node: StockLocationNode): StockLocationNode[] {
+  const out: StockLocationNode[] = [];
+  const walk = (n: StockLocationNode) => {
+    if (n.kind === 'bin') out.push(n);
+    (n.children ?? []).forEach(walk);
+  };
+  walk(node);
+  return out;
+}
+
+const PRINT_LABEL_KINDS = new Set(['warehouse', 'zone', 'aisle', 'rack']);
 
 function kindBadge(_kind: string): CSSProperties {
   return {
@@ -77,9 +116,22 @@ function TreeNode(props: {
           fontSize: 11,
         }}
       >
-        <span style={{ fontWeight: 600 }}>{node.name}</span>
-        <span style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>{node.code}</span>
-        <span style={kindBadge(node.kind)}>{node.kind}</span>
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>{node.name}</span>
+            <span style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>{node.code}</span>
+            <span style={kindBadge(node.kind)}>{node.kind}</span>
+          </span>
+          {(node.capacityUnits != null && node.pct != null) && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
+              <CapacityBar pct={node.pct} />
+              <span style={{ fontSize: 8, color: 'var(--color-redwood-text-muted)', whiteSpace: 'nowrap' }}>{node.pct}%</span>
+            </span>
+          )}
+          {(node.onHandUnits ?? 0) > 0 && (
+            <span style={{ fontSize: 8, color: 'var(--color-redwood-text-muted)' }}>on hand {node.onHandUnits}</span>
+          )}
+        </span>
       </button>
       {(node.children ?? []).map((child) => (
         <TreeNode key={child.id} node={child} depth={depth + 1} selectedId={selectedId} onSelect={onSelect} />
@@ -109,6 +161,9 @@ export default function LocationsPage() {
   const [transferDest, setTransferDest] = useState('');
   const [transferRef, setTransferRef] = useState('');
   const [transferNote, setTransferNote] = useState('');
+  const [scanCode, setScanCode] = useState('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [printBins, setPrintBins] = useState<StockLocationNode[]>([]);
 
   const flat = useMemo(() => flattenLocationTree(tree), [tree]);
   const transferTargets = useMemo(
@@ -220,6 +275,30 @@ export default function LocationsPage() {
     }
   };
 
+  const handleScanSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const code = scanCode.trim();
+    if (!code) return;
+    setScanError(null);
+    try {
+      const found = await lookupLocationByBarcode(code);
+      const match = flat.find((n) => n.id === found.id) ?? found;
+      setSelected(match);
+      setScanCode('');
+    } catch {
+      setScanError('No location with that code');
+    }
+  };
+
+  const handlePrintLabels = () => {
+    if (!selected) return;
+    const bins = collectDescendantBins(selected);
+    setPrintBins(bins);
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  };
+
   const handleTransfer = async (e: FormEvent) => {
     e.preventDefault();
     if (!selected || !transferOpen) return;
@@ -253,6 +332,47 @@ export default function LocationsPage() {
 
   return (
     <div style={{ padding: '16px 18px', maxWidth: 1200, margin: '0 auto', fontFamily: "'DM Sans',sans-serif" }}>
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #location-labels-print, #location-labels-print * { visibility: visible !important; }
+          #location-labels-print {
+            display: block !important;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+        }
+      `}</style>
+      <div
+        id="location-labels-print"
+        data-testid="location-labels-print"
+        style={{ display: 'none' }}
+      >
+        {printBins.map((bin) => (
+          <div
+            key={bin.id}
+            data-testid={`label-card-${bin.code}`}
+            style={{
+              breakInside: 'avoid',
+              pageBreakInside: 'avoid',
+              border: '1px solid #ccc',
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 12,
+              width: '45%',
+              display: 'inline-block',
+              verticalAlign: 'top',
+              marginRight: '4%',
+            }}
+          >
+            <div style={{ fontSize: 28, fontWeight: 800 }}>{bin.code}</div>
+            <div style={{ fontSize: 12, marginTop: 6 }}>{bin.path || '—'}</div>
+            {bin.barcode && <div style={{ fontSize: 11, marginTop: 8, fontFamily: 'monospace' }}>{bin.barcode}</div>}
+          </div>
+        ))}
+      </div>
       <h1 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 12px' }}>Warehouse locations</h1>
       {error && <p style={{ color: '#b91c1c', fontSize: 11 }}>{error}</p>}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(320px, 2fr)', gap: 14 }}>
@@ -260,6 +380,23 @@ export default function LocationsPage() {
           <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px', color: 'var(--color-redwood-text-muted)' }}>
             Tree
           </p>
+          <form onSubmit={handleScanSubmit} style={{ marginBottom: 10 }}>
+            <input
+              aria-label="Scan bin"
+              value={scanCode}
+              onChange={(e) => {
+                setScanCode(e.target.value);
+                if (scanError) setScanError(null);
+              }}
+              placeholder="Scan bin code"
+              style={{ fontSize: 11, padding: 6, width: '100%' }}
+            />
+            {scanError && (
+              <p data-testid="scan-bin-error" style={{ fontSize: 10, color: '#b91c1c', margin: '4px 0 0' }}>
+                {scanError}
+              </p>
+            )}
+          </form>
           {loading ? (
             <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>Loading…</p>
           ) : (
@@ -284,11 +421,27 @@ export default function LocationsPage() {
                 <p style={{ margin: '4px 0 0', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
                   {selected.code} · {selected.path || '—'} · <span style={kindBadge(selected.kind)}>{selected.kind}</span>
                 </p>
+                {selected.capacityUnits != null && (
+                  <p style={{ margin: '6px 0 0', fontSize: 10, fontWeight: 600 }} data-testid="location-utilisation-header">
+                    {selected.onHandUnits ?? 0} / {selected.capacityUnits}
+                    {selected.pct != null ? ` (${selected.pct}%)` : ''}
+                  </p>
+                )}
                 {(selected.capacityUnits != null || selected.barcode) && (
                   <p style={{ margin: '6px 0 0', fontSize: 10 }}>
                     {selected.capacityUnits != null && <>Capacity: {selected.capacityUnits} </>}
                     {selected.barcode && <>· Barcode: {selected.barcode}</>}
                   </p>
+                )}
+                {PRINT_LABEL_KINDS.has(selected.kind) && (
+                  <button
+                    type="button"
+                    data-testid="print-labels-btn"
+                    onClick={handlePrintLabels}
+                    style={{ ...btn, marginTop: 8 }}
+                  >
+                    Print labels
+                  </button>
                 )}
               </header>
 
