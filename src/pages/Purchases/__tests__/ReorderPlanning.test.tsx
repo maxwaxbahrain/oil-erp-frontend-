@@ -19,6 +19,8 @@ vi.mock('../../../services/reorderService', () => ({
   getReorderSummary: vi.fn(),
   getProductDemand: vi.fn(),
   snoozeProduct: vi.fn(),
+  unsnoozeProduct: vi.fn(),
+  runReorderNow: vi.fn(),
   createReorderDraftPo: vi.fn(),
 }));
 
@@ -242,5 +244,53 @@ describe('Reorder planning page', () => {
     expect((container.querySelector('input[aria-label="Select Engine Oil 5W30"]') as HTMLInputElement).disabled).toBe(true);
     expect((container.querySelector('select[aria-label="Snooze Engine Oil 5W30"]') as HTMLSelectElement).disabled).toBe(true);
     expect(groupButton('5').disabled).toBe(true);
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Run now')).toBe(false);
+  });
+
+  it('shows the last run from the summary and refetches after Run now', async () => {
+    await renderPage();
+    expect(container.querySelector('[data-testid="reorder-last-run"]')?.textContent).toBe('No runs yet');
+    expect(reorderService.getReorderSuggestions).toHaveBeenCalledTimes(1);
+    expect(reorderService.getReorderSummary).toHaveBeenCalledTimes(1);
+
+    vi.mocked(reorderService.runReorderNow).mockResolvedValue({
+      id: 9,
+      tenant_id: 4,
+      run_at: '2026-10-24T13:05:00+00:00',
+      trigger: 'manual',
+      due_count: 3,
+      suppliers_json: [],
+      digest_sent: false,
+      error: null,
+    });
+    vi.mocked(reorderService.getReorderSummary).mockResolvedValue({
+      due_count: 3,
+      suppliers: [],
+      last_run_at: '2026-10-24T13:05:00+00:00',
+    });
+    await click([...container.querySelectorAll('button')].find((b) => b.textContent === 'Run now') ?? null);
+
+    expect(reorderService.runReorderNow).toHaveBeenCalledTimes(1);
+    expect(reorderService.getReorderSuggestions).toHaveBeenCalledTimes(2);
+    expect(reorderService.getReorderSummary).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="reorder-run-result"]')?.textContent).toBe('Run complete: 3 due · digest not sent');
+    const lastRun = container.querySelector('[data-testid="reorder-last-run"]')?.textContent ?? '';
+    expect(lastRun.startsWith('Last run ')).toBe(true);
+    expect(lastRun).toContain('2026');
+  });
+
+  it('unsnoozes a snoozed row by product id and refetches', async () => {
+    const until = localIsoDatePlusDays(7);
+    vi.mocked(reorderService.getReorderSuggestions).mockResolvedValue([{ ...OIL, snoozed_until: until }, FILTER]);
+    vi.mocked(reorderService.unsnoozeProduct).mockResolvedValue({ product_id: 1, snoozed: false });
+    await renderPage();
+
+    expect(container.querySelector('button[aria-label="Unsnooze Oil Filter"]')).toBeNull();
+    vi.mocked(reorderService.getReorderSuggestions).mockResolvedValue([OIL, FILTER]);
+    await click(container.querySelector('button[aria-label="Unsnooze Engine Oil 5W30"]'));
+
+    expect(reorderService.unsnoozeProduct).toHaveBeenCalledWith(1);
+    expect(reorderService.getReorderSuggestions).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="snoozed-chip-1"]')).toBeNull();
   });
 });

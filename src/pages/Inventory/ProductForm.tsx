@@ -22,6 +22,7 @@ import { getProductById, saveProduct, deleteProduct, listProductBarcodes, addPro
 import { getSuppliers, type Supplier } from '../../services/purchasesService';
 import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
 import { getSystemSettings, formatCurrency } from '../../services/settingsService';
+import { getSuggestSettings, type SuggestSettings } from '../../services/reorderService';
 import { ImageUpload } from '../../components/Inventory/ImageUpload';
 
 export default function ProductForm() {
@@ -42,6 +43,10 @@ export default function ProductForm() {
     const [barcodePack, setBarcodePack] = useState('');
     const [barcodeError, setBarcodeError] = useState('');
     const [openLocationId, setOpenLocationId] = useState<string>('LOC-001');
+    // Read-only suggestion from /reorder; Apply only fills the form.
+    const [suggestion, setSuggestion] = useState<SuggestSettings | null>(null);
+    const [suggestLoading, setSuggestLoading] = useState(false);
+    const [suggestError, setSuggestError] = useState('');
     const [formData, setFormData] = useState<Partial<Product>>({
         status: 'Active',
         category: '',
@@ -638,7 +643,57 @@ export default function ProductForm() {
                         </div>
 
                         <div>
-                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Replenishment</h3>
+                            <div className="flex items-center justify-between gap-4 mb-4">
+                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Replenishment</h3>
+                                {isEdit && id && (
+                                    <button
+                                        type="button"
+                                        data-testid="suggest-reorder"
+                                        disabled={suggestLoading}
+                                        onClick={async () => {
+                                            setSuggestLoading(true);
+                                            setSuggestError('');
+                                            try {
+                                                setSuggestion(await getSuggestSettings(Number(id)));
+                                            } catch (err) {
+                                                setSuggestion(null);
+                                                setSuggestError(err instanceof Error ? err.message : 'Could not load a suggestion.');
+                                            } finally {
+                                                setSuggestLoading(false);
+                                            }
+                                        }}
+                                        className="text-[10px] font-black uppercase tracking-widest text-redwood-brand underline disabled:opacity-50"
+                                    >
+                                        {suggestLoading ? 'Suggesting…' : 'Suggest'}
+                                    </button>
+                                )}
+                            </div>
+                            {isEdit && suggestError && <p className="text-xs font-bold text-red-600 mb-3">{suggestError}</p>}
+                            {isEdit && suggestion && (
+                                <div data-testid="reorder-suggestion" className="mb-4 p-4 border border-gray-200 rounded-xl bg-gray-50 text-xs text-gray-700 space-y-2">
+                                    <p className="font-black">
+                                        Suggested reorder point {suggestion.suggested_reorder_point} · reorder qty {suggestion.suggested_reorder_qty}
+                                    </p>
+                                    <p>
+                                        From avg daily {suggestion.avg_daily.toLocaleString(undefined, { maximumFractionDigits: 2 })} · lead time {suggestion.lead_time} days · safety factor {suggestion.safety_factor} · pack qty {suggestion.pack_qty ?? '—'} · window {suggestion.demand_window_days} days
+                                    </p>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            data-testid="apply-reorder-suggestion"
+                                            onClick={() => setFormData((prev) => ({
+                                                ...prev,
+                                                reorderPoint: suggestion.suggested_reorder_point,
+                                                reorderQty: suggestion.suggested_reorder_qty,
+                                            }))}
+                                            className="px-3 py-1 rounded-lg bg-gray-900 text-white text-[10px] font-black uppercase tracking-widest"
+                                        >
+                                            Apply
+                                        </button>
+                                        <span className="text-gray-500">Fills the two fields. Save the product to keep them.</span>
+                                    </div>
+                                </div>
+                            )}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <input aria-label="Reorder point" type="number" className={fieldClass} placeholder={minStockHint != null ? String(minStockHint) : 'Reorder point'} value={formData.reorderPoint ?? ''} onChange={(e) => setFormData({ ...formData, reorderPoint: e.target.value === '' ? undefined : Number(e.target.value) })} />
                                 <input aria-label="Reorder qty" type="number" className={fieldClass} placeholder="Reorder qty" value={formData.reorderQty ?? ''} onChange={(e) => setFormData({ ...formData, reorderQty: e.target.value === '' ? undefined : Number(e.target.value) })} />

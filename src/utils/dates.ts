@@ -88,6 +88,13 @@ export function formatStoredTimestamp(
     return parsed.toLocaleDateString('en-US', opts);
 }
 
+/** Stored timestamp with time of day, in the viewer's local time. Blank input is "—". */
+export function formatStoredDateTime(value: string | null | undefined): string {
+    const parsed = parseStoredTimestamp(value);
+    if (!parsed) return '—';
+    return parsed.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function localCalendarDayIndex(d: Date): number {
     return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
 }

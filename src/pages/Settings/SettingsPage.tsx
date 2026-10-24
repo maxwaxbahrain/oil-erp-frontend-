@@ -18,6 +18,7 @@ import {
     Zap,
     Loader2,
     Download,
+    RefreshCw,
 } from 'lucide-react';
 import api from '../../api/axios';
 import { useAuth } from '../../contexts/AuthContext';
@@ -42,8 +43,9 @@ import {
     updateSystemSettings,
     type SystemSettings
 } from '../../services/settingsService';
+import ReorderSettingsSection from './ReorderSettingsSection';
 
-type TabType = 'security' | 'company' | 'currency' | 'signature' | 'data' | 'notifications';
+type TabType = 'security' | 'company' | 'currency' | 'signature' | 'data' | 'notifications' | 'reorder';
 
 type SettingsNavItem = {
     id: string;
@@ -204,6 +206,7 @@ export default function SettingsPage() {
         ...(canSeeBilling ? [{ id: 'billing', label: 'Billing', icon: CreditCard, to: '/settings/billing' }] : []),
         { id: 'data', label: '📥 Data Migration', icon: Database },
         { id: 'notifications', label: 'Global Notifications', icon: Bell },
+        { id: 'reorder', label: 'Reorder planning', icon: RefreshCw },
     ];
 
     const navItemClass = (isActive: boolean) =>
@@ -766,6 +769,8 @@ export default function SettingsPage() {
                             <p className="text-[11px] text-redwood-text-muted font-bold uppercase tracking-widest mt-2 max-w-sm leading-relaxed">This section is being configured. Check back in the next update.</p>
                         </div>
                     )}
+
+                    {activeTab === 'reorder' && <ReorderSettingsSection />}
 
                     {activeTab === 'data' && (
                         <div className="space-y-4">
