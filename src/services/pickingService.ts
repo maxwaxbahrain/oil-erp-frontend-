@@ -2,7 +2,8 @@ import { API_BASE_URL } from './api';
 import { authFetch } from '../api/axios';
 import { apiErrorDetail } from './productService';
 
-export type PickListStatus = 'draft' | 'released' | 'picking' | 'picked' | 'dispatched' | 'cancelled';
+export type PickListStatus = 'draft' | 'released' | 'picking' | 'picked' | 'dispatched' | 'delivered' | 'cancelled';
+export type ShortageResolution = 'open' | 'backorder' | 'credited' | 'ignored';
 export type PickLineStatus = 'open' | 'picked' | 'short' | 'skipped';
 export type PickSourceKind = 'invoice' | 'route';
 
@@ -17,6 +18,8 @@ export interface PickListSummary {
   driverId: number | null;
   dispatchedAt: string | null;
   manifestNumber: string | null;
+  deliveredAt: string | null;
+  hasFailedDelivery: boolean | null;
   createdAt: string | null;
   releasedAt: string | null;
   pickedAt: string | null;
@@ -49,6 +52,35 @@ export interface PickShortage {
   productId: number;
   required: number;
   picked: number;
+}
+
+export interface ShortageRow {
+  id: number;
+  pickListId: number | null;
+  pickListLineId: number | null;
+  pickListNumber: string | null;
+  invoiceId: number;
+  invoiceNumber: string | null;
+  customerName: string | null;
+  productId: number;
+  sku: string | null;
+  productName: string | null;
+  qtyShort: number;
+  resolution: ShortageResolution;
+  backorderQtyOpen: number | null;
+  salesReturnId: number | null;
+  resolvedAt: string | null;
+  note: string | null;
+}
+
+export interface ResolveShortageInput {
+  mode: 'backorder' | 'credited' | 'ignored';
+  note?: string;
+}
+
+export interface ListShortagesQuery {
+  resolution?: string;
+  invoiceId?: number;
 }
 
 export interface PickListDetail extends PickListSummary {
@@ -145,6 +177,11 @@ function optStr(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+function optBool(value: unknown): boolean | null {
+  if (value == null || value === '') return null;
+  return Boolean(value);
+}
+
 function mapLine(raw: Record<string, unknown>): PickLine {
   const status = String(raw.status || 'open');
   return {
@@ -208,6 +245,8 @@ function mapSummary(raw: Record<string, unknown>, lines?: PickLine[]): PickListS
     driverId: optNum(raw.driver_id ?? raw.driverId),
     dispatchedAt: optStr(raw.dispatched_at ?? raw.dispatchedAt),
     manifestNumber: optStr(raw.manifest_number ?? raw.manifestNumber),
+    deliveredAt: optStr(raw.delivered_at ?? raw.deliveredAt),
+    hasFailedDelivery: optBool(raw.has_failed_delivery ?? raw.hasFailedDelivery),
     createdAt: optStr(raw.created_at ?? raw.createdAt),
     releasedAt: optStr(raw.released_at ?? raw.releasedAt),
     pickedAt: optStr(raw.picked_at ?? raw.pickedAt),
@@ -374,4 +413,81 @@ function mapManifest(raw: unknown): PickManifest {
 
 export async function getManifest(id: number): Promise<PickManifest> {
   return mapManifest(await request(`/pick-lists/${id}/manifest`));
+}
+
+const SHORTAGE_RESOLUTIONS = new Set(['open', 'backorder', 'credited', 'ignored']);
+
+function mapShortageRow(raw: Record<string, unknown>): ShortageRow {
+  const resolution = String(raw.resolution || 'open');
+  return {
+    id: num(raw.id),
+    pickListId: optNum(raw.pick_list_id ?? raw.pickListId),
+    pickListLineId: optNum(raw.pick_list_line_id ?? raw.pickListLineId),
+    pickListNumber: optStr(raw.pick_list_number ?? raw.pickListNumber),
+    invoiceId: num(raw.invoice_id ?? raw.invoiceId),
+    invoiceNumber: optStr(raw.invoice_number ?? raw.invoiceNumber),
+    customerName: optStr(raw.customer_name ?? raw.customerName),
+    productId: num(raw.product_id ?? raw.productId),
+    sku: optStr(raw.sku),
+    productName: optStr(raw.product_name ?? raw.productName ?? raw.name),
+    qtyShort: num(raw.qty_short ?? raw.qtyShort),
+    resolution: (SHORTAGE_RESOLUTIONS.has(resolution) ? resolution : 'open') as ShortageResolution,
+    backorderQtyOpen: optNum(raw.backorder_qty_open ?? raw.backorderQtyOpen),
+    salesReturnId: optNum(raw.sales_return_id ?? raw.salesReturnId),
+    resolvedAt: optStr(raw.resolved_at ?? raw.resolvedAt),
+    note: optStr(raw.note),
+  };
+}
+
+function shortageRows(raw: unknown): ShortageRow[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : (asRecord(raw)?.items ?? asRecord(raw)?.shortages ?? asRecord(raw)?.rows);
+  if (!Array.isArray(list)) return [];
+  return list.map((row) => mapShortageRow(asRecord(row) ?? {})).filter((row) => row.id > 0);
+}
+
+export async function listShortages(pickListId: number): Promise<ShortageRow[]> {
+  return shortageRows(await request(`/pick-lists/${pickListId}/shortages`));
+}
+
+export async function listOpenShortages(query: ListShortagesQuery = {}): Promise<ShortageRow[]> {
+  const params = new URLSearchParams();
+  if (query.resolution) params.set('resolution', query.resolution);
+  if (query.invoiceId != null) params.set('invoice_id', String(query.invoiceId));
+  const qs = params.toString();
+  return shortageRows(await request(`/shortages${qs ? `?${qs}` : ''}`));
+}
+
+export async function resolveShortage(id: number, input: ResolveShortageInput): Promise<ShortageRow> {
+  const body: Record<string, unknown> = { mode: input.mode };
+  if (input.note) body.note = input.note;
+  const raw = asRecord(await request(`/shortages/${id}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })) ?? {};
+  const row = mapShortageRow(raw);
+  if (row.id > 0) return row;
+  return { ...row, id };
+}
+
+export async function hydrateShortageLabels(rows: ShortageRow[]): Promise<ShortageRow[]> {
+  const ids = [...new Set(rows.filter((row) => row.pickListId && !row.pickListNumber).map((row) => row.pickListId as number))];
+  if (!ids.length) return rows;
+  const lists = await Promise.all(ids.map((id) => getPickList(id).catch(() => null)));
+  const byId = new Map(lists.filter((list): list is PickListDetail => list != null).map((list) => [list.id, list]));
+  return rows.map((row) => {
+    const list = row.pickListId == null ? undefined : byId.get(row.pickListId);
+    if (!list) return row;
+    const line = list.lines.find((item) => item.id === row.pickListLineId)
+      ?? list.lines.find((item) => item.invoiceId === row.invoiceId && item.productId === row.productId);
+    return {
+      ...row,
+      pickListNumber: row.pickListNumber ?? (list.number || null),
+      invoiceNumber: row.invoiceNumber ?? line?.invoiceNumber ?? null,
+      customerName: row.customerName ?? line?.customerName ?? null,
+      sku: row.sku ?? line?.sku ?? null,
+      productName: row.productName ?? line?.productName ?? null,
+    };
+  });
 }

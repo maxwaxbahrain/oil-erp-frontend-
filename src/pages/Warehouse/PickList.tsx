@@ -8,18 +8,22 @@ import {
   dispatchPickList,
   getManifest,
   getPickList,
+  hydrateShortageLabels,
+  listShortages,
   recordPick,
   releasePickList,
   type PickLine,
   type PickListDetail,
   type PickManifest,
   type PickShortage,
+  type ShortageRow,
 } from '../../services/pickingService';
 import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
 import { vanService, type Van } from '../../services/vanService';
 import api from '../../api/axios';
 import DispatchDialog from './DispatchDialog';
 import ManifestPrint from './ManifestPrint';
+import ShortageResolve from './ShortageResolve';
 
 const shell: CSSProperties = {
   maxWidth: 480,
@@ -82,6 +86,7 @@ export default function PickListPage() {
   const [users, setUsers] = useState<AssignableUser[]>([]);
   const [vans, setVans] = useState<Van[]>([]);
   const [shortages, setShortages] = useState<PickShortage[] | null>(null);
+  const [shortageRows, setShortageRows] = useState<ShortageRow[]>([]);
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
@@ -229,6 +234,11 @@ export default function PickListPage() {
       const updated = await completePickList(listId);
       setList(updated.lines.length ? updated : await getPickList(listId));
       setShortages(updated.shortages);
+      try {
+        setShortageRows(await hydrateShortageLabels(await listShortages(listId)));
+      } catch {
+        setShortageRows([]);
+      }
     } catch (err) {
       setError(errorText(err));
     }
@@ -362,7 +372,13 @@ export default function PickListPage() {
             <button type="button" onClick={() => void openManifest()}>Manifest</button>
           </div>
         )}
-        {list.status !== 'dispatched' && (
+        {list.status === 'delivered' && (
+          <span data-testid="delivered-footer">{`Delivered ${list.deliveredAt ? list.deliveredAt.slice(0, 10) : ''}`.trim()}</span>
+        )}
+        {list.hasFailedDelivery && (
+          <span data-testid="failed-stop" style={{ color: '#ef4444' }}>A stop failed — see deliveries</span>
+        )}
+        {list.status !== 'dispatched' && list.status !== 'delivered' && (
           <button type="button" disabled={!ready || busy} onClick={() => void onComplete()}>Complete</button>
         )}
       </footer>
@@ -387,7 +403,16 @@ export default function PickListPage() {
               {`Invoice ${row.invoiceId} product ${row.productId}: required ${row.required}, picked ${row.picked}`}
             </p>
           ))}
-          <button type="button" onClick={() => navigate('/warehouse/picking')}>Back to board</button>
+          {shortageRows.length > 0 && (
+            <ShortageResolve
+              rows={shortageRows}
+              canResolve={canDispatch}
+              onChanged={async () => {
+                setShortageRows(await hydrateShortageLabels(await listShortages(listId)));
+              }}
+            />
+          )}
+          <button type="button" onClick={() => navigate('/warehouse/picking')}>Later</button>
         </div>
       )}
     </div>

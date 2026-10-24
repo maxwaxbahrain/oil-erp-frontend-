@@ -416,4 +416,162 @@ describe('Picking board', () => {
     await flush();
     expect(calls().some((call) => call.method === 'GET' && call.url.includes('status=dispatched'))).toBe(true);
   });
+
+  const openShortage = {
+    id: 7,
+    pick_list_id: 4,
+    pick_list_line_id: 22,
+    pick_list_number: 'PK-000004',
+    invoice_id: 8,
+    invoice_number: 'INV-8',
+    customer_name: 'Acme',
+    product_id: 3,
+    sku: 'OIL',
+    product_name: 'Drum oil',
+    qty_short: 2,
+    resolution: 'open',
+    backorder_qty_open: null,
+    sales_return_id: null,
+    resolved_at: null,
+    note: null,
+  };
+
+  function mockShortages(rowsFor: (url: string) => unknown) {
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || 'GET').toUpperCase();
+      const text = String(url);
+      if (method === 'POST' && text.includes('/shortages/') && text.endsWith('/resolve')) {
+        const payload = JSON.parse(String(init?.body || '{}')) as { mode?: string; note?: string };
+        return http({
+          ...openShortage,
+          resolution: payload.mode,
+          note: payload.note ?? null,
+          sales_return_id: payload.mode === 'credited' ? 44 : null,
+          backorder_qty_open: payload.mode === 'backorder' ? openShortage.qty_short : null,
+        });
+      }
+      if (method === 'GET' && text.includes('/picking/shortages')) return http(rowsFor(text));
+      return http(listBody);
+    });
+  }
+
+  async function openShortagesTab() {
+    await mount();
+    await act(async () => {
+      button(container, 'Shortages').click();
+      await Promise.resolve();
+    });
+    await flush();
+  }
+
+  it('lists open shortages and posts backorder, credit, and ignore', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mockShortages(() => [openShortage]);
+    vi.spyOn(api, 'getInvoiceById').mockResolvedValue(invoice({
+      id: '8',
+      invoiceNumber: 'INV-8',
+      customerName: 'Acme',
+      lineItems: [{ product: 'Drum oil', description: '', quantity: 12, rate: 9, amount: 108, productId: '3' }],
+    }));
+    await openShortagesTab();
+    expect(container.textContent).toContain('PK-000004');
+    expect(container.textContent).toContain('INV-8');
+    expect(container.textContent).toContain('Acme');
+    expect(container.textContent).toContain('Drum oil');
+    expect(container.textContent).toContain('Qty short 2');
+    expect(calls().some((call) => call.method === 'GET' && call.url.includes('/picking/shortages') && call.url.includes('resolution=open'))).toBe(true);
+
+    await act(async () => {
+      button(container, 'Backorder').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(confirm).toHaveBeenCalled();
+    expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/shortages/7/resolve') && call.body?.mode === 'backorder')).toBe(true);
+
+    await act(async () => {
+      button(container, 'Credit customer').click();
+      await Promise.resolve();
+    });
+    await flush();
+    const credit = container.querySelector('[aria-label="Credit customer"]') as HTMLElement;
+    expect(credit.textContent).toContain('Qty short 2');
+    expect(credit.textContent).toContain('Unit price 9');
+    expect(credit.querySelector('[data-testid="credit-preview"]')?.textContent).toBe('Preview ≈ 2 × 9');
+    await act(async () => {
+      button(credit, 'Confirm credit').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/shortages/7/resolve') && JSON.stringify(call.body) === JSON.stringify({ mode: 'credited' }))).toBe(true);
+    const returnLink = Array.from(credit.querySelectorAll('a')).find((node) => node.textContent === 'Sales return 44');
+    expect(returnLink?.getAttribute('href')).toBe('/sales/returns/44');
+
+    await act(() => {
+      button(container, 'Ignore').click();
+    });
+    const ignore = container.querySelector('[aria-label="Ignore shortage"]') as HTMLElement;
+    await act(async () => {
+      button(ignore, 'Confirm ignore').click();
+      await Promise.resolve();
+    });
+    expect(ignore.textContent).toContain('A note is required');
+    expect(calls().some((call) => call.body?.mode === 'ignored')).toBe(false);
+    await act(() => {
+      setValue(ignore.querySelector('[aria-label="Ignore note"]') as HTMLTextAreaElement, 'customer declined');
+    });
+    await act(async () => {
+      button(ignore, 'Confirm ignore').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.method === 'POST' && call.body?.mode === 'ignored' && call.body?.note === 'customer declined')).toBe(true);
+  });
+
+  it('toggles show resolved off the open query', async () => {
+    mockShortages((url) => (url.includes('resolution=open')
+      ? [openShortage]
+      : [
+        { ...openShortage, id: 8, resolution: 'backorder', backorder_qty_open: 2 },
+        { ...openShortage, id: 9, resolution: 'credited', sales_return_id: 44 },
+        { ...openShortage, id: 10, resolution: 'ignored', note: 'customer declined' },
+      ]));
+    await openShortagesTab();
+    const box = container.querySelector('[aria-label="Show resolved"]') as HTMLInputElement;
+    await act(async () => {
+      box.click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.method === 'GET' && call.url.includes('/picking/shortages') && !call.url.includes('resolution='))).toBe(true);
+    expect(container.querySelector('[data-testid="shortage-resolution-8"]')?.textContent).toContain('Backorder 2');
+    expect(container.querySelector('[data-testid="shortage-resolution-9"]')?.textContent).toContain('Credited 44');
+    expect(container.querySelector('[data-testid="shortage-resolution-10"]')?.textContent).toContain('Ignored customer declined');
+  });
+
+  it('renders the delivered chip and the failed dispatch chip', async () => {
+    authFetch.mockImplementation(async () => http({
+      total: 2,
+      items: [
+        { id: 4, number: 'PK-000004', status: 'delivered', source_kind: 'invoice', delivered_at: '2026-10-24T15:00:00', has_failed_delivery: false, line_count: 1, picked_count: 1 },
+        { id: 5, number: 'PK-000005', status: 'dispatched', source_kind: 'invoice', has_failed_delivery: true, line_count: 1, picked_count: 1 },
+      ],
+    }));
+    await mount();
+    const delivered = container.querySelector('[data-testid="pick-status-4"]') as HTMLElement;
+    expect(delivered.textContent).toBe('Delivered');
+    expect(delivered.style.backgroundColor).toBe('rgb(34, 197, 94)');
+    expect(container.querySelector('[data-testid="pick-status-5"]')?.textContent).toBe('Dispatched · 1 failed');
+  });
+
+  it('filters the list with status delivered', async () => {
+    await mount();
+    const select = container.querySelector('[aria-label="Filter status"]') as HTMLSelectElement;
+    await act(async () => {
+      setValue(select, 'delivered');
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.method === 'GET' && call.url.includes('status=delivered'))).toBe(true);
+  });
 });
