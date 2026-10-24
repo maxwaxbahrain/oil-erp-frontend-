@@ -27,6 +27,7 @@ import {
 } from '../../services/grnService';
 import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
 import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
 import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 import { type PurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
@@ -183,6 +184,9 @@ export default function GoodsReceivedForm() {
     const [grn, setGRN] = useState<GRN | null>(null);
     const [items, setItems] = useState<GRNItem[]>([]);
     const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
+    const [holdingLocations, setHoldingLocations] = useState<StockLocationNode[]>([]);
+    const [mainLocationId, setMainLocationId] = useState<number | null>(null);
+    const [catalogDefaults, setCatalogDefaults] = useState<Map<string, number | null>>(new Map());
     const [warehouse, setWarehouse] = useState('Main Warehouse');
     const [freightCost, setFreightCost] = useState(0);
     const [notes, setNotes] = useState('');
@@ -194,6 +198,13 @@ export default function GoodsReceivedForm() {
 
     const [condition, setCondition] = useState<ConditionKey>('good');
     const [deliveryNote, setDeliveryNote] = useState('');
+
+    const resolveLineLocation = (productId: string, existing?: number | null) => {
+        if (existing != null) return existing;
+        const def = catalogDefaults.get(String(productId));
+        if (def != null) return def;
+        return mainLocationId;
+    };
 
     const currentUser = getCurrentUser();
     const todayLabel = new Date().toLocaleDateString('en-US', {
@@ -213,6 +224,7 @@ export default function GoodsReceivedForm() {
             try {
                 const catalog = await getCatalogProducts();
                 const packs = new Map<string, PackProduct>();
+                const defaults = new Map<string, number | null>();
                 for (const row of catalog) {
                     packs.set(String(row.id), {
                         id: row.id,
@@ -221,10 +233,22 @@ export default function GoodsReceivedForm() {
                         baseUnit: row.baseUnit || row.uom,
                         unit: row.uom,
                     });
+                    defaults.set(String(row.id), row.defaultLocationId ?? null);
                 }
                 setCatalogPacks(packs);
+                setCatalogDefaults(defaults);
+                try {
+                    const flatLocs = await getLocationsFlat();
+                    setHoldingLocations(flatLocs.filter((loc) => loc.isActive && isStockHoldingKind(loc.kind)));
+                    const main = flatLocs.find((loc) => loc.code === 'MAIN' && loc.kind === 'warehouse');
+                    setMainLocationId(main?.id ?? null);
+                } catch {
+                    setHoldingLocations([]);
+                    setMainLocationId(null);
+                }
             } catch {
                 setCatalogPacks(new Map());
+                setCatalogDefaults(new Map());
             }
             if (id && id !== 'new') {
                 const grnData = await getGRNById(id);
@@ -274,7 +298,10 @@ export default function GoodsReceivedForm() {
         try {
             const newGRN = await createGRNFromPO(selectedPOId, warehouse);
             setGRN(newGRN);
-            setItems(newGRN.items);
+            setItems(newGRN.items.map((item) => ({
+                ...item,
+                locationId: resolveLineLocation(String(item.productId), item.locationId),
+            })));
             setShowPOSelector(false);
         } catch (error: any) {
             console.error('Error creating GRN:', error);
@@ -345,11 +372,15 @@ export default function GoodsReceivedForm() {
         let draft: GRN | null = null;
         try {
             draft = await createGRNFromPO(selectedPOId, warehouse);
+            const enrichedItems = draft.items.map((item) => ({
+                ...item,
+                locationId: resolveLineLocation(String(item.productId), item.locationId),
+            }));
             setGRN(draft);
-            setItems(draft.items);
+            setItems(enrichedItems);
             setShowPOSelector(false);
 
-            await saveDraftForPost(draft, draft.items);
+            await saveDraftForPost(draft, enrichedItems);
             const result = await postGRN(draft.id);
             showPostResultAlerts(result);
             navigate('/receiving');
@@ -375,6 +406,10 @@ export default function GoodsReceivedForm() {
             totalCost: item.orderedQty * item.unitCost
         }));
         setItems(updated);
+    };
+
+    const onLineLocation = (index: number, locationId: number | null) => {
+        setItems((prev) => prev.map((item, i) => (i === index ? { ...item, locationId } : item)));
     };
 
     const onGrnEntry = (index: number, value: PackEntryValue) => {
@@ -608,8 +643,9 @@ export default function GoodsReceivedForm() {
             enteredUom: item.entered_uom === 'pack' ? 'pack' as const : 'base' as const,
             enteredUnitPrice: item.entered_unit_price,
             packQtySnapshot: item.pack_qty_snapshot,
+            locationId: resolveLineLocation(String(item.productId), null),
         }));
-    }, [items, selectedPO]);
+    }, [items, selectedPO, catalogDefaults, mainLocationId]);
 
     const allFullMatch = previewItems.length > 0 && previewItems.every((i) => i.receivedQty === i.orderedQty && i.receivedQty > 0);
     const hasMismatch = previewItems.some((i) => i.receivedQty !== i.orderedQty);
@@ -902,6 +938,7 @@ export default function GoodsReceivedForm() {
                                                 <th style={{ ...thStyle, textAlign: 'center' }}>PO qty</th>
                                                 <th style={{ ...thStyle, textAlign: 'center' }}>Received</th>
                                                 <th style={{ ...thStyle, textAlign: 'right' }}>Unit cost</th>
+                                                <th style={thStyle}>Location</th>
                                                 <th style={{ ...thStyle, textAlign: 'center' }}>Match</th>
                                             </tr>
                                         </thead>
@@ -938,6 +975,29 @@ export default function GoodsReceivedForm() {
                                                             )}
                                                         </td>
                                                         <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{formatUsd(item.unitCost)}</td>
+                                                        <td style={tdStyle}>
+                                                            {editable ? (
+                                                                <select
+                                                                    aria-label={`Location for line ${index + 1}`}
+                                                                    value={item.locationId ?? mainLocationId ?? ''}
+                                                                    onChange={(e) => onLineLocation(
+                                                                        index,
+                                                                        e.target.value === '' ? null : Number(e.target.value),
+                                                                    )}
+                                                                    style={{ fontSize: 10, maxWidth: 160 }}
+                                                                >
+                                                                    {holdingLocations.map((loc) => (
+                                                                        <option key={loc.id} value={loc.id}>
+                                                                            {loc.code}
+                                                                        </option>
+                                                                    ))}
+                                                                </select>
+                                                            ) : (
+                                                                <span style={{ fontSize: 10 }}>
+                                                                    {holdingLocations.find((loc) => loc.id === item.locationId)?.code || '—'}
+                                                                </span>
+                                                            )}
+                                                        </td>
                                                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                                                             {isMatch ? (
                                                                 <CheckCircle size={16} color={C.green} style={{ margin: '0 auto' }} />

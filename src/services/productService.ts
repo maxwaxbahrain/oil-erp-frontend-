@@ -68,6 +68,8 @@ export interface Product {
     maxStock?: number | null;
     preferredSupplierId?: number | null;
     supplierSku?: string | null;
+    defaultLocationId?: number | null;
+    defaultLocationCode?: string | null;
     lotTracked?: boolean;
     shelfLifeDays?: number | null;
     expiryTracked?: boolean;
@@ -328,6 +330,8 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         maxStock: optFloat(raw.max_stock),
         preferredSupplierId: optInt(raw.preferred_supplier_id),
         supplierSku: optText(raw.supplier_sku),
+        defaultLocationId: optInt(raw.default_location_id),
+        defaultLocationCode: optText(raw.default_location_code),
         lotTracked: optBool(raw.lot_tracked),
         shelfLifeDays: optInt(raw.shelf_life_days),
         expiryTracked: optBool(raw.expiry_tracked),
@@ -531,6 +535,9 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     ];
     for (const [key, value] of catalogPairs) {
         if (value !== undefined) backendPayload[key] = value;
+    }
+    if (product.defaultLocationId !== undefined) {
+        backendPayload.default_location_id = product.defaultLocationId;
     }
 
     // Hit the backend FIRST. If it fails, throw — the form's catch block

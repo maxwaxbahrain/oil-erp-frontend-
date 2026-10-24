@@ -130,6 +130,62 @@ describe('receive stock API URLs', () => {
     expect(addStockUrl).toBeUndefined();
   });
 
+  it('postGRN sends location_id on receipt lines when put-away is set', async () => {
+    localStorage.setItem('purchase_orders', JSON.stringify([po]));
+    localStorage.setItem(
+      'grns',
+      JSON.stringify([
+        {
+          id: 'GRN-LOC-1',
+          grnNumber: 'GRN-LOC-1',
+          poReference: po.poNumber,
+          poId: po.id,
+          warehouse: 'Main Warehouse',
+          receivedBy: 'Tester',
+          receivedDate: '2026-05-29',
+          status: 'Draft',
+          items: [
+            {
+              productId: '123',
+              productName: 'Test Product',
+              sku: 'TEST-123',
+              uom: 'pcs',
+              orderedQty: 50,
+              receivedQty: 50,
+              acceptedQty: 50,
+              rejectedQty: 0,
+              unitCost: 10,
+              totalCost: 500,
+              locationId: 5,
+            },
+          ],
+          goodsValue: 500,
+          freightCost: 0,
+          landedCost: 500,
+          createdAt: '2026-05-29T00:00:00.000Z',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
+      .mockResolvedValueOnce(okResponse({ lines_processed: 1, total_amount: 500 }))
+      .mockResolvedValueOnce(okResponse({ ...po, status: 'GRN' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await postGRN('GRN-LOC-1');
+
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    const body = JSON.parse(String((grnReceiveCall?.[1] as RequestInit).body));
+    expect(body.lines[0]).toMatchObject({
+      productId: 123,
+      quantity: 50,
+      unitCost: 10,
+      location_id: 5,
+    });
+    expect(body.lines[0]).not.toHaveProperty('locationId');
+  });
+
   it('postGRN sends a pack PO line as base units', async () => {
     const packPo: PurchaseOrder = {
       ...po,

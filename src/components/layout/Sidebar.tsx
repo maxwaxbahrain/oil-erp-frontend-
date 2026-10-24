@@ -119,7 +119,7 @@ export default function Sidebar({
         || showSalesIntelExtras;
     const showDeliverySection = (canSeeDeliveries && (showNav('/logistics/pod') || showNav('/logistics/operations') || showNav('/logistics/routes')))
         || (canSeeManagement && (showNav('/logistics/tracking') || showNav('/logistics/route-planning')));
-    const showWarehouseSection = showNav('/warehouse/dashboard') || showNav('/warehouse/stock');
+    const showWarehouseSection = showNav('/warehouse/dashboard') || showNav('/warehouse/stock') || showNav('/warehouse/locations');
     const showInventorySection = showNav('/products')
         || (canSeeManagement && showNav('/inventory/adjustments'));
     const showProcurement = showNav('/purchases/suppliers') || showNav('/purchases')
@@ -280,6 +280,7 @@ export default function Sidebar({
                 </div>
                 <NavItem to="/warehouse/dashboard" icon={Package} label="Warehouse" />
                 <NavItem to="/warehouse/stock" icon={Package} label="Stock on hand" />
+                <NavItem to="/warehouse/locations" icon={Package} label="Locations" />
                 <div className="h-px bg-white/5 my-3 mx-2" />
                 </>
                 )}

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { getProductById, saveProduct, deleteProduct, listProductBarcodes, addProductBarcode, removeProductBarcode, productCategoryService, type Product, type ProductLocation, type ProductSpecification, type ProductBarcodeRow, type ProductCategory } from '../../services/productService';
 import { getSuppliers, type Supplier } from '../../services/purchasesService';
+import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
 import { getSystemSettings, formatCurrency } from '../../services/settingsService';
 import { ImageUpload } from '../../components/Inventory/ImageUpload';
 
@@ -33,6 +34,7 @@ export default function ProductForm() {
     const [formError, setFormError] = useState('');
     const [categories, setCategories] = useState<ProductCategory[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [stockLocations, setStockLocations] = useState<StockLocationNode[]>([]);
     const [addingCategory, setAddingCategory] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [barcodes, setBarcodes] = useState<ProductBarcodeRow[]>([]);
@@ -85,6 +87,9 @@ export default function ProductForm() {
     useEffect(() => {
         productCategoryService.list().then(setCategories).catch(() => setCategories([]));
         getSuppliers().then(setSuppliers).catch(() => setSuppliers([]));
+        getLocationsFlat()
+            .then((rows) => setStockLocations(rows.filter((row) => row.isActive && (row.kind === 'bin' || row.kind === 'warehouse'))))
+            .catch(() => setStockLocations([]));
     }, []);
 
     useEffect(() => {
@@ -646,6 +651,22 @@ export default function ProductForm() {
                                     ))}
                                 </select>
                                 <input aria-label="Supplier SKU" className={fieldClass} placeholder="Supplier SKU" value={formData.supplierSku ?? ''} onChange={(e) => setFormData({ ...formData, supplierSku: e.target.value })} />
+                                <select
+                                    aria-label="Default bin"
+                                    className={fieldClass}
+                                    value={formData.defaultLocationId ?? ''}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        defaultLocationId: e.target.value === '' ? null : Number(e.target.value),
+                                    })}
+                                >
+                                    <option value="">Default bin</option>
+                                    {stockLocations.map((loc) => (
+                                        <option key={loc.id} value={loc.id}>
+                                            {loc.name} ({loc.path || loc.code})
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
 

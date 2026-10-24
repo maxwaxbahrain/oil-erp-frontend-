@@ -29,6 +29,7 @@ import FinanceDashboard from '../pages/Finance/FinanceDashboard';
 import SalesDashboard from '../pages/Sales/SalesDashboard';
 import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
 import StockOnHand from '../pages/Warehouse/StockOnHand';
+import LocationsPage from '../pages/Warehouse/Locations';
 import CustomerList from '../pages/Customers/CustomerList';
 import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
@@ -333,6 +334,7 @@ export const AppRoutes = () => {
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
             <Route path="/warehouse/stock" element={<StockOnHand />} />
+            <Route path="/warehouse/locations" element={<LocationsPage />} />
             <Route path="/products/new" element={<ProductForm />} />
             <Route path="/products/edit/:id" element={<ProductForm />} />
             <Route path="/products/import" element={<InvoiceImport />} />
