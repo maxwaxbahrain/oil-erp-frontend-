@@ -167,6 +167,7 @@ import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
 import RoutePlanning from '../pages/Logistics/RoutePlanning';
 import VanTracking from '../pages/Logistics/VanTracking';
+import FleetMileage from '../pages/Field/FleetMileage';
 import PublicInvoice from '../pages/PublicInvoice';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
@@ -269,6 +270,7 @@ export const AppRoutes = () => {
             <Route path="/products/:id" element={<ProductOverview />} />
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/pulse/notes" element={<MeetingNotes />} />
+            <Route path="/field/fleet-mileage" element={<FleetMileage />} />
             </Route>
 
             {/* Sales SPOD tools — sales + internal staff (not driver) */}
