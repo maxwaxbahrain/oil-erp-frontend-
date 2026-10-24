@@ -11,6 +11,7 @@ import beforeInventory from './sidebarInventory.before.json';
 
 const ROLES = ['admin', 'manager', 'accountant', 'sales', 'driver'] as const;
 type Role = (typeof ROLES)[number];
+type InventoryRole = Role | 'warehouse';
 type BuildName = 'production' | 'staging';
 
 const LABEL_RENAMES: Record<string, string> = {
@@ -64,7 +65,7 @@ type Entry = {
   route: string | null;
 };
 
-const authState: { role: Role; username: string } = { role: 'admin', username: 'admin' };
+const authState: { role: InventoryRole; username: string } = { role: 'admin', username: 'admin' };
 
 vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -135,7 +136,7 @@ function extract(container: HTMLElement): Entry[] {
   return entries;
 }
 
-async function inventoryFor(role: Role, staging: boolean): Promise<Entry[]> {
+async function inventoryFor(role: InventoryRole, staging: boolean): Promise<Entry[]> {
   vi.resetModules();
   vi.stubEnv('VITE_APP_ENV', staging ? 'staging' : 'production');
   authState.role = role;
@@ -280,6 +281,20 @@ describe('sidebar arrangement completeness', () => {
       for (const item of ALWAYS_HIDDEN) {
         expect(afterRoutes.has(item.route), `${role} staging shows ${item.label}`).toBe(false);
       }
+    }
+  });
+
+  it('gives warehouse exactly the three warehouse pages', async () => {
+    for (const staging of [false, true]) {
+      const entries = await inventoryFor('warehouse', staging);
+      const routes = routesOf(entries);
+      expect(routes).toEqual(['/warehouse/stock', '/warehouse/locations', '/warehouse/picking']);
+      expect(routes.some((route) => route.startsWith('/sales') || route.startsWith('/reports'))).toBe(false);
+      expect(entries.filter((entry) => entry.kind === 'item').map((entry) => entry.label)).toEqual([
+        'Stock on hand',
+        'Locations',
+        'Picking',
+      ]);
     }
   });
 

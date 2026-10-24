@@ -1,18 +1,25 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { useAuth } from '../../contexts/AuthContext';
 import { lookupProductByBarcode } from '../../services/productService';
 import {
   completePickList,
+  dispatchPickList,
+  getManifest,
   getPickList,
   recordPick,
   releasePickList,
   type PickLine,
   type PickListDetail,
+  type PickManifest,
   type PickShortage,
 } from '../../services/pickingService';
 import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
+import { vanService, type Van } from '../../services/vanService';
 import api from '../../api/axios';
+import DispatchDialog from './DispatchDialog';
+import ManifestPrint from './ManifestPrint';
 
 const shell: CSSProperties = {
   maxWidth: 480,
@@ -56,6 +63,8 @@ export default function PickListPage() {
   const { id } = useParams<{ id: string }>();
   const listId = Number(id);
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
+  const canDispatch = hasRole('admin', 'manager', 'warehouse');
   const [list, setList] = useState<PickListDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -71,7 +80,12 @@ export default function PickListPage() {
   const [busy, setBusy] = useState(false);
   const [bins, setBins] = useState<StockLocationNode[]>([]);
   const [users, setUsers] = useState<AssignableUser[]>([]);
+  const [vans, setVans] = useState<Van[]>([]);
   const [shortages, setShortages] = useState<PickShortage[] | null>(null);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [manifest, setManifest] = useState<PickManifest | null>(null);
 
   useEffect(() => {
     if (!Number.isFinite(listId)) return;
@@ -99,6 +113,13 @@ export default function PickListPage() {
       .catch(() => {
         if (!cancelled) setUsers([]);
       });
+    vanService.getAll()
+      .then((rows) => {
+        if (!cancelled) setVans(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setVans([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -116,6 +137,8 @@ export default function PickListPage() {
   const done = lines.filter((line) => line.status !== 'open').length;
   const ready = lines.length > 0 && done === lines.length;
   const assignee = users.find((user) => user.id === list?.assignedTo);
+  const driver = users.find((user) => user.id === list?.driverId);
+  const van = vans.find((item) => item.id === list?.vanId);
   const invoiceNumbers = [...new Set(lines.map((line) => line.invoiceNumber).filter(Boolean))].join(', ');
 
   async function refresh() {
@@ -172,6 +195,29 @@ export default function PickListPage() {
     try {
       const updated = await releasePickList(listId);
       setList(updated.lines.length ? updated : await getPickList(listId));
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function onDispatch(input: { vanId: string; driverId: number; note?: string }) {
+    setDispatchError(null);
+    setDispatching(true);
+    try {
+      const updated = await dispatchPickList(listId, input);
+      setList(updated.lines.length ? updated : await getPickList(listId));
+      setDispatchOpen(false);
+    } catch (err) {
+      setDispatchError(errorText(err));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
+  async function openManifest() {
+    setError(null);
+    try {
+      setManifest(await getManifest(listId));
     } catch (err) {
       setError(errorText(err));
     }
@@ -301,12 +347,37 @@ export default function PickListPage() {
         );
       })}
 
-      <footer style={{ display: 'flex', gap: 8 }}>
+      <footer style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {list.status === 'draft' && (
           <button type="button" onClick={() => void onRelease()}>Release</button>
         )}
-        <button type="button" disabled={!ready || busy} onClick={() => void onComplete()}>Complete</button>
+        {list.status === 'picked' && canDispatch && (
+          <button type="button" onClick={() => { setDispatchOpen(true); setDispatchError(null); }}>Dispatch…</button>
+        )}
+        {list.status === 'dispatched' && (
+          <div data-testid="dispatch-summary" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span>{list.manifestNumber || '—'}</span>
+            <span>{van?.van_number || list.vanId || '—'}</span>
+            <span>{driver ? (driver.full_name || driver.username) : (list.driverId == null ? '—' : `User ${list.driverId}`)}</span>
+            <button type="button" onClick={() => void openManifest()}>Manifest</button>
+          </div>
+        )}
+        {list.status !== 'dispatched' && (
+          <button type="button" disabled={!ready || busy} onClick={() => void onComplete()}>Complete</button>
+        )}
       </footer>
+
+      {dispatchOpen && (
+        <DispatchDialog
+          users={users}
+          saving={dispatching}
+          error={dispatchError}
+          onClose={() => setDispatchOpen(false)}
+          onSubmit={(input) => void onDispatch(input)}
+        />
+      )}
+
+      {manifest && <ManifestPrint manifest={manifest} onClose={() => setManifest(null)} />}
 
       {shortages && (
         <div role="dialog" aria-label="Shortages" style={{ border: '1px solid var(--color-redwood-border)', borderRadius: 12, padding: 12 }}>

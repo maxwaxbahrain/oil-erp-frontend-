@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
-import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES, ADMIN_ROLES } from '../utils/rbac';
+import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES, ADMIN_ROLES, WAREHOUSE_PAGE_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
 import { MODULE_FLAGS } from '../config/moduleFlags';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
@@ -334,14 +334,18 @@ export const AppRoutes = () => {
 
             <Route path="/settings/password" element={<ChangePassword />} />
 
-            {/* Internal web staff — full ERP modules */}
-            <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
-            <Route path="/sales/dashboard" element={<SalesDashboard />} />
-            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+            {/* Existing warehouse pages. Warehouse staff can open these; they are not new paths. */}
+            <Route element={<ProtectedRoute roles={WAREHOUSE_PAGE_ROLES} />}>
             <Route path="/warehouse/stock" element={<StockOnHand />} />
             <Route path="/warehouse/locations" element={<LocationsPage />} />
             <Route path="/warehouse/picking" element={<PickingPage />} />
             <Route path="/warehouse/picking/:id" element={<PickListPage />} />
+            </Route>
+
+            {/* Internal web staff — full ERP modules */}
+            <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
+            <Route path="/sales/dashboard" element={<SalesDashboard />} />
+            <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
             <Route path="/products/new" element={<ProductForm />} />
             <Route path="/products/edit/:id" element={<ProductForm />} />
             <Route path="/products/import" element={<InvoiceImport />} />
