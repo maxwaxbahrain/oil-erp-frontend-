@@ -36,6 +36,10 @@ vi.mock('../../../services/settingsService', () => ({
   formatCurrency: (n: number) => String(n),
 }));
 
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({ hasRole: (...roles: string[]) => roles.includes('admin') }),
+}));
+
 const product: Product = {
   id: '9',
   name: 'Case Oil',

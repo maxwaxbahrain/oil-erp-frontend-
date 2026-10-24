@@ -38,6 +38,7 @@ const ALLOWED_ADDED_ROUTES = new Set<string>([
   '/dashboard',
   '/field/fleet-mileage',
   '/sales/returns',
+  '/purchases/reorder',
 ]);
 
 /** Routes intentionally removed when replaced by ALLOWED_ADDED_ROUTES. */

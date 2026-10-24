@@ -267,6 +267,7 @@ export default function Sidebar({
                 <NavItem to="/purchases/suppliers" icon={Users} label="Suppliers" />
                 <NavItem to="/purchases" icon={FileText} label="Purchase Orders" />
                 <NavItem to="/purchases/new" icon={Package} label="New Purchase Order" />
+                <NavItem to="/purchases/reorder" icon={RefreshCw} label="Reorder planning" />
                 <NavItem to="/receiving" icon={Inbox} label="Goods Received (GRN)" />
                 <NavItem to="/purchases/returns" icon={RotateCcw} label="Purchase Returns" />
                 <NavItem to="/purchases/payments" icon={DollarSign} label="Supplier payments" />

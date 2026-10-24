@@ -32,6 +32,8 @@ import { formatCurrency } from '../../services/settingsService';
 import { getMovements, getProductOnHand, type InventoryMovement, type ProductLocationOnHand } from '../../services/inventoryLedgerService';
 import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
 import clsx from 'clsx';
+import { useAuth } from '../../contexts/AuthContext';
+import { INTERNAL_WEB_ROLES } from '../../utils/rbac';
 import { formatLocalDate } from '../../utils/dates';
 import { formatMovementLabel } from '../../utils/movementLabel';
 
@@ -71,6 +73,8 @@ function reorderStatus(product: Product, onHand: number | null): string {
 export default function ProductOverview() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { hasRole } = useAuth();
+    const canOpenReorder = hasRole(...INTERNAL_WEB_ROLES);
     const [product, setProduct] = useState<Product | null>(null);
     const [preferredSupplierName, setPreferredSupplierName] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -503,6 +507,15 @@ export default function ProductOverview() {
                                     </p>
                                 );
                             })()}
+                            {canOpenReorder && (
+                                <Link
+                                    to={`/purchases/reorder?product_id=${product.id}`}
+                                    data-testid="open-reorder-planning"
+                                    className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-redwood-brand"
+                                >
+                                    Open in Reorder planning
+                                </Link>
+                            )}
                             <div className="mt-4 flex flex-wrap gap-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
                                 {product.leadTimeDays > 0 && <span>Lead time: {product.leadTimeDays} days</span>}
                                 {preferredSupplierName && <span>Preferred supplier: {preferredSupplierName}</span>}
