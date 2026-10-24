@@ -30,6 +30,7 @@ export interface GRNItem {
     enteredUom?: 'base' | 'pack';
     enteredUnitPrice?: number;
     packQtySnapshot?: number | null;
+    locationId?: number | null;
 }
 
 export interface GRN {
@@ -226,7 +227,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
     const skipped: PostGRNResult['skipped'] = [];
 
     // Batch goods receipt — one backend call updates stock/cost and posts GL once.
-    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number }> = [];
+    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number; locationId?: number | null }> = [];
 
     for (const item of grn.items) {
         if (item.acceptedQty <= 0) {
@@ -256,6 +257,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             productName: item.productName,
             quantity: item.acceptedQty,
             unitCost,
+            locationId: item.locationId ?? null,
         });
     }
 
@@ -294,6 +296,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
                     entered_qty: line.quantity,
                     entered_uom: 'base',
                     entered_unit_price: line.unitCost,
+                    ...(line.locationId != null ? { location_id: line.locationId } : {}),
                 })),
             }),
         });

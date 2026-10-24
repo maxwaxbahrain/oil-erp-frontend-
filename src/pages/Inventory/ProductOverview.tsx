@@ -434,6 +434,11 @@ export default function ProductOverview() {
                         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm" data-testid="stock-card">
                             <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Stock</h3>
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Ledger on hand</p>
+                            {product.defaultLocationCode && (
+                                <p className="text-[10px] font-bold text-gray-500 mt-2" data-testid="default-bin-label">
+                                    Default bin: {product.defaultLocationCode}
+                                </p>
+                            )}
                             <p className="text-3xl font-black text-gray-900 tracking-tighter mt-6" data-testid="stock-on-hand">
                                 {onHandFailed || onHandTotal == null ? '—' : onHandTotal}
                             </p>

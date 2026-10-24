@@ -29,6 +29,7 @@ const ALLOWED_ADDED_ROUTES = new Set<string>([
   '/purchases/payments',
   '/warehouse/dashboard',
   '/warehouse/stock',
+  '/warehouse/locations',
   // Dashboard nav restored to the real page (was `/`, which bounced staging admins to Nexus).
   '/dashboard',
   '/field/fleet-mileage',
