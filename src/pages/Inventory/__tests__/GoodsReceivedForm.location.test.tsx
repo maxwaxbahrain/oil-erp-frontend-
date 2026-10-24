@@ -35,6 +35,7 @@ vi.mock('../../../services/productService', () => ({
 
 vi.mock('../../../services/stockLocationService', () => ({
   getLocationsFlat: vi.fn(),
+  suggestPutaway: vi.fn(),
   isStockHoldingKind: (kind: string) => kind === 'bin' || kind === 'warehouse' || kind === 'van',
 }));
 
@@ -285,6 +286,100 @@ describe('GoodsReceivedForm location', () => {
     expect(body.lines[0]).not.toHaveProperty('locationId');
     expect(body.lines[1]).not.toHaveProperty('locationId');
 
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('Suggest sets location and caption from putaway API', async () => {
+    vi.mocked(stockLocationService.suggestPutaway).mockResolvedValue({
+      locationId: 5,
+      code: 'B-DEF',
+      path: 'MAIN/B-DEF',
+      reason: 'default_bin',
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const adjustBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      /adjust quantities before receiving/i.test(b.textContent || ''),
+    );
+    await act(async () => {
+      adjustBtn!.click();
+      await Promise.resolve();
+    });
+    const suggestBtn = container.querySelector('[aria-label="Suggest location line 2"]') as HTMLButtonElement;
+    await act(async () => {
+      suggestBtn.click();
+      await Promise.resolve();
+    });
+    expect(stockLocationService.suggestPutaway).toHaveBeenCalledWith(100, 3);
+    const loc1 = container.querySelector('[aria-label="Location for line 2"]') as HTMLSelectElement;
+    expect(loc1.value).toBe('5');
+    expect(container.querySelector('[data-testid="putaway-caption-1"]')?.textContent).toBe('default bin');
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('Suggest all skips a line the user already changed', async () => {
+    vi.mocked(stockLocationService.suggestPutaway).mockResolvedValue({
+      locationId: 5,
+      code: 'B-DEF',
+      path: 'MAIN/B-DEF',
+      reason: 'free capacity',
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const adjustBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      /adjust quantities before receiving/i.test(b.textContent || ''),
+    );
+    await act(async () => {
+      adjustBtn!.click();
+      await Promise.resolve();
+    });
+    vi.mocked(stockLocationService.suggestPutaway).mockClear();
+    const loc1 = container.querySelector('[aria-label="Location for line 2"]') as HTMLSelectElement;
+    const prototype = HTMLSelectElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    await act(() => {
+      setter?.call(loc1, '5');
+      loc1.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const suggestAll = container.querySelector('[aria-label="Suggest all locations"]') as HTMLButtonElement;
+    await act(async () => {
+      suggestAll.click();
+      await Promise.resolve();
+    });
+    expect(stockLocationService.suggestPutaway).toHaveBeenCalledTimes(1);
+    expect(stockLocationService.suggestPutaway).toHaveBeenCalledWith(99, 6);
     await act(async () => {
       root.unmount();
     });

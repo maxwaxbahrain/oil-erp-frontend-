@@ -15,7 +15,16 @@ export interface StockLocationNode {
   sortOrder: number | null;
   capacityUnits: number | null;
   barcode: string | null;
+  onHandUnits?: number | null;
+  pct?: number | null;
   children?: StockLocationNode[];
+}
+
+export interface PutawaySuggestion {
+  locationId: number;
+  code: string;
+  path: string | null;
+  reason: string;
 }
 
 export interface LocationOnHandRow {
@@ -51,6 +60,8 @@ function mapLocation(raw: RawLocation, children?: StockLocationNode[]): StockLoc
     sortOrder: raw.sort_order != null ? Number(raw.sort_order) : null,
     capacityUnits: raw.capacity_units != null ? Number(raw.capacity_units) : null,
     barcode: raw.barcode != null ? String(raw.barcode) : null,
+    onHandUnits: raw.on_hand_units != null ? Number(raw.on_hand_units) : null,
+    pct: raw.pct != null ? Number(raw.pct) : null,
     children,
   };
 }
@@ -206,6 +217,25 @@ export async function postTransfer(body: {
       note: body.note ?? null,
     }),
   });
+}
+
+export async function suggestPutaway(productId: number, quantity: number): Promise<PutawaySuggestion> {
+  const row = await readJson<Record<string, unknown>>(
+    ledgerQuery('/inventory/putaway-suggest', { product_id: productId, quantity }),
+  );
+  return {
+    locationId: Number(row.location_id),
+    code: String(row.code ?? ''),
+    path: row.path != null ? String(row.path) : null,
+    reason: String(row.reason ?? ''),
+  };
+}
+
+export async function lookupLocationByBarcode(code: string): Promise<StockLocationNode> {
+  const row = await readJson<RawLocation>(
+    ledgerQuery('/inventory/locations/lookup', { barcode: code.trim() }),
+  );
+  return mapLocation(row);
 }
 
 export async function getTransfers(productId?: number, limit = 50): Promise<LocationTransferRecord[]> {

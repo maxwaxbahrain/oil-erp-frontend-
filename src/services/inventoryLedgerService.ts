@@ -35,6 +35,14 @@ export interface InventorySummary {
   ledger_drift_count: number;
 }
 
+export interface OnHandLocationBreakdown {
+  location_id: number | null;
+  code: string | null;
+  kind: string | null;
+  path: string | null;
+  on_hand: number;
+}
+
 export interface OnHandRow {
   product_id: number;
   name: string;
@@ -48,6 +56,7 @@ export interface OnHandRow {
   last_movement_date: string | null;
   days_since_movement: number | null;
   drift: boolean;
+  by_location?: OnHandLocationBreakdown[];
 }
 
 export interface OnHandPage {
@@ -64,6 +73,9 @@ export interface OnHandQuery {
   search?: string;
   below_min?: boolean;
   zero?: boolean;
+  location_id?: number;
+  path_prefix?: string;
+  by_location?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -85,6 +97,9 @@ export interface InventoryMovement {
   sku: string;
   note: string | null;
   created_at: string | null;
+  location_id: number | null;
+  location_code: string | null;
+  location_path: string | null;
 }
 
 export interface MovementsPage {
@@ -94,6 +109,7 @@ export interface MovementsPage {
 
 export interface MovementsQuery {
   product_id?: number;
+  location_id?: number;
   source_type?: string;
   date_from?: string;
   date_to?: string;
@@ -129,6 +145,9 @@ export function getOnHand(query: OnHandQuery = {}): Promise<OnHandPage> {
     search: query.search?.trim(),
     below_min: query.below_min,
     zero: query.zero,
+    location_id: query.location_id,
+    path_prefix: query.path_prefix?.trim(),
+    by_location: query.by_location,
     limit: query.limit ?? 50,
     offset: query.offset ?? 0,
   }));
@@ -173,6 +192,7 @@ export async function getProductOnHand(productId: number): Promise<ProductOnHand
 export function getMovements(query: MovementsQuery = {}): Promise<MovementsPage> {
   return readJson<MovementsPage>(ledgerQuery('/inventory/movements', {
     product_id: query.product_id,
+    location_id: query.location_id,
     source_type: query.source_type,
     date_from: query.date_from,
     date_to: query.date_to,
