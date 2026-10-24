@@ -33,6 +33,12 @@ vi.mock('../../../services/settingsService', () => ({
   formatCurrency: (n: number) => String(n),
 }));
 
+const { authState } = vi.hoisted(() => ({ authState: { role: 'admin' } }));
+
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({ hasRole: (...roles: string[]) => roles.includes(authState.role) }),
+}));
+
 function overviewProduct(overrides: Partial<Product> = {}): Product {
   return {
     id: '9',
@@ -175,6 +181,23 @@ describe('Product overview catalog reads', () => {
     });
     await renderPage();
     expect(container.querySelector('[data-testid="reorder-status"]')?.textContent).toBe('OK');
+  });
+
+  it('links the Stock card to Reorder planning for this product', async () => {
+    await renderPage();
+    const link = container.querySelector('[data-testid="open-reorder-planning"]');
+    expect(link?.textContent).toBe('Open in Reorder planning');
+    expect(link?.getAttribute('href')).toBe('/purchases/reorder?product_id=9');
+  });
+
+  it('hides the Reorder planning link from roles that cannot open it', async () => {
+    authState.role = 'sales';
+    try {
+      await renderPage();
+      expect(container.querySelector('[data-testid="open-reorder-planning"]')).toBeNull();
+    } finally {
+      authState.role = 'admin';
+    }
   });
 
   it('still renders the product when on-hand fails', async () => {
