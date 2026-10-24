@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import PickListPage from '../PickList';
+import * as api from '../../../services/api';
 import { lookupProductByBarcode } from '../../../services/productService';
 import { getLocationsFlat } from '../../../services/stockLocationService';
 import { vanService } from '../../../services/vanService';
@@ -119,8 +120,12 @@ function buttonIn(root: ParentNode, label: string): HTMLButtonElement {
   return found as HTMLButtonElement;
 }
 
-function setValue(el: HTMLInputElement | HTMLSelectElement, value: string) {
-  const prototype = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+function setValue(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
+  const prototype = el instanceof HTMLSelectElement
+    ? HTMLSelectElement.prototype
+    : el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
   setter?.call(el, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -347,5 +352,144 @@ describe('Pick list screen', () => {
     expect(summary?.textContent).toContain('Wren');
     expect(buttonIn(summary as HTMLElement, 'Manifest')).toBeTruthy();
     expect(container.textContent).not.toContain('Dispatch…');
+  });
+
+  const shortageRow = {
+    id: 7,
+    pick_list_id: 4,
+    pick_list_line_id: 22,
+    pick_list_number: 'PK-000012',
+    invoice_id: 8,
+    invoice_number: 'INV-8',
+    customer_name: 'Acme',
+    product_id: 8,
+    sku: 'OIL',
+    product_name: 'Drum oil',
+    qty_short: 2,
+    resolution: 'open',
+    sales_return_id: null,
+    note: null,
+  };
+
+  it('resolves a shortage from the complete modal', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(api, 'getInvoiceById').mockResolvedValue({
+      id: '8',
+      invoiceNumber: 'INV-8',
+      customerId: '1',
+      customerName: 'Acme',
+      invoiceDate: '2026-10-24',
+      dueDate: '2026-10-24',
+      lineItems: [{ product: 'Drum oil', description: '', quantity: 4, rate: 9, amount: 36, productId: '8' }],
+      subtotal: 36,
+      taxRate: 0,
+      taxAmount: 0,
+      discount: 0,
+      grandTotal: 36,
+      notes: '',
+      status: 'Unpaid',
+      createdAt: '2026-10-24T00:00:00',
+    });
+    current = detail('picking', [
+      line({ id: 11, sequence: 1, product_id: 9, sku: 'SOAP', name: 'Soap', location_id: 1, location_code: 'MAIN', location_path: 'MAIN', qty_required: 12, qty_picked: 12, status: 'picked' }),
+      line({ id: 22, sequence: 2, product_id: 8, sku: 'OIL', name: 'Drum oil', location_id: 5, location_code: 'B-01', location_path: 'MAIN/A/B-01', qty_required: 4, qty_picked: 2, status: 'short' }),
+    ]);
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || 'GET').toUpperCase();
+      const text = String(url);
+      if (method === 'POST' && text.includes('/shortages/') && text.endsWith('/resolve')) {
+        const payload = JSON.parse(String(init?.body || '{}')) as { mode?: string; note?: string };
+        return http({
+          ...shortageRow,
+          resolution: payload.mode,
+          note: payload.note ?? null,
+          sales_return_id: payload.mode === 'credited' ? 44 : null,
+        });
+      }
+      if (method === 'GET' && text.endsWith('/shortages')) return http([shortageRow]);
+      if (method === 'POST' && text.endsWith('/complete')) {
+        return http({
+          ...current,
+          status: 'picked',
+          shortages: [{ invoice_id: 8, product_id: 8, required: 4, picked: 2 }],
+        });
+      }
+      return http(current);
+    });
+    await mount();
+    await act(async () => {
+      buttonIn(container, 'Complete').click();
+      await Promise.resolve();
+    });
+    await flush();
+    const modal = container.querySelector('[aria-label="Shortages"]') as HTMLElement;
+    expect(modal.textContent).toContain('required 4, picked 2');
+    await act(async () => {
+      buttonIn(modal, 'Backorder').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(confirm).toHaveBeenCalled();
+    expect(calls().some((call) => call.method === 'POST' && call.url.endsWith('/shortages/7/resolve') && call.body?.mode === 'backorder')).toBe(true);
+
+    await act(async () => {
+      buttonIn(modal, 'Credit customer').click();
+      await Promise.resolve();
+    });
+    await flush();
+    const credit = modal.querySelector('[aria-label="Credit customer"]') as HTMLElement;
+    expect(credit.textContent).toContain('Qty short 2');
+    expect(credit.textContent).toContain('Unit price 9');
+    expect(credit.querySelector('[data-testid="credit-preview"]')?.textContent).toBe('Preview ≈ 2 × 9');
+    await act(async () => {
+      buttonIn(credit, 'Confirm credit').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.body?.mode === 'credited')).toBe(true);
+    expect(credit.textContent).toContain('Sales return 44');
+
+    await act(() => {
+      buttonIn(modal, 'Ignore').click();
+    });
+    const ignore = modal.querySelector('[aria-label="Ignore shortage"]') as HTMLElement;
+    await act(async () => {
+      buttonIn(ignore, 'Confirm ignore').click();
+      await Promise.resolve();
+    });
+    expect(ignore.textContent).toContain('A note is required');
+    await act(() => {
+      setValue(ignore.querySelector('[aria-label="Ignore note"]') as HTMLTextAreaElement, 'left on the dock');
+    });
+    await act(async () => {
+      buttonIn(ignore, 'Confirm ignore').click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(calls().some((call) => call.body?.mode === 'ignored' && call.body?.note === 'left on the dock')).toBe(true);
+    expect(buttonIn(modal, 'Later')).toBeTruthy();
+  });
+
+  it('shows the delivered date in the footer', async () => {
+    current = {
+      ...detail('delivered', openLines),
+      delivered_at: '2026-10-24T15:04:00',
+      has_failed_delivery: false,
+    };
+    await mount();
+    expect(container.querySelector('[data-testid="delivered-footer"]')?.textContent).toBe('Delivered 2026-10-24');
+    expect(container.textContent).not.toContain('Complete');
+  });
+
+  it('shows a failed stop on the pick screen', async () => {
+    current = {
+      ...detail('dispatched', openLines),
+      has_failed_delivery: true,
+      manifest_number: 'MF-000012',
+    };
+    await mount();
+    const failed = container.querySelector('[data-testid="failed-stop"]') as HTMLElement;
+    expect(failed.textContent).toBe('A stop failed — see deliveries');
+    expect(failed.style.color).toBe('rgb(239, 68, 68)');
   });
 });

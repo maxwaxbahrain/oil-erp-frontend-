@@ -10,17 +10,21 @@ import {
   dispatchPickList,
   getManifest,
   getPickListForInvoice,
+  hydrateShortageLabels,
+  listOpenShortages,
   listPickLists,
   releasePickList,
   undispatchPickList,
   type PickListStatus,
   type PickListSummary,
   type PickManifest,
+  type ShortageRow,
 } from '../../services/pickingService';
 import { vanService, type Van } from '../../services/vanService';
 import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 import DispatchDialog from './DispatchDialog';
 import ManifestPrint from './ManifestPrint';
+import ShortageResolve from './ShortageResolve';
 
 const panel: CSSProperties = {
   background: 'var(--color-redwood-bg-surface)',
@@ -55,6 +59,7 @@ interface AssignableUser {
 const PICKABLE = new Set(['unpaid', 'partial', 'paid']);
 
 function statusColor(status: string): string {
+  if (status === 'delivered') return '#22c55e';
   if (status === 'dispatched') return '#2563eb';
   if (status === 'picked') return '#22c55e';
   if (status === 'picking' || status === 'released') return '#4F8EF7';
@@ -65,7 +70,16 @@ function statusColor(status: string): string {
 
 function statusLabel(status: string): string {
   if (status === 'dispatched') return 'Dispatched';
+  if (status === 'delivered') return 'Delivered';
   return status;
+}
+
+function statusChip(row: PickListSummary): { label: string; color: string; filled: boolean } {
+  if (row.status === 'delivered') return { label: 'Delivered', color: '#22c55e', filled: true };
+  if (row.status === 'dispatched' && row.hasFailedDelivery) {
+    return { label: 'Dispatched · 1 failed', color: '#ef4444', filled: false };
+  }
+  return { label: statusLabel(row.status), color: statusColor(row.status), filled: false };
 }
 
 function sourceLabel(row: PickListSummary): string {
@@ -115,6 +129,10 @@ export default function PickingPage() {
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [manifest, setManifest] = useState<PickManifest | null>(null);
+  const [boardTab, setBoardTab] = useState<'lists' | 'shortages'>('lists');
+  const [shortageRows, setShortageRows] = useState<ShortageRow[]>([]);
+  const [showResolved, setShowResolved] = useState(false);
+  const [shortageError, setShortageError] = useState<string | null>(null);
 
   const userNames = useMemo(() => {
     const map = new Map<number, string>();
@@ -150,6 +168,21 @@ export default function PickingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadShortages = useCallback(async () => {
+    setShortageError(null);
+    try {
+      const rows = await listOpenShortages(showResolved ? {} : { resolution: 'open' });
+      setShortageRows(await hydrateShortageLabels(rows));
+    } catch (err) {
+      setShortageError(errorText(err));
+    }
+  }, [showResolved]);
+
+  useEffect(() => {
+    if (boardTab !== 'shortages') return;
+    void loadShortages();
+  }, [boardTab, loadShortages]);
 
   useEffect(() => {
     vanService.getAll().then(setVans).catch(() => setVans([]));
@@ -329,7 +362,7 @@ export default function PickingPage() {
             style={{ ...field, marginLeft: 8 }}
           >
             <option value="">All</option>
-            {(['draft', 'released', 'picking', 'picked', 'dispatched', 'cancelled'] as PickListStatus[]).map((status) => (
+            {(['draft', 'released', 'picking', 'picked', 'dispatched', 'delivered', 'cancelled'] as PickListStatus[]).map((status) => (
               <option key={status} value={status}>{statusLabel(status)}</option>
             ))}
           </select>
@@ -347,8 +380,28 @@ export default function PickingPage() {
       </div>
 
       {error && <p role="alert" data-testid="picking-error" style={{ color: '#ef4444', fontSize: 13 }}>{error}</p>}
-      {loading && <p style={{ fontSize: 13 }}>Loading pick lists…</p>}
+      {loading && boardTab === 'lists' && <p style={{ fontSize: 13 }}>Loading pick lists…</p>}
 
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="button" aria-pressed={boardTab === 'lists'} style={btn} onClick={() => setBoardTab('lists')}>Pick lists</button>
+        <button type="button" aria-pressed={boardTab === 'shortages'} style={btn} onClick={() => setBoardTab('shortages')}>Shortages</button>
+      </div>
+
+      {boardTab === 'shortages' ? (
+        <div style={panel}>
+          <label style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              aria-label="Show resolved"
+              checked={showResolved}
+              onChange={(event) => setShowResolved(event.target.checked)}
+            />
+            Show resolved
+          </label>
+          {shortageError && <p role="alert" style={{ color: '#ef4444', fontSize: 13 }}>{shortageError}</p>}
+          <ShortageResolve rows={shortageRows} canResolve={canDispatch} onChanged={loadShortages} />
+        </div>
+      ) : (
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
@@ -359,21 +412,26 @@ export default function PickingPage() {
             </tr>
           </thead>
           <tbody>
-            {items.map((row) => (
+            {items.map((row) => {
+              const chip = statusChip(row);
+              return (
               <tr key={row.id} data-testid={`pick-row-${row.id}`}>
                 <td style={{ padding: '8px 6px' }}>{row.number}</td>
                 <td style={{ padding: '8px 6px' }}>{sourceLabel(row)}</td>
                 <td style={{ padding: '8px 6px' }}>
-                  <span style={{
-                    border: `1px solid ${statusColor(row.status)}`,
-                    color: statusColor(row.status),
-                    borderRadius: 20,
-                    padding: '2px 8px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
+                  <span
+                    data-testid={`pick-status-${row.id}`}
+                    style={{
+                      border: `1px solid ${chip.color}`,
+                      color: chip.filled ? '#fff' : chip.color,
+                      background: chip.filled ? chip.color : 'transparent',
+                      borderRadius: 20,
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                    }}
                   >
-                    {statusLabel(row.status)}
+                    {chip.label}
                   </span>
                 </td>
                 <td style={{ padding: '8px 6px' }}>
@@ -407,11 +465,13 @@ export default function PickingPage() {
                   <Link to={`/warehouse/picking/${row.id}`} style={{ ...btn, textDecoration: 'none' }}>Open</Link>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {!loading && items.length === 0 && <p style={{ fontSize: 13, marginTop: 8 }}>No pick lists.</p>}
       </div>
+      )}
 
       {dialogOpen && (
         <div role="dialog" aria-label="New pick list" style={{ ...panel, position: 'fixed', inset: 40, overflow: 'auto', zIndex: 20 }}>
