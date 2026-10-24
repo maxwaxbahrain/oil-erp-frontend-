@@ -341,7 +341,7 @@ export default function Sidebar({
                             <NavItem to="/finance/expenses/bulk-upload" icon={Upload} label="Bulk Upload" />
                             <NavItem to="/finance/expenses/mileage" icon={MapPin} label="Mileage" />
                             <NavItem to="/finance/expenses/reports" icon={BarChart2} label="Reports" />
-                            <NavItem to="/finance/expenses/settings" icon={Settings} label="Settings" />
+                            <NavItem to="/finance/expenses/settings" icon={Settings} label="Expense Policy" />
                         </div>
                     )}
                 </div>

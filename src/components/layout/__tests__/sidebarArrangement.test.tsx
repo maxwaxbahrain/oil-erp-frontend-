@@ -21,6 +21,7 @@ const LABEL_RENAMES: Record<string, string> = {
   '/finance/all-ledger': 'General Ledger',
   '/finance/financial-statement': 'Financial Statements',
   '/settings': 'Company Settings',
+  '/finance/expenses/settings': 'Expense Policy',
 };
 
 /** Routes added after the sidebar inventory snapshot. */

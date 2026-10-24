@@ -21,6 +21,14 @@ import {
 
 export default function ExpenseSettingsPage() {
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const previousTitle = document.title;
+        document.title = 'Expense Policy — SOLTOL ONE';
+        return () => {
+            document.title = previousTitle;
+        };
+    }, []);
     const [categories, setCategories] = useState<ExpenseCategory[]>([]);
     const [settings, setSettings] = useState<ExpenseSettings>(DEFAULT_SETTINGS);
     const [mileageSettings, setMileageSettings] = useState<MileageSettings>({
@@ -95,8 +103,8 @@ export default function ExpenseSettingsPage() {
                     <SettingsIcon size={24} />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">Expense Settings</h1>
-                    <p className="text-sm text-gray-500 mt-1">Categories, policies, approval rules, mileage rate, AI feature toggles.</p>
+                    <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">Expense Policy</h1>
+                    <p className="text-sm text-gray-500 mt-1">Spend limits, approval threshold, mileage rate, expense accounts and AI toggles.</p>
                 </div>
             </div>
 

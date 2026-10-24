@@ -274,7 +274,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
@@ -682,7 +682,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
@@ -1090,7 +1090,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
@@ -1840,7 +1840,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
@@ -2402,7 +2402,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
@@ -2957,7 +2957,7 @@
           "kind": "item",
           "head": "Finance",
           "group": "Expenses",
-          "label": "Settings",
+          "label": "Expense Policy",
           "route": "/finance/expenses/settings"
         },
         {
