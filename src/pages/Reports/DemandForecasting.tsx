@@ -15,7 +15,14 @@ import {
     LayoutList,
 } from 'lucide-react';
 import { authFetch } from '../../api/axios';
-import { getInvoices, getProducts } from '../../services/api';
+import { fetchAllInvoices, getProducts } from '../../services/api';
+import {
+    buildRollingMonthKeys,
+    DEMAND_FORECAST_HISTORY_MONTHS,
+    forecastMonthWeights,
+    getMonthKey,
+    invoiceEligibleForDemandForecast,
+} from './demandForecastHistory';
 import { getCurrentUser } from '../../store/authStore';
 
 const C = {
@@ -72,13 +79,6 @@ interface ProductForecast {
     daysUntilStockout: number;
     suggestedOrderQty: number;
     urgency: 'critical' | 'warning' | 'good';
-}
-
-function getMonthKey(dateStr: string) {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
 }
 
 function calcTrend(history: Array<{ qty: number }>): { trend: 'up' | 'down' | 'stable'; pct: number } {
@@ -291,24 +291,22 @@ export default function DemandForecasting() {
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
+    const [historyTruncated, setHistoryTruncated] = useState(false);
 
     const loadData = useCallback(() => {
         setLoading(true);
-        Promise.all([getInvoices(), getProducts()]).then(([invoices, products]) => {
+        setHistoryTruncated(false);
+        Promise.all([fetchAllInvoices(), getProducts()])
+            .then(([{ invoices, truncated }, products]) => {
+            setHistoryTruncated(truncated);
             const today = new Date();
-            const last6: string[] = [];
-            for (let i = 5; i >= 0; i--) {
-                const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                last6.push(`${months[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`);
-            }
+            const monthKeys = buildRollingMonthKeys(DEMAND_FORECAST_HISTORY_MONTHS, today);
+            const weights = forecastMonthWeights(DEMAND_FORECAST_HISTORY_MONTHS);
 
             const salesMap: Record<string, Record<string, { qty: number; revenue: number }>> = {};
-            invoices
-                .filter((inv) => inv.status !== 'Partial')
-                .forEach((inv) => {
+            invoices.filter((inv) => invoiceEligibleForDemandForecast(inv, monthKeys)).forEach((inv) => {
                     const mk = getMonthKey(inv.invoiceDate || inv.createdAt || '');
-                    if (!mk || !last6.includes(mk)) return;
+                    if (!mk) return;
                     (inv.lineItems || []).forEach((item: any) => {
                         const name = item.product || item.description || 'Unknown';
                         if (!salesMap[name]) salesMap[name] = {};
@@ -320,15 +318,14 @@ export default function DemandForecasting() {
 
             const result: ProductForecast[] = products.map((p) => {
                 const productSales = salesMap[p.name] || {};
-                const history = last6.map((month) => ({
+                const history = monthKeys.map((month) => ({
                     month,
                     qty: productSales[month]?.qty || 0,
                     revenue: productSales[month]?.revenue || 0,
                 }));
 
                 const totalQty = history.reduce((s, h) => s + h.qty, 0);
-                const avgMonthly = totalQty / 6;
-                const weights = [0.05, 0.10, 0.15, 0.20, 0.25, 0.25];
+                const avgMonthly = totalQty / DEMAND_FORECAST_HISTORY_MONTHS;
                 const weightedForecast = history.reduce((s, h, i) => s + h.qty * weights[i], 0);
                 const forecastNext = Math.ceil(Math.max(weightedForecast, avgMonthly * 0.8));
                 const { trend, pct } = calcTrend(history);
@@ -367,8 +364,14 @@ export default function DemandForecasting() {
             });
 
             setForecasts(result);
-            setLoading(false);
-        });
+        })
+            .catch(() => {
+                setForecasts([]);
+                setHistoryTruncated(false);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
     }, []);
 
     useEffect(() => {
@@ -512,6 +515,20 @@ Give me:
                 paddingBottom: 80,
             }}
         >
+            {historyTruncated && (
+                <div
+                    style={{
+                        padding: '10px 28px',
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+                        color: C.orange,
+                        fontSize: 12,
+                        fontWeight: 600,
+                    }}
+                >
+                    Forecast is based on a partial history (page cap reached).
+                </div>
+            )}
             {/* Top bar */}
             <div
                 style={{

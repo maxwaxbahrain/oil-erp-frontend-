@@ -1199,6 +1199,59 @@ export async function getInvoices(): Promise<Invoice[]> {
   return list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
 }
 
+/** Backend GET /invoices/ max `limit` (see bettano invoices list_invoices le=10000). */
+export const INVOICES_FETCH_PAGE_LIMIT = 10_000;
+
+export const INVOICES_FETCH_MAX_PAGES = 50;
+
+export type FetchAllInvoicesOptions = {
+  since?: string;
+  /** Page size for skip/limit pagination (default INVOICES_FETCH_PAGE_LIMIT). */
+  pageSize?: number;
+};
+
+export type FetchAllInvoicesResult = {
+  invoices: Invoice[];
+  truncated: boolean;
+};
+
+/** Walk paginated GET /invoices/ until a short page or INVOICES_FETCH_MAX_PAGES. */
+export async function fetchAllInvoices(options: FetchAllInvoicesOptions = {}): Promise<FetchAllInvoicesResult> {
+  const limit = options.pageSize ?? INVOICES_FETCH_PAGE_LIMIT;
+  const all: Invoice[] = [];
+  let truncated = false;
+
+  for (let page = 0; page < INVOICES_FETCH_MAX_PAGES; page++) {
+    const skip = page * limit;
+    const qs = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+    const raw = await apiRequest<unknown>(`/invoices/?${qs.toString()}`);
+    const list = Array.isArray(raw) ? raw : [];
+    const batch = list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
+    all.push(...batch);
+
+    if (batch.length < limit) {
+      break;
+    }
+    if (page === INVOICES_FETCH_MAX_PAGES - 1) {
+      truncated = true;
+      break;
+    }
+  }
+
+  let invoices = all;
+  if (options.since) {
+    const sinceMs = new Date(options.since).getTime();
+    if (!Number.isNaN(sinceMs)) {
+      invoices = invoices.filter((inv) => {
+        const d = new Date(inv.invoiceDate || inv.createdAt || '');
+        return !Number.isNaN(d.getTime()) && d.getTime() >= sinceMs;
+      });
+    }
+  }
+
+  return { invoices, truncated };
+}
+
 // Get invoices for a specific customer
 export async function getCustomerInvoices(customerId: string): Promise<Invoice[]> {
   try {

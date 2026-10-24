@@ -113,6 +113,7 @@ import JournalVoucher from '../pages/Accounts/JournalVoucher';
 import AllAccountsLedger from '../pages/Accounts/AllAccountsLedger';
 // TC-69 — Financial Statement page (P&L, Balance Sheet, Cash Flow).
 import FinancialStatement from '../pages/Reports/FinancialStatement';
+import DemandForecasting from '../pages/Reports/DemandForecasting';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
@@ -425,7 +426,7 @@ export const AppRoutes = () => {
             <Route path="/reports/day-book" element={<DayBook />} />
             <Route path="/reports/trial-balance" element={<TrialBalance />} />
             <Route path="/reports/financial" element={<ProfitabilityReports />} />
-            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
+            <Route path="/reports/demand-forecast" element={<DemandForecasting />} />
             <Route path="/logistics/tracking" element={<VanTracking />} />
             <Route path="/logistics/route-planning" element={<RoutePlanning />} />
             <Route path="/settings/credit-sources" element={<CreditDataSources />} />
