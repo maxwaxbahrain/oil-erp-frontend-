@@ -25,9 +25,6 @@ import {
   customerBalanceSpeech,
   formatCardSpeech,
   formatVanSummary,
-  formatWelcomeLine,
-  hasSpokenWelcome,
-  markWelcomeSpoken,
   parseVoiceIntent,
   planetIdForCardModule,
   resolveCustomerMatches,
@@ -90,26 +87,17 @@ type Opts = {
   setActiveCardId: (id: string | null) => void;
   setActivePlanetId: (id: string | null) => void;
   navigate: NavigateFunction;
-  /** When false, do not play welcome yet (wait for alert-bar numbers). */
-  welcomeReady?: boolean;
-  /** Prebuilt welcome line (alert-aligned). */
-  welcomeLine?: string;
 };
 
 export function useNexusVoice(opts: Opts) {
   const {
-    firstName,
-    cards,
-    cardsLoadOk,
-    needsYou,
     speakable,
     activeCardId,
     setActiveCardId,
     setActivePlanetId,
     navigate,
-    welcomeReady = true,
-    welcomeLine,
   } = opts;
+  // firstName / cards / cardsLoadOk / needsYou kept on Opts for callers; welcome speech removed.
 
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [voiceNotice, setVoiceNotice] = useState('');
@@ -128,7 +116,6 @@ export function useNexusVoice(opts: Opts) {
   const briefingIndexRef = useRef(0);
   const speakableRef = useRef(speakable);
   const activeCardIdRef = useRef(activeCardId);
-  const welcomeArmedRef = useRef(false);
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
 
   useEffect(() => {
@@ -483,34 +470,11 @@ export function useNexusVoice(opts: Opts) {
     }
   }, [clearListenTimers, sendClip, stopRecording, stopSpeaking]);
 
-  /** First click/tap this session → welcome once (only after alert numbers are ready). */
-  const onFirstInteraction = useCallback(async () => {
-    if (!welcomeReady) return;
-    if (welcomeArmedRef.current) return;
-    if (hasSpokenWelcome()) return;
-    welcomeArmedRef.current = true;
-    markWelcomeSpoken();
-    const line =
-      welcomeLine ||
-      formatWelcomeLine({
-        firstName,
-        cardsLoadOk,
-        updateCount: cards.length,
-        needsYou,
-      });
-    await speakText(line);
-  }, [cards.length, cardsLoadOk, firstName, needsYou, speakText, welcomeLine, welcomeReady]);
-
-  const onOrb = useCallback(() => {
-    // First orb tap of the session is welcome only — don't cut it off with listening.
-    if (!hasSpokenWelcome()) {
-      if (!welcomeReady) {
-        setVoiceNotice('Loading your numbers…');
-        return;
-      }
-      void onFirstInteraction();
-      return;
-    }
+  /**
+   * Mic tap only — no auto-welcome on first click / pointerdown.
+   * Speak/listen starts when the user taps the mic (or orb after session started via mic).
+   */
+  const onMicTap = useCallback(() => {
     if (voiceState === 'speaking') {
       stopSpeaking();
       return;
@@ -521,16 +485,12 @@ export function useNexusVoice(opts: Opts) {
       return;
     }
     void startListening();
-  }, [onFirstInteraction, startListening, stopRecording, stopSpeaking, voiceState, welcomeReady]);
+  }, [startListening, stopRecording, stopSpeaking, voiceState]);
 
-  useEffect(() => {
-    if (!welcomeReady) return;
-    const handler = () => {
-      void onFirstInteraction();
-    };
-    window.addEventListener('pointerdown', handler, { once: true, capture: true });
-    return () => window.removeEventListener('pointerdown', handler, true);
-  }, [onFirstInteraction, welcomeReady]);
+  const onOrb = useCallback(() => {
+    // Orb mirrors mic: push-to-talk / stop — never auto-welcome.
+    onMicTap();
+  }, [onMicTap]);
 
   useEffect(
     () => () => {
@@ -604,6 +564,7 @@ export function useNexusVoice(opts: Opts) {
     pendingConfirm,
     statusLabel,
     onOrb,
+    onMicTap,
     runChip,
     pickCustomer,
     confirmYes,

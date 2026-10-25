@@ -48,6 +48,17 @@ import {
   type TimelineLaneId,
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
+import NexusHero from './NexusHero';
+import NexusTopMetrics from './NexusTopMetrics';
+import {
+  clearHomeSummaryCache,
+  formatUpdatedAgo,
+  homeSummaryCacheKey,
+  loadHomeSummary,
+  readHomeSummaryCache,
+  writeHomeSummaryCache,
+  type HomeSummary,
+} from './homeSummaryApi';
 
 type HealthBody = {
   data_health?: NexusSignalCard[];
@@ -100,15 +111,6 @@ function unavailableResult<T = number>(): SourceResult<T> {
   return { state: 'unavailable' };
 }
 
-function formatClock(d: Date): string {
-  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} · ${hh}:${mm}:${ss}`;
-}
-
 function formatNowLabel(d: Date): string {
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
@@ -148,6 +150,20 @@ export default function NexusPage() {
     invoiceCountToday: unavailableResult<number>(),
   });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const cacheKey = homeSummaryCacheKey(
+    (user as { tenant_id?: number | string } | null)?.tenant_id ?? null,
+    user?.id ?? null,
+  );
+  const [homeSummary, setHomeSummary] = useState<HomeSummary | null>(() => readHomeSummaryCache(cacheKey));
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+
+  // Clear home-summary cache on logout (user becomes null).
+  useEffect(() => {
+    if (!user) {
+      clearHomeSummaryCache();
+      setHomeSummary(null);
+    }
+  }, [user]);
 
   const alertCounts = useMemo(
     () =>
@@ -177,6 +193,22 @@ export default function NexusPage() {
       }),
     [name, shellReady, attentionFacts, loadFailures],
   );
+
+  // Instant cache + background refresh once shell is ready.
+  useEffect(() => {
+    if (!isStaging || !shellReady) return;
+    const cached = readHomeSummaryCache(cacheKey);
+    if (cached) setHomeSummary(cached);
+    let cancelled = false;
+    void loadHomeSummary(shell).then((summary) => {
+      if (cancelled) return;
+      setHomeSummary(summary);
+      writeHomeSummaryCache(cacheKey, summary);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shell, shellReady, cacheKey, summaryRefreshKey]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 1000);
@@ -337,9 +369,11 @@ export default function NexusPage() {
     setActiveCardId,
     setActivePlanetId,
     navigate,
-    welcomeReady: shellReady,
-    welcomeLine,
   });
+
+  const updatedLabel = homeSummary?.generated_at
+    ? formatUpdatedAgo(homeSummary.generated_at, now)
+    : null;
 
   const onPlanet = (planet: NexusPlanet) => {
     if (planet.status === 'error') {
@@ -374,26 +408,27 @@ export default function NexusPage() {
       <div aria-hidden style={starsStyle} />
       <div aria-hidden style={nebulaStyle} />
 
-      {/* Header */}
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={logoOrbStyle} />
-          <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '0.02em' }}>Zava nexus</span>
-              <span style={{ fontSize: 11, color: '#7C8DB5', letterSpacing: '0.12em' }}>
-                ALL SYSTEMS WATCHED · 10 MODULES
-              </span>
-            </div>
-          </div>
-          <Link to="/dashboard" style={dashLinkStyle}>
-            Go to dashboard
-          </Link>
-        </div>
-        <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, color: '#94A3B8' }}>
-          {formatClock(now)}
-        </div>
-      </header>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+        <Link to="/dashboard" style={dashLinkStyle}>
+          Go to dashboard
+        </Link>
+      </div>
+
+      <NexusHero
+        firstName={name}
+        summary={homeSummary}
+        updatedLabel={updatedLabel}
+        now={now}
+        onMicTap={voice.onMicTap}
+        micActive={voice.voiceState === 'listening' || voice.voiceState === 'speaking'}
+      />
+      <NexusTopMetrics
+        summary={homeSummary}
+        onRetry={() => {
+          setSummaryRefreshKey((k) => k + 1);
+          reloadShell();
+        }}
+      />
 
       <div className="zava-nexus-grid" style={gridStyle}>
         {/* LEFT */}
@@ -1024,24 +1059,6 @@ const nebulaStyle: CSSProperties = {
   inset: 0,
   background:
     'radial-gradient(ellipse 55% 40% at 50% 42%, rgba(79,110,200,0.22) 0%, transparent 70%), radial-gradient(ellipse 40% 30% at 70% 60%, rgba(124,58,237,0.12) 0%, transparent 65%)',
-};
-
-const headerStyle: CSSProperties = {
-  position: 'relative',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  flexWrap: 'wrap',
-  marginBottom: 14,
-};
-
-const logoOrbStyle: CSSProperties = {
-  width: 28,
-  height: 28,
-  borderRadius: '50%',
-  background: 'radial-gradient(circle at 35% 30%, #E9D5FF, #4F8EF7 60%, #1E3A5F)',
-  boxShadow: '0 0 18px rgba(99,102,241,0.65)',
 };
 
 const dashLinkStyle: CSSProperties = {
