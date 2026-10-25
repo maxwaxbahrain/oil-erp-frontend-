@@ -25,7 +25,6 @@ import {
   customerBalanceSpeech,
   formatCardSpeech,
   formatVanSummary,
-  formatWelcomeLine,
   hasSpokenWelcome,
   markWelcomeSpoken,
   parseVoiceIntent,
@@ -90,25 +89,18 @@ type Opts = {
   setActiveCardId: (id: string | null) => void;
   setActivePlanetId: (id: string | null) => void;
   navigate: NavigateFunction;
-  /** When false, do not play welcome yet (wait for alert-bar numbers). */
-  welcomeReady?: boolean;
-  /** Prebuilt welcome line (alert-aligned). */
-  welcomeLine?: string;
+  /** On-screen hero line — spoken once on the first mic tap of the tab session. */
+  heroLine?: string;
 };
 
 export function useNexusVoice(opts: Opts) {
   const {
-    firstName,
-    cards,
-    cardsLoadOk,
-    needsYou,
     speakable,
     activeCardId,
     setActiveCardId,
     setActivePlanetId,
     navigate,
-    welcomeReady = true,
-    welcomeLine,
+    heroLine = '',
   } = opts;
 
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -128,8 +120,9 @@ export function useNexusVoice(opts: Opts) {
   const briefingIndexRef = useRef(0);
   const speakableRef = useRef(speakable);
   const activeCardIdRef = useRef(activeCardId);
-  const welcomeArmedRef = useRef(false);
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
+  const heroLineRef = useRef(heroLine);
+  const speakDoneRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     pendingConfirmRef.current = pendingConfirm;
@@ -141,11 +134,20 @@ export function useNexusVoice(opts: Opts) {
   useEffect(() => {
     activeCardIdRef.current = activeCardId;
   }, [activeCardId]);
+  useEffect(() => {
+    heroLineRef.current = heroLine;
+  }, [heroLine]);
 
   const clearListenTimers = useCallback(() => {
     if (listenTimers.current.tick) window.clearInterval(listenTimers.current.tick);
     if (listenTimers.current.limit) window.clearTimeout(listenTimers.current.limit);
     listenTimers.current = {};
+  }, []);
+
+  const resolveSpeakDone = useCallback(() => {
+    const done = speakDoneRef.current;
+    speakDoneRef.current = null;
+    done?.();
   }, []);
 
   const stopSpeaking = useCallback(() => {
@@ -160,7 +162,8 @@ export function useNexusVoice(opts: Opts) {
       voiceUrlRef.current = '';
     }
     setVoiceState((s) => (s === 'speaking' ? 'idle' : s));
-  }, []);
+    resolveSpeakDone();
+  }, [resolveSpeakDone]);
 
   const speakText = useCallback(
     async (text: string) => {
@@ -170,9 +173,19 @@ export function useNexusVoice(opts: Opts) {
         return;
       }
       setVoiceState('speaking');
-      const speakWatchdog = window.setTimeout(() => {
+      let settled = false;
+      let speakWatchdog = 0;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(speakWatchdog);
         setVoiceState((s) => (s === 'speaking' ? 'idle' : s));
-      }, 50_000);
+        resolveSpeakDone();
+      };
+      const awaitEnd = new Promise<void>((resolve) => {
+        speakDoneRef.current = resolve;
+      });
+      speakWatchdog = window.setTimeout(finish, 50_000);
       try {
         const response = await api.post<Blob>(
           '/api/agent/speak',
@@ -183,16 +196,12 @@ export function useNexusVoice(opts: Opts) {
         voiceUrlRef.current = url;
         const audio = new Audio(url);
         audioRef.current = audio;
-        const finish = () => {
-          window.clearTimeout(speakWatchdog);
-          setVoiceState('idle');
-        };
         audio.onended = finish;
         audio.onerror = finish;
         await audio.play();
+        await awaitEnd;
       } catch (error) {
-        window.clearTimeout(speakWatchdog);
-        setVoiceState('idle');
+        finish();
         const message = await voiceFailure(error);
         if (message === ERRORS.limit) {
           setCapReached(true);
@@ -203,7 +212,7 @@ export function useNexusVoice(opts: Opts) {
         // Cap / speak failure → text only (already set zavaLine)
       }
     },
-    [capReached],
+    [capReached, resolveSpeakDone],
   );
 
   const highlightCard = useCallback(
@@ -483,34 +492,12 @@ export function useNexusVoice(opts: Opts) {
     }
   }, [clearListenTimers, sendClip, stopRecording, stopSpeaking]);
 
-  /** First click/tap this session → welcome once (only after alert numbers are ready). */
-  const onFirstInteraction = useCallback(async () => {
-    if (!welcomeReady) return;
-    if (welcomeArmedRef.current) return;
-    if (hasSpokenWelcome()) return;
-    welcomeArmedRef.current = true;
-    markWelcomeSpoken();
-    const line =
-      welcomeLine ||
-      formatWelcomeLine({
-        firstName,
-        cardsLoadOk,
-        updateCount: cards.length,
-        needsYou,
-      });
-    await speakText(line);
-  }, [cards.length, cardsLoadOk, firstName, needsYou, speakText, welcomeLine, welcomeReady]);
-
-  const onOrb = useCallback(() => {
-    // First orb tap of the session is welcome only — don't cut it off with listening.
-    if (!hasSpokenWelcome()) {
-      if (!welcomeReady) {
-        setVoiceNotice('Loading your numbers…');
-        return;
-      }
-      void onFirstInteraction();
-      return;
-    }
+  /**
+   * Mic tap only — never speak without a mic tap.
+   * First tap of the tab session: speak the on-screen hero line, then listen.
+   * Later taps: listen only.
+   */
+  const onMicTap = useCallback(() => {
     if (voiceState === 'speaking') {
       stopSpeaking();
       return;
@@ -520,17 +507,20 @@ export function useNexusVoice(opts: Opts) {
       stopRecording();
       return;
     }
-    void startListening();
-  }, [onFirstInteraction, startListening, stopRecording, stopSpeaking, voiceState, welcomeReady]);
+    void (async () => {
+      if (!hasSpokenWelcome()) {
+        markWelcomeSpoken();
+        const line = heroLineRef.current.trim();
+        if (line) await speakText(line);
+      }
+      await startListening();
+    })();
+  }, [speakText, startListening, stopRecording, stopSpeaking, voiceState]);
 
-  useEffect(() => {
-    if (!welcomeReady) return;
-    const handler = () => {
-      void onFirstInteraction();
-    };
-    window.addEventListener('pointerdown', handler, { once: true, capture: true });
-    return () => window.removeEventListener('pointerdown', handler, true);
-  }, [onFirstInteraction, welcomeReady]);
+  const onOrb = useCallback(() => {
+    // Orb mirrors mic: push-to-talk / stop — never auto-speak without a tap.
+    onMicTap();
+  }, [onMicTap]);
 
   useEffect(
     () => () => {
@@ -604,6 +594,7 @@ export function useNexusVoice(opts: Opts) {
     pendingConfirm,
     statusLabel,
     onOrb,
+    onMicTap,
     runChip,
     pickCustomer,
     confirmYes,
