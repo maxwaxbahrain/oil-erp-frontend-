@@ -490,7 +490,12 @@ export async function getProductById(id: string): Promise<Product | undefined> {
     } catch { return undefined; }
 }
 
-export async function saveProduct(product: Partial<Product>): Promise<Product> {
+export interface SaveProductOptions {
+    /** Sent as cost_change_reason on the PUT; the backend records it on the cost revaluation. */
+    costChangeReason?: string;
+}
+
+export async function saveProduct(product: Partial<Product>, options: SaveProductOptions = {}): Promise<Product> {
     // Translate the nested frontend form shape to the flat backend Product schema.
     // Backend `ProductUpdate` / `ProductCreate` accepts only these flat keys
     // (see app/schemas/product.py on bettano-erp-backend). Every other rich
@@ -538,6 +543,10 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     }
     if (product.defaultLocationId !== undefined) {
         backendPayload.default_location_id = product.defaultLocationId;
+    }
+    const costChangeReason = options.costChangeReason?.trim();
+    if (costChangeReason) {
+        backendPayload.cost_change_reason = costChangeReason;
     }
 
     // Hit the backend FIRST. If it fails, throw — the form's catch block

@@ -24,6 +24,7 @@ import { getLocationsFlat, type StockLocationNode } from '../../services/stockLo
 import { getSystemSettings, formatCurrency } from '../../services/settingsService';
 import { getSuggestSettings, type SuggestSettings } from '../../services/reorderService';
 import { ImageUpload } from '../../components/Inventory/ImageUpload';
+import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
 
 export default function ProductForm() {
     const { id } = useParams();
@@ -47,6 +48,11 @@ export default function ProductForm() {
     const [suggestion, setSuggestion] = useState<SuggestSettings | null>(null);
     const [suggestLoading, setSuggestLoading] = useState(false);
     const [suggestError, setSuggestError] = useState('');
+    // Cost as loaded from the server; a different cost on save revalues stock and needs confirming.
+    const [loadedCost, setLoadedCost] = useState<number | null>(null);
+    const [costDialogOpen, setCostDialogOpen] = useState(false);
+    const [costReason, setCostReason] = useState('');
+    const [showCostHistory, setShowCostHistory] = useState(false);
     const [formData, setFormData] = useState<Partial<Product>>({
         status: 'Active',
         category: '',
@@ -115,6 +121,7 @@ export default function ProductForm() {
             const data = await getProductById(prodId);
             if (data) {
                 setFormData(data);
+                setLoadedCost(Number(data.pricing?.purchasePriceExWorks ?? 0));
                 if (data.locations?.[0]?.id) setOpenLocationId(data.locations[0].id);
             }
         } catch (error) {
@@ -154,13 +161,27 @@ export default function ProductForm() {
             }
         }
 
+        // The same number saveProduct sends as cost; a change in edit mode is confirmed first.
+        const newCost = Number(formData.pricing?.purchasePriceExWorks ?? 0);
+        if (isEdit && loadedCost !== null && newCost !== loadedCost) {
+            setCostReason('');
+            setCostDialogOpen(true);
+            return;
+        }
+        await persist();
+    };
+
+    const persist = async (costChangeReason?: string) => {
         try {
             setLoading(true);
-            await saveProduct({
-                ...formData,
-                baseUnit: (formData.baseUnit || '').trim() || formData.uom,
-                costMethod: formData.costMethod || 'average',
-            });
+            await saveProduct(
+                {
+                    ...formData,
+                    baseUnit: (formData.baseUnit || '').trim() || formData.uom,
+                    costMethod: formData.costMethod || 'average',
+                },
+                costChangeReason ? { costChangeReason } : undefined,
+            );
             alert('Product saved successfully!');
             navigate('/products');
         } catch (error) {
@@ -812,12 +833,23 @@ export default function ProductForm() {
                                             type="number"
                                             inputMode="decimal"
                                             step="any"
+                                            aria-label="Cost"
                                             value={formData.pricing?.purchasePriceExWorks ?? ''}
                                             onChange={e => updatePricing({ purchasePriceExWorks: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
                                             className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-lg font-black transition-all outline-none"
                                             placeholder="0"
                                         />
                                     </div>
+                                    {isEdit && (
+                                        <div className="mt-2 flex flex-wrap items-center gap-3 pl-1 text-[11px] font-bold text-gray-500">
+                                            <span>Changing the cost revalues stock on hand and posts a journal.</span>
+                                            {id && (
+                                                <button type="button" onClick={() => setShowCostHistory(true)} className="text-gray-900 underline">
+                                                    Cost history
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-black text-gray-500 uppercase tracking-widest block mb-3 pl-1">
@@ -1258,6 +1290,54 @@ export default function ProductForm() {
 
                 </div>
             </div>
+
+            {costDialogOpen && (
+                <div role="dialog" aria-label="Confirm cost change" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                        <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Change cost?</h3>
+                        <p className="mt-3 text-sm text-gray-700" data-testid="cost-change-summary">
+                            Cost {formatCurrency(loadedCost ?? 0)} → {formatCurrency(Number(formData.pricing?.purchasePriceExWorks ?? 0))}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Saving revalues the stock on hand at the new cost and posts a journal.
+                        </p>
+                        <label className="mt-4 block text-[11px] font-black uppercase tracking-widest text-gray-500">
+                            Reason (optional)
+                            <textarea
+                                aria-label="Cost change reason"
+                                value={costReason}
+                                onChange={(e) => setCostReason(e.target.value)}
+                                rows={2}
+                                className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none focus:border-gray-900"
+                            />
+                        </label>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCostDialogOpen(false)}
+                                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-600"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => {
+                                    setCostDialogOpen(false);
+                                    void persist(costReason.trim() || undefined);
+                                }}
+                                className="rounded-xl bg-gray-900 px-4 py-2 text-xs font-black uppercase tracking-widest text-white"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showCostHistory && id && (
+                <CostHistoryPanel productId={Number(id)} onClose={() => setShowCostHistory(false)} />
+            )}
         </div>
     );
 }
