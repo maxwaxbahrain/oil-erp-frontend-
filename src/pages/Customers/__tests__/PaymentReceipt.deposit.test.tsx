@@ -50,7 +50,7 @@ describe('PaymentReceipt deposit account', () => {
     const select = view.host.querySelector('select');
     expect(select?.disabled).toBe(false);
     const labels = Array.from(select?.options ?? []).map((option) => option.textContent);
-    expect(labels).toEqual(['1010 — Main Bank', '1011 — Operating']);
+    expect(labels).toEqual(['Choose bank account', '1010 — Main Bank', '1011 — Operating']);
     expect(select?.value).toBe('1');
     view.cleanup();
   });

@@ -96,11 +96,11 @@ async function voiceRequest<T>(path: string, options: VoiceRequestOptions = {}):
             throw new VoiceApiError(401, 'Voice credentials not configured. Set your X-Tenant-Api-Key.');
         }
         headers['X-Tenant-Api-Key'] = key;
-    } else {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+    }
+    // Call list and ws-token require the ERP login as well as the tenant key.
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+    if (token && !headers.Authorization) {
+        headers.Authorization = `Bearer ${token}`;
     }
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
@@ -281,6 +281,84 @@ export function getWsToken(repId: number): Promise<WSTokenResponse> {
     return voiceRequest<WSTokenResponse>(`/ws-token?rep_id=${repId}`);
 }
 
+export function answerOwnerQuestion(body: {
+    call_id: string;
+    function_id: string;
+    answer: string;
+}): Promise<{ ok: boolean; call_id: string }> {
+    return voiceRequest('/agent/ask-owner/answer', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        noTenantAuth: true,
+    });
+}
+
+export interface AgentTask {
+    id: string;
+    tenant_id: string;
+    saas_tenant_id: number | null;
+    user_id: number | null;
+    phone_number: string;
+    goal: string;
+    plan_text: string;
+    status: 'draft' | 'approved' | 'calling' | 'completed' | 'failed' | 'cancelled' | string;
+    call_id: string | null;
+    fail_reason: string | null;
+    result_summary: string | null;
+    transcript: string | null;
+    suggested_next_steps: string | null;
+    created_at: string | null;
+    approved_at: string | null;
+}
+
+function agentJwtRequest<T>(path: string, options: VoiceRequestOptions = {}): Promise<T> {
+    return voiceRequest<T>(path, { ...options, noTenantAuth: true });
+}
+
+export function listAgentTasks(): Promise<{ items: AgentTask[] }> {
+    return agentJwtRequest('/agent/tasks');
+}
+
+export function createAgentTask(body: { phone_number: string; goal: string }): Promise<AgentTask> {
+    return agentJwtRequest('/agent/tasks', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function editAgentPlan(taskId: string, plan_text: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ plan_text }),
+    });
+}
+
+export function approveAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/approve`, { method: 'POST' });
+}
+
+export function cancelAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' });
+}
+
+export function hangupAgentTask(taskId: string): Promise<AgentTask> {
+    return agentJwtRequest(`/agent/tasks/${encodeURIComponent(taskId)}/hangup`, { method: 'POST' });
+}
+
+export interface StagingVoiceLine {
+    voice_tenant_id: string;
+    saas_tenant_id: number;
+    telnyx_number: string;
+    webhook_path: string;
+    company_name: string;
+    api_key: string | null;
+    key_already_issued: boolean;
+}
+
+export function setupStagingVoiceLine(rotateKey = false): Promise<StagingVoiceLine> {
+    return agentJwtRequest('/agent/staging-voice-tenant', {
+        method: 'POST',
+        body: JSON.stringify({ rotate_key: rotateKey }),
+    });
+}
+
 // ── Admin (POST /api/tenants/onboard — platform admin key) ─────
 export function onboardTenant(
     body: {
@@ -317,7 +395,11 @@ export type VoiceWSMessage =
     | { type: 'stock_alert'; call_id: string | null; sku: string; product_name: string;
         requested: number; available: number }
     | { type: 'call_ended'; call_id: string; duration: number; summary: string;
-        sentiment: string; order_drafts_count: number };
+        sentiment: string; order_drafts_count: number }
+    | { type: 'owner_question'; call_id: string; function_id: string; question: string;
+        timeout_seconds: number }
+    | { type: 'agent_transcript'; call_id: string; role: string; text: string }
+    | { type: 'agent_task_updated'; task: AgentTask };
 
 export interface VoiceWSHandle {
     /** Close the connection. Auto-reconnect is also stopped. */
@@ -329,7 +411,9 @@ export interface VoiceWSHandle {
 interface ConnectVoiceWSOptions {
     repId: number;
     onMessage: (msg: VoiceWSMessage) => void;
-    onStatusChange?: (status: 'connecting' | 'connected' | 'disconnected') => void;
+    onStatusChange?: (status: 'idle' | 'connecting' | 'connected' | 'disconnected') => void;
+    /** Auth was rejected. Reconnect stops so the pill does not stay on Connecting. */
+    onStopped?: (message: string) => void;
 }
 
 /** Connect to the rep-dashboard WS with transparent auto-reconnect.
@@ -339,13 +423,13 @@ interface ConnectVoiceWSOptions {
  * show a "Reconnecting..." indicator and a transient "Connected"
  * flash on recovery.
  */
-export function connectVoiceWS({ repId, onMessage, onStatusChange }: ConnectVoiceWSOptions): VoiceWSHandle {
+export function connectVoiceWS({ repId, onMessage, onStatusChange, onStopped }: ConnectVoiceWSOptions): VoiceWSHandle {
     let ws: WebSocket | null = null;
     let closedByUser = false;
     let retryDelayMs = 1000;
     const MAX_RETRY_MS = 30_000;
 
-    const notifyStatus = (s: 'connecting' | 'connected' | 'disconnected') => {
+    const notifyStatus = (s: 'idle' | 'connecting' | 'connected' | 'disconnected') => {
         if (onStatusChange) try { onStatusChange(s); } catch { /* ignore */ }
     };
 
@@ -357,6 +441,13 @@ export function connectVoiceWS({ repId, onMessage, onStatusChange }: ConnectVoic
             tokenResp = await getWsToken(repId);
         } catch (e) {
             console.error('[voiceWS] ws-token fetch failed:', e);
+            const status = e instanceof VoiceApiError ? e.status : 0;
+            if (status === 401 || status === 403) {
+                notifyStatus('idle');
+                const detail = e instanceof Error ? e.message : 'Voice login was rejected';
+                try { onStopped?.(detail); } catch { /* ignore */ }
+                return;
+            }
             scheduleReconnect();
             return;
         }

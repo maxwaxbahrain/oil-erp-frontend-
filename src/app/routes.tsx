@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Construction } from 'lucide-react';
 import ProtectedRoute from '../components/ProtectedRoute';
 import ProductionLockedRoute from './ProductionLockedRoute';
-import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES, ADMIN_ROLES } from '../utils/rbac';
+import { FINANCE_ROLES, MANAGEMENT_ROLES, SALES_INTEL_ROLES, SPOD_AI_ROLES, SPOD_COMMON_ROLES, SALES_TOOL_ROLES, DRIVER_TOOL_ROLES, INTERNAL_WEB_ROLES, SALES_VOICE_ROLES, ADMIN_ROLES, WAREHOUSE_PAGE_ROLES } from '../utils/rbac';
 import { isStaging } from '../config/appEnv';
 import { MODULE_FLAGS } from '../config/moduleFlags';
 import AccountingSetupRequired from '../components/common/AccountingSetupRequired';
@@ -28,6 +28,14 @@ import Dashboard from '../pages/Dashboard/Dashboard';
 import FinanceDashboard from '../pages/Finance/FinanceDashboard';
 import SalesDashboard from '../pages/Sales/SalesDashboard';
 import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
+import StockOnHand from '../pages/Warehouse/StockOnHand';
+import InventoryValuation from '../pages/Warehouse/InventoryValuation';
+import LocationsPage from '../pages/Warehouse/Locations';
+import PickingPage from '../pages/Warehouse/Picking';
+import PickListPage from '../pages/Warehouse/PickList';
+import CountsPage from '../pages/Warehouse/Counts';
+import CountSheetPage from '../pages/Warehouse/CountSheet';
+import ExpiringStockPage from '../pages/Warehouse/ExpiringStock';
 import CustomerList from '../pages/Customers/CustomerList';
 import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
@@ -76,8 +84,10 @@ import SupplierForm from '../pages/Purchases/SupplierForm';
 import GoodsReceivedForm from '../pages/Inventory/GoodsReceivedForm';
 import GoodsReceivedList from '../pages/Inventory/GoodsReceivedList';
 import PurchaseReturns from '../pages/Purchases/PurchaseReturns';
+import SupplierPayments from '../pages/Purchases/SupplierPayments';
 import PurchaseReturnFormPage from '../pages/Purchases/PurchaseReturnFormPage';
 import PurchaseReturnDetailPage from '../pages/Purchases/PurchaseReturnDetailPage';
+import ReorderPlanning from '../pages/Purchases/ReorderPlanning';
 import StockTransfer from '../pages/Inventory/StockTransfer';
 import InventoryReports from '../pages/Inventory/InventoryReports';
 import SettingsPage from '../pages/Settings/SettingsPage';
@@ -110,6 +120,7 @@ import JournalVoucher from '../pages/Accounts/JournalVoucher';
 import AllAccountsLedger from '../pages/Accounts/AllAccountsLedger';
 // TC-69 — Financial Statement page (P&L, Balance Sheet, Cash Flow).
 import FinancialStatement from '../pages/Reports/FinancialStatement';
+import DemandForecasting from '../pages/Reports/DemandForecasting';
 import PaymentEdit from '../pages/Accounts/PaymentEdit';
 import BadDebtsJV from '../pages/Accounts/BadDebtsJV';
 import AIHub from '../pages/AI/AIHub';
@@ -146,6 +157,9 @@ import VoiceCallDetail from '../pages/Voice/CallDetail';
 import VoiceAnalytics from '../pages/Voice/Analytics';
 import VoiceCoachingRules from '../pages/Voice/CoachingRules';
 import VoiceTenantOnboard from '../pages/Voice/TenantOnboard';
+import AgentPage from '../pages/Agent/AgentPage';
+import NexusPage from '../pages/Agent/nexus/NexusPage';
+import OpsMapPage from '../pages/Agent/opsMap/OpsMapPage';
 import DataMigration from '../pages/Migration/DataMigration'; // CRM exports as 'CRM'
 import AIContentStudio from '../pages/Marketing/AIContentStudio';
 import { CustomerSegments } from '../pages/Marketing/MarketingPages';
@@ -161,6 +175,7 @@ import VanOperations from '../pages/Logistics/VanOperations';
 import RouteNavigator from '../pages/Logistics/RouteNavigator';
 import RoutePlanning from '../pages/Logistics/RoutePlanning';
 import VanTracking from '../pages/Logistics/VanTracking';
+import FleetMileage from '../pages/Field/FleetMileage';
 import PublicInvoice from '../pages/PublicInvoice';
 
 import OrganizationChart from '../pages/UserManagement/OrganizationChart';
@@ -263,6 +278,7 @@ export const AppRoutes = () => {
             <Route path="/products/:id" element={<ProductOverview />} />
             <Route path="/pulse" element={<Pulse />} />
             <Route path="/pulse/notes" element={<MeetingNotes />} />
+            <Route path="/field/fleet-mileage" element={<FleetMileage />} />
             </Route>
 
             {/* Sales SPOD tools — sales + internal staff (not driver) */}
@@ -323,10 +339,22 @@ export const AppRoutes = () => {
 
             <Route path="/settings/password" element={<ChangePassword />} />
 
+            {/* Existing warehouse pages. Warehouse staff can open these; they are not new paths. */}
+            <Route element={<ProtectedRoute roles={WAREHOUSE_PAGE_ROLES} />}>
+            <Route path="/warehouse/stock" element={<StockOnHand />} />
+            <Route path="/warehouse/locations" element={<LocationsPage />} />
+            <Route path="/warehouse/picking" element={<PickingPage />} />
+            <Route path="/warehouse/picking/:id" element={<PickListPage />} />
+            <Route path="/warehouse/counts" element={<CountsPage />} />
+            <Route path="/warehouse/counts/:id" element={<CountSheetPage />} />
+            <Route path="/warehouse/expiry" element={<ExpiringStockPage />} />
+            </Route>
+
             {/* Internal web staff — full ERP modules */}
             <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+            <Route path="/warehouse/valuation" element={<InventoryValuation />} />
             <Route path="/products/new" element={<ProductForm />} />
             <Route path="/products/edit/:id" element={<ProductForm />} />
             <Route path="/products/import" element={<InvoiceImport />} />
@@ -343,6 +371,8 @@ export const AppRoutes = () => {
             <Route path="/receiving/new" element={<GoodsReceivedForm />} />
             <Route path="/receiving/:id" element={<GoodsReceivedForm />} />
             <Route path="/purchases/returns" element={<PurchaseReturns />} />
+            <Route path="/purchases/payments" element={<SupplierPayments />} />
+            <Route path="/purchases/reorder" element={<ReorderPlanning />} />
             <Route path="/purchases/returns/new" element={<PurchaseReturnFormPage />} />
             <Route path="/purchases/returns/:id/edit" element={<PurchaseReturnFormPage />} />
             <Route path="/purchases/returns/:id" element={<PurchaseReturnDetailPage />} />
@@ -414,10 +444,13 @@ export const AppRoutes = () => {
             <Route path="/reports/day-book" element={<DayBook />} />
             <Route path="/reports/trial-balance" element={<TrialBalance />} />
             <Route path="/reports/financial" element={<ProfitabilityReports />} />
-            <Route path="/reports/demand-forecast" element={<AccountingSetupRequired />} />
+            <Route path="/reports/demand-forecast" element={<DemandForecasting />} />
             <Route path="/logistics/tracking" element={<VanTracking />} />
             <Route path="/logistics/route-planning" element={<RoutePlanning />} />
             <Route path="/settings/credit-sources" element={<CreditDataSources />} />
+            {isStaging && <Route path="/agent" element={<AgentPage />} />}
+            {isStaging && <Route path="/agent/nexus" element={<NexusPage />} />}
+            {isStaging && <Route path="/agent/ops-map" element={<OpsMapPage />} />}
             </Route>
 
             {/* Premium / AI — internal staff only (production lock retained) */}

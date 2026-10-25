@@ -5,8 +5,9 @@ import {
     AlertTriangle, Bot, Sparkles, Package2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { type Supplier, type PurchaseOrder, deleteSupplier, purchaseCountsAsPayable } from '../../services/purchasesService';
+import { type Supplier, type PurchaseOrder, deleteSupplier } from '../../services/purchasesService';
 import { authFetch } from '../../api/axios';
+import { assessTerms } from '../../utils/supplierTerms';
 
 const API_HOST = String(import.meta.env.VITE_API_URL || 'http://localhost:8000')
     .trim()
@@ -80,8 +81,8 @@ type FilterTab = 'all' | 'active' | 'overdue' | 'balance_owed';
 interface EnrichedSupplier extends Supplier {
     balance: number;
     productsSupplied: string[];
-    performance: number;
-    leadTime: string;
+    performance: number | null;
+    leadTime: string | null;
     isOverdue: boolean;
     isDueSoon: boolean;
     isTest: boolean;
@@ -93,35 +94,8 @@ function formatUsd(n: number): string {
     return `$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function parseNetDays(terms: string): number {
-    const m = terms.match(/net\s*(\d+)/i);
-    if (m) return Number(m[1]) || 30;
-    if (/cod|cash/i.test(terms)) return 0;
-    return 30;
-}
-
 function isTestSupplier(s: Supplier): boolean {
     return /test/i.test(s.name) || /test/i.test(s.code || '');
-}
-
-function hashNum(seed: string, min: number, max: number): number {
-    const h = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    return min + (h % (max - min + 1));
-}
-
-function derivePerformance(s: Supplier): number {
-    if (s.rating === 'A') return 94;
-    if (s.rating === 'B') return 88;
-    if (s.rating === 'C') return 72;
-    return hashNum(s.id || s.name, 68, 96);
-}
-
-function deriveLeadTime(s: Supplier): string {
-    if (/cod|cash/i.test(s.paymentTerms || '')) return 'COD';
-    const min = hashNum(s.id + 'lt', 3, 10);
-    const max = min + hashNum(s.name, 5, 11);
-    if (max - min >= 7) return `${min}-${max} days`;
-    return `${min}-${min + 4} days`;
 }
 
 function extractProducts(purchases: PurchaseOrder[]): string[] {
@@ -134,37 +108,6 @@ function extractProducts(purchases: PurchaseOrder[]): string[] {
     return [...names].slice(0, 4);
 }
 
-function assessTerms(
-    balance: number,
-    paymentTerms: string,
-    purchases: PurchaseOrder[],
-): { isOverdue: boolean; isDueSoon: boolean } {
-    if (balance <= 0) return { isOverdue: false, isDueSoon: false };
-    const netDays = parseNetDays(paymentTerms);
-    if (netDays === 0) return { isOverdue: false, isDueSoon: false };
-
-    const today = Date.now();
-    let oldestUnpaidDays = 0;
-
-    purchases.forEach((po) => {
-        if (!purchaseCountsAsPayable(po.status)) return;
-        const paid = po.status === 'Paid' || po.payment_status === 'Paid';
-        if (paid) return;
-        const poTime = new Date(po.date).getTime();
-        if (Number.isNaN(poTime)) return;
-        const days = Math.floor((today - poTime) / 86400000);
-        if (days > oldestUnpaidDays) oldestUnpaidDays = days;
-    });
-
-    if (oldestUnpaidDays === 0 && balance > 0) {
-        oldestUnpaidDays = hashNum(paymentTerms + String(balance), 20, 45);
-    }
-
-    const isOverdue = oldestUnpaidDays > netDays;
-    const isDueSoon = !isOverdue && oldestUnpaidDays >= netDays - 7 && oldestUnpaidDays <= netDays;
-    return { isOverdue, isDueSoon };
-}
-
 function getRowStatus(s: EnrichedSupplier): EnrichedSupplier['rowStatus'] {
     if (s.isTest) return 'Test';
     if (s.status === 'Blocked') return 'Blocked';
@@ -175,9 +118,6 @@ function getRowStatus(s: EnrichedSupplier): EnrichedSupplier['rowStatus'] {
 }
 
 function termsLabel(s: EnrichedSupplier): { text: string; color: string } {
-    if (/cod|cash/i.test(s.paymentTerms || '')) {
-        return { text: 'COD', color: C.muted };
-    }
     if (s.isOverdue) {
         return { text: `${s.paymentTerms} overdue`, color: C.red };
     }
@@ -211,6 +151,7 @@ export default function SupplierList() {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const rows = await res.json();
                 const list: any[] = Array.isArray(rows) ? rows : [];
+                const today = new Date();
 
                 const enriched = await Promise.all(
                     list.map(async (s) => {
@@ -246,14 +187,14 @@ export default function SupplierList() {
                             rating: s.rating || undefined,
                         };
 
-                        const { isOverdue, isDueSoon } = assessTerms(balance, base.paymentTerms, purchases);
+                        const { isOverdue, isDueSoon } = assessTerms(balance, base.paymentTerms, purchases, today);
                         const isTest = isTestSupplier(base);
                         const row: EnrichedSupplier = {
                             ...base,
                             balance,
                             productsSupplied: extractProducts(purchases),
-                            performance: derivePerformance(base),
-                            leadTime: deriveLeadTime(base),
+                            performance: null,
+                            leadTime: null,
                             isOverdue,
                             isDueSoon,
                             isTest,
@@ -321,8 +262,8 @@ export default function SupplierList() {
             s.productsSupplied.join('; ') || '—',
             s.balance,
             s.paymentTerms,
-            s.leadTime,
-            `${s.performance}%`,
+            s.leadTime ?? '—',
+            s.performance == null ? '—' : `${s.performance}%`,
             s.rowStatus,
         ]);
         const ws = XLSX.utils.aoa_to_sheet([
@@ -334,7 +275,7 @@ export default function SupplierList() {
         ]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Suppliers');
-        XLSX.writeFile(wb, `Supplier_Master_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        XLSX.writeFile(wb, `Supplier_Master_${new Date().toISOString().slice(0, 10)}.xlsx`); // utc-date-ok: export filename
     };
 
     const counts = useMemo(() => {
@@ -392,38 +333,14 @@ export default function SupplierList() {
                 ),
             });
         }
-        const slowLead = suppliers.find((s) => !s.isTest && /1[4-9]|2[0-9]/.test(s.leadTime));
-        if (slowLead) {
+        if (insights.length === 0) {
             insights.push({
-                color: C.amber,
-                body: (
-                    <>
-                        <strong style={{ color: C.amber }}>{slowLead.name}</strong> lead time {slowLead.leadTime} — consider backup supplier for critical SKUs.
-                    </>
-                ),
+                color: C.muted,
+                body: 'No supplier alerts — balances and terms are current.',
             });
         }
-        const topPerf = [...suppliers].filter((s) => !s.isTest).sort((a, b) => b.performance - a.performance)[0];
-        if (topPerf) {
-            insights.push({
-                color: C.green,
-                body: (
-                    <>
-                        <strong style={{ color: C.green }}>{topPerf.name}</strong> at {topPerf.performance}% performance — preferred supplier for bulk lubricant orders.
-                    </>
-                ),
-            });
-        }
-        while (insights.length < 3) {
-            const fallbacks = [
-                { color: C.red, body: 'Review overdue payables weekly to maintain supplier relationships.' },
-                { color: C.amber, body: 'Monitor lead times on high-velocity SKUs before stockouts.' },
-                { color: C.blue, body: 'Compare supplier performance scores before renewing contracts.' },
-            ];
-            insights.push(fallbacks[insights.length]);
-        }
-        return insights.slice(0, 3);
-    }, [suppliers, primaryOverdue]);
+        return insights;
+    }, [primaryOverdue]);
 
     const filterTabs: { key: FilterTab; label: string; count: number }[] = [
         { key: 'all', label: 'All', count: suppliers.length },
@@ -475,7 +392,7 @@ export default function SupplierList() {
                             Supplier master
                         </h1>
                         <p style={{ fontSize: 11, color: C.muted, margin: '4px 0 0' }}>
-                            All suppliers · balances · payment terms · lead times · performance scores
+                            All suppliers · balances · payment terms
                         </p>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -653,8 +570,9 @@ export default function SupplierList() {
                             <tbody>
                                 {filtered.map((s) => {
                                     const terms = termsLabel(s);
-                                    const leadColor = /1[4-9]|2[0-9]/.test(s.leadTime) ? C.red : C.muted;
-                                    const perfColor = s.performance >= 90 ? C.green : s.performance >= 75 ? C.amber : C.red;
+                                    const perfColor = s.performance == null
+                                        ? C.dim
+                                        : s.performance >= 90 ? C.green : s.performance >= 75 ? C.amber : C.red;
                                     return (
                                         <tr
                                             key={s.id}
@@ -700,19 +618,25 @@ export default function SupplierList() {
                                                 </span>
                                             </td>
                                             <td style={tdStyle}>
-                                                <span style={{ fontSize: 10, color: leadColor, fontWeight: /1[4-9]|2[0-9]/.test(s.leadTime) ? 600 : 400 }}>
-                                                    {s.leadTime}
-                                                </span>
+                                                {s.leadTime ? (
+                                                    <span style={{ fontSize: 10, color: C.muted }}>{s.leadTime}</span>
+                                                ) : (
+                                                    <span style={{ fontSize: 10, color: C.dim }}>—</span>
+                                                )}
                                             </td>
                                             <td style={tdStyle}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 90 }}>
-                                                    <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
-                                                        <div style={{ width: `${s.performance}%`, height: '100%', background: perfColor, borderRadius: 3 }} />
+                                                {s.performance == null ? (
+                                                    <span style={{ fontSize: 10, color: C.dim }}>—</span>
+                                                ) : (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 90 }}>
+                                                        <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
+                                                            <div style={{ width: `${s.performance}%`, height: '100%', background: perfColor, borderRadius: 3 }} />
+                                                        </div>
+                                                        <span style={{ fontSize: 10, fontWeight: 600, color: perfColor, fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>
+                                                            {s.performance}%
+                                                        </span>
                                                     </div>
-                                                    <span style={{ fontSize: 10, fontWeight: 600, color: perfColor, fontFamily: 'ui-monospace, monospace', minWidth: 32 }}>
-                                                        {s.performance}%
-                                                    </span>
-                                                </div>
+                                                )}
                                             </td>
                                             <td style={tdStyle}>
                                                 <span style={{ fontSize: 9, fontWeight: 600, padding: '2px 8px', borderRadius: 20, ...statusBadgeStyle(s.rowStatus) }}>
@@ -790,7 +714,7 @@ export default function SupplierList() {
                     </div>
                     <div>
                         <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>AI supplier analysis</div>
-                        <div style={{ fontSize: 10, color: C.muted }}>Insights from payable balances · lead times · performance scores</div>
+                        <div style={{ fontSize: 10, color: C.muted }}>Insights from payable balances and payment terms</div>
                     </div>
                 </div>
 

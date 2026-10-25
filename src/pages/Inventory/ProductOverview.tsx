@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
     Package,
     ArrowLeft,
@@ -26,23 +26,26 @@ import {
     MessageSquare,
     Phone
 } from 'lucide-react';
-import { getProductById, getProducts, saveProduct, getAIInsights, type Product } from '../../services/productService';
+import { getProductById, getProducts, saveProduct, getAIInsights, formatPack, type Product } from '../../services/productService';
+import { getSuppliers } from '../../services/purchasesService';
 import { formatCurrency } from '../../services/settingsService';
-import { getInvoices } from '../../services/api';
-import { getGRNs } from '../../services/grnService';
-import { getSalesReturns } from '../../services/salesReturnService';
+import { getMovements, getProductOnHand, type InventoryMovement, type ProductLocationOnHand } from '../../services/inventoryLedgerService';
+import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
 import clsx from 'clsx';
+import { useAuth } from '../../contexts/AuthContext';
+import { INTERNAL_WEB_ROLES } from '../../utils/rbac';
+import { formatLocalDate, formatStoredDateTime } from '../../utils/dates';
+import { formatMovementLabel } from '../../utils/movementLabel';
+import { listRevaluations, type CostRevaluation } from '../../services/inventoryValuationService';
+import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
+import ProductLotsPanel from '../../components/Inventory/ProductLotsPanel';
 
-// ITEM 8 — Product History tab. A single chronological feed of every
-// stock-affecting movement for this product: purchase (GRN), sale
-// (invoice), return (sales return), and manual adjustment. Adjustments
-// are read from localStorage where the Inventory Adjustment page writes
-// them; other sources go through the standard service layer.
-type TabType = 'Performance' | 'Inventory' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
+type TabType = 'Performance' | 'Inventory' | 'Lots' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
 
 const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Performance: 'Performance Overview',
     Inventory: 'Inventory Status',
+    Lots: 'Lots & Expiry',
     History: 'Movement History',
     Velocity: 'Sales Velocity',
     Customers: 'Customer Insights',
@@ -54,45 +57,112 @@ const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Documents: 'Documents',
 };
 
-// ITEM 8 — Normalized movement row used by the History tab.
-type MovementType = 'Purchase' | 'Sale' | 'Return' | 'Adjustment';
-interface MovementRow {
-    date: string;        // ISO 'YYYY-MM-DD'
-    type: MovementType;
-    qtyIn: number;       // 0 if outbound
-    qtyOut: number;      // 0 if inbound
-    unitCost?: number;
-    reference: string;   // e.g. invoice number, GRN number, return number, 'ADJ'
-    notes?: string;
-}
+const HISTORY_PAGE_SIZE = 50;
 
-// localStorage key written by InventoryAdjustment.tsx
-const ADJ_KEY = 'inventory_adjustments';
-interface StoredAdjustment {
-    id: string; productId: string; productName: string;
-    type: 'add' | 'reduce'; quantity: number; reason: string;
-    date: string; before: number; after: number;
+function reorderStatus(product: Product, onHand: number | null): string {
+    if (onHand == null) return '—';
+    if (product.reorderPoint == null || onHand > product.reorderPoint) return 'OK';
+    const raw = Math.max(product.reorderQty || 0, (product.maxStock || 0) - onHand, 0);
+    const packQty = Number(product.packQty);
+    if (packQty > 0) {
+        const packs = Math.ceil(raw / packQty);
+        const base = packs * packQty;
+        const packUnit = (product.packUnit || 'pack').trim() || 'pack';
+        const baseUnit = (product.baseUnit || product.uom || 'unit').trim() || 'unit';
+        return `Reorder — suggest ${packs} ${packUnit} = ${base} ${baseUnit}`;
+    }
+    return `Reorder — suggest ${raw}`;
 }
 
 export default function ProductOverview() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { hasRole } = useAuth();
+    const canOpenReorder = hasRole(...INTERNAL_WEB_ROLES);
     const [product, setProduct] = useState<Product | null>(null);
+    const [preferredSupplierName, setPreferredSupplierName] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<TabType>('Performance');
     const [aiInsights, setAiInsights] = useState<string[]>([]);
     const [busyAction, setBusyAction] = useState<string | null>(null);
-    // ITEM 8 — Movement-history state. Loaded lazily the first time the
-    // user opens the History tab; cached for subsequent visits.
-    const [movements, setMovements] = useState<MovementRow[] | null>(null);
+    const [movements, setMovements] = useState<InventoryMovement[] | null>(null);
+    const [historyTotal, setHistoryTotal] = useState(0);
+    const [historyPage, setHistoryPage] = useState(0);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
+    const [historyReload, setHistoryReload] = useState(0);
+    const [historyLocationId, setHistoryLocationId] = useState('');
+    const [historyLocationOptions, setHistoryLocationOptions] = useState<StockLocationNode[]>([]);
+    const [onHandTotal, setOnHandTotal] = useState<number | null>(null);
+    const [onHandLocations, setOnHandLocations] = useState<ProductLocationOnHand[] | null>(null);
+    const [onHandFailed, setOnHandFailed] = useState(false);
+    // Newest cost revaluation, for the Stock card; null until loaded or when there is none.
+    const [lastRevaluation, setLastRevaluation] = useState<CostRevaluation | null>(null);
+    const [showCostHistory, setShowCostHistory] = useState(false);
 
     useEffect(() => {
         if (id) {
             loadProduct(id);
         }
     }, [id]);
+
+    useEffect(() => {
+        const supplierId = product?.preferredSupplierId;
+        if (supplierId == null) {
+            setPreferredSupplierName(null);
+            return;
+        }
+        let cancelled = false;
+        getSuppliers()
+            .then((rows) => {
+                if (cancelled) return;
+                const match = rows.find((row) => String(row.id) === String(supplierId));
+                setPreferredSupplierName(match?.name || null);
+            })
+            .catch(() => {
+                if (!cancelled) setPreferredSupplierName(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.preferredSupplierId]);
+
+    useEffect(() => {
+        if (!product?.id) return;
+        let cancelled = false;
+        setLastRevaluation(null);
+        listRevaluations(Number(product.id), 1)
+            .then((rows) => {
+                if (!cancelled) setLastRevaluation(rows[0] ?? null);
+            })
+            .catch(() => {
+                if (!cancelled) setLastRevaluation(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.id]);
+
+    useEffect(() => {
+        if (!product?.id) return;
+        let cancelled = false;
+        setOnHandTotal(null);
+        setOnHandLocations(null);
+        setOnHandFailed(false);
+        getProductOnHand(Number(product.id))
+            .then((row) => {
+                if (cancelled) return;
+                setOnHandTotal(row.onHand);
+                setOnHandLocations(row.byLocation);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setOnHandFailed(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.id]);
 
     async function loadProduct(prodId: string) {
         try {
@@ -116,122 +186,59 @@ export default function ProductOverview() {
         return Number.isFinite(num) ? num : fallback;
     };
 
-    // ITEM 8 — Build the movement feed from invoices + GRNs + sales returns
-    // + adjustments. Each source is treated as best-effort: a failure on
-    // one source still surfaces rows from the others.
-    async function loadMovementHistory(productId: string) {
-        setHistoryLoading(true);
-        setHistoryError(null);
-        try {
-            const pid = String(productId);
-            const rows: MovementRow[] = [];
+    useEffect(() => {
+        setHistoryPage(0);
+        setMovements(null);
+        setHistoryLocationId('');
+    }, [product?.id]);
 
-            // ── Sales (Invoices) — outbound ────────────────────────────
-            try {
-                const invs = await getInvoices();
-                for (const inv of invs) {
-                    const items = (inv as any).lineItems || [];
-                    for (const li of items) {
-                        if (String(li.productId ?? li.product_id ?? '') !== pid) continue;
-                        const q = Number(li.quantity) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: (inv as any).invoiceDate || (inv as any).date || '',
-                            type: 'Sale',
-                            qtyIn: 0,
-                            qtyOut: q,
-                            unitCost: Number(li.rate) || 0,
-                            reference: (inv as any).invoiceNumber || String((inv as any).id || ''),
-                            notes: (inv as any).customerName || '',
-                        });
-                    }
+    useEffect(() => {
+        if (activeTab !== 'History') return;
+        let cancelled = false;
+        getLocationsFlat()
+            .then((rows) => {
+                if (!cancelled) {
+                    setHistoryLocationOptions(rows.filter((loc) => loc.isActive && isStockHoldingKind(loc.kind)));
                 }
-            } catch (e) { console.warn('History: invoices fetch failed', e); }
+            })
+            .catch(() => {
+                if (!cancelled) setHistoryLocationOptions([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab]);
 
-            // ── Purchases (GRNs — only what was received & posted) ─────
-            try {
-                const grns = await getGRNs();
-                for (const grn of grns) {
-                    if (grn.status === 'Cancelled') continue;
-                    for (const it of grn.items || []) {
-                        if (String(it.productId) !== pid) continue;
-                        const q = Number(it.acceptedQty ?? it.receivedQty) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: grn.receivedDate || grn.postedAt?.slice(0, 10) || grn.createdAt?.slice(0, 10) || '',
-                            type: 'Purchase',
-                            qtyIn: q,
-                            qtyOut: 0,
-                            unitCost: Number(it.unitCost) || 0,
-                            reference: grn.grnNumber || grn.poReference || grn.id,
-                            notes: grn.warehouse,
-                        });
-                    }
-                }
-            } catch (e) { console.warn('History: GRNs fetch failed', e); }
-
-            // ── Sales Returns — inbound ────────────────────────────────
-            try {
-                const rets = await getSalesReturns();
-                for (const ret of rets) {
-                    for (const li of ret.lineItems || []) {
-                        if (String(li.productId) !== pid) continue;
-                        const q = Number(li.quantityReturned) || 0;
-                        if (q <= 0) continue;
-                        rows.push({
-                            date: ret.returnDate || ret.createdAt?.slice(0, 10) || '',
-                            type: 'Return',
-                            qtyIn: q,
-                            qtyOut: 0,
-                            unitCost: Number(li.unitPrice) || 0,
-                            reference: ret.returnNumber || ret.id,
-                            notes: ret.customerName,
-                        });
-                    }
-                }
-            } catch (e) { console.warn('History: returns fetch failed', e); }
-
-            // ── Manual Adjustments (localStorage) ──────────────────────
-            try {
-                const raw = localStorage.getItem(ADJ_KEY) || '[]';
-                const list = JSON.parse(raw) as StoredAdjustment[];
-                for (const adj of list) {
-                    if (String(adj.productId) !== pid) continue;
-                    const q = Number(adj.quantity) || 0;
-                    if (q <= 0) continue;
-                    rows.push({
-                        date: adj.date || '',
-                        type: 'Adjustment',
-                        qtyIn: adj.type === 'add' ? q : 0,
-                        qtyOut: adj.type === 'reduce' ? q : 0,
-                        reference: `ADJ-${String(adj.id).slice(-6)}`,
-                        notes: adj.reason,
-                    });
-                }
-            } catch (e) { console.warn('History: adjustments read failed', e); }
-
-            // Sort by date desc; falls back to insertion order when dates tie.
-            rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-            setMovements(rows);
-        } catch (e: any) {
-            console.error('Failed to load movement history:', e);
-            setHistoryError(e?.message || 'Could not load movement history.');
-            setMovements([]);
-        } finally {
-            setHistoryLoading(false);
-        }
-    }
-
-    // ITEM 8 — Fetch the history the first time the tab is opened. If the
-    // user switches tabs and comes back, we keep the cached list (cheap
-    // refresh button on the tab itself).
     useEffect(() => {
         if (activeTab !== 'History') return;
         if (!product?.id) return;
-        if (movements !== null) return; // already loaded
-        loadMovementHistory(String(product.id));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, product?.id]);
+        let cancelled = false;
+        setHistoryLoading(true);
+        setHistoryError(null);
+        const locationId = historyLocationId === '' ? undefined : Number(historyLocationId);
+        getMovements({
+            product_id: Number(product.id),
+            location_id: Number.isFinite(locationId) ? locationId : undefined,
+            limit: HISTORY_PAGE_SIZE,
+            offset: historyPage * HISTORY_PAGE_SIZE,
+        })
+            .then((page) => {
+                if (cancelled) return;
+                setMovements(page.rows);
+                setHistoryTotal(page.total);
+            })
+            .catch((error: unknown) => {
+                if (cancelled) return;
+                setHistoryError(error instanceof Error ? error.message : 'Could not load movement history.');
+                setMovements([]);
+            })
+            .finally(() => {
+                if (!cancelled) setHistoryLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, product?.id, historyPage, historyReload, historyLocationId]);
 
     const onRefresh = async () => {
         if (!id) return;
@@ -321,6 +328,7 @@ export default function ProductOverview() {
         );
     }
 
+    const isLotTracked = !!(product.lotTracked || product.expiryTracked);
     const totalStock = (product.locations || []).reduce((sum, l) => sum + n(l.currentStock), 0);
     const avgDailySales = Math.max(1, n(product.avgDailySales, Math.round(n(product.salesVelocity) / 30) || 1));
     const daysStockRemaining = Math.floor(totalStock / avgDailySales);
@@ -359,11 +367,21 @@ export default function ProductOverview() {
                                 <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">BC: {product.barcode || 'N/A'}</span>
                                 <div className="w-1 h-1 bg-gray-200 rounded-full"></div>
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category: {product.category}</span>
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Category: {product.categoryName || product.category}</span>
+                            </div>
+                            <div className="flex items-center gap-4 mt-2 flex-wrap">
+                                {product.brand && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Brand: {product.brand}</span>}
+                                {formatPack(product.packQty, product.packUnit) && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pack: {formatPack(product.packQty, product.packUnit)}</span>}
+                                {product.baseUnit && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Base unit: {product.baseUnit}</span>}
+                                {product.reorderPoint != null && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reorder point: {product.reorderPoint}</span>}
+                                {preferredSupplierName && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Preferred supplier: {preferredSupplierName}</span>}
                             </div>
                             <div className="flex items-center gap-2 mt-4">
                                 <div className={clsx("w-2 h-2 rounded-full", product.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300')}></div>
                                 <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{product.status}</span>
+                                {product.isDiscontinued && (
+                                    <span className="px-2 py-0.5 rounded-sm text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-700 border border-rose-100">Discontinued</span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -443,7 +461,7 @@ export default function ProductOverview() {
             {/* 3. Professional Tab Navigation */}
             <div className="bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto no-scrollbar">
                 <div className="flex items-center min-w-max gap-1">
-                    {(['Performance', 'Inventory', 'History', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
+                    {(['Performance', 'Inventory', ...(isLotTracked ? ['Lots'] : []), 'History', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -464,6 +482,124 @@ export default function ProductOverview() {
             <div className="grid grid-cols-1 gap-6">
                 {activeTab === 'Performance' && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
+                        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm" data-testid="stock-card">
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Stock</h3>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Ledger on hand</p>
+                            {product.defaultLocationCode && (
+                                <p className="text-[10px] font-bold text-gray-500 mt-2" data-testid="default-bin-label">
+                                    Default bin: {product.defaultLocationCode}
+                                </p>
+                            )}
+                            <p className="text-3xl font-black text-gray-900 tracking-tighter mt-6" data-testid="stock-on-hand">
+                                {onHandFailed || onHandTotal == null ? '—' : onHandTotal}
+                            </p>
+                            {isLotTracked && product.lotsSummary && (
+                                <p className="text-[11px] font-bold text-gray-500 mt-2" data-testid="lots-summary">
+                                    {`${product.lotsSummary.lots} lot${product.lotsSummary.lots === 1 ? '' : 's'}`}
+                                    {product.lotsSummary.nearestExpiry ? ` · nearest expiry ${formatLocalDate(product.lotsSummary.nearestExpiry)}` : ''}
+                                    {product.lotsSummary.expiredQty > 0 ? ` · ${product.lotsSummary.expiredQty} expired` : ''}
+                                </p>
+                            )}
+                            {lastRevaluation && (
+                                <p className="text-[11px] font-bold text-gray-500 mt-2" data-testid="cost-last-revalued">
+                                    Cost {formatCurrency(n(product.pricing?.purchasePriceExWorks))} · last revalued {formatStoredDateTime(lastRevaluation.created_at)}
+                                    {' · '}
+                                    <button type="button" className="text-gray-900 underline" onClick={() => setShowCostHistory(true)}>
+                                        Cost history
+                                    </button>
+                                </p>
+                            )}
+                            {showCostHistory && (
+                                <CostHistoryPanel productId={Number(product.id)} onClose={() => setShowCostHistory(false)} />
+                            )}
+                            <div className="mt-6 overflow-x-auto border border-gray-100 rounded-2xl">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Code</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Kind</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">On hand</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {onHandFailed || !onHandLocations || onHandLocations.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={3} className="px-4 py-4 text-sm text-gray-400">—</td>
+                                            </tr>
+                                        ) : onHandLocations.map((loc) => (
+                                            <tr key={`${loc.locationId ?? 'none'}-${loc.code ?? ''}`}>
+                                                <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{loc.code || '—'}</td>
+                                                <td className="px-4 py-3 text-xs uppercase tracking-widest text-gray-600">{loc.kind || '—'}</td>
+                                                <td className="px-4 py-3 text-right font-mono font-black text-gray-900">{loc.onHand}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {(() => {
+                                const status = reorderStatus(product, onHandFailed ? null : onHandTotal);
+                                return (
+                                    <p
+                                        data-testid="reorder-status"
+                                        className={clsx(
+                                            'mt-6 text-[11px] font-black uppercase tracking-widest',
+                                            status === '—' ? 'text-gray-400' : status === 'OK' ? 'text-emerald-600' : 'text-amber-600',
+                                        )}
+                                    >
+                                        {status}
+                                    </p>
+                                );
+                            })()}
+                            {canOpenReorder && (
+                                <Link
+                                    to={`/purchases/reorder?product_id=${product.id}`}
+                                    data-testid="open-reorder-planning"
+                                    className="mt-2 inline-block text-[10px] font-black uppercase tracking-widest text-redwood-brand"
+                                >
+                                    Open in Reorder planning
+                                </Link>
+                            )}
+                            <div className="mt-4 flex flex-wrap gap-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                {product.leadTimeDays > 0 && <span>Lead time: {product.leadTimeDays} days</span>}
+                                {preferredSupplierName && <span>Preferred supplier: {preferredSupplierName}</span>}
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-gray-100 shadow-sm" data-testid="barcodes-card">
+                            <div className="flex items-center justify-between gap-4">
+                                <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Barcodes</h3>
+                                <Link to={`/products/edit/${product.id}`} className="text-[10px] font-black uppercase tracking-widest text-redwood-brand">Manage</Link>
+                            </div>
+                            {!product.barcodes || product.barcodes.length === 0 ? (
+                                <p className="mt-6 text-sm text-gray-400">—</p>
+                            ) : (
+                                <div className="mt-6 overflow-x-auto border border-gray-100 rounded-2xl">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Barcode</th>
+                                                <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Pack qty</th>
+                                                <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Primary</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {product.barcodes.map((row) => (
+                                                <tr key={`${row.barcode}-${row.isPrimary}`}>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{row.barcode}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">{row.packQty ?? '—'}</td>
+                                                    <td className="px-4 py-3">
+                                                        {row.isPrimary ? (
+                                                            <span className="px-2 py-0.5 rounded-sm text-[10px] font-black uppercase tracking-widest bg-gray-900 text-white">Primary</span>
+                                                        ) : '—'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
                         <div className="bg-white p-10 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
                             <div className="flex justify-between items-start mb-12">
                                 <div>
@@ -1132,17 +1268,21 @@ export default function ProductOverview() {
                     </div>
                 )}
 
+                {activeTab === 'Lots' && isLotTracked && (
+                    <ProductLotsPanel productId={Number(product.id)} canEdit={hasRole('admin', 'manager')} />
+                )}
+
                 {activeTab === 'History' && (
                     <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm animate-in fade-in duration-500">
                         <div className="flex items-center justify-between mb-6">
                             <div>
                                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-[0.2em]">Movement History</h3>
                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                                    Purchases · Sales · Returns · Adjustments — chronological feed
+                                    Stock ledger · newest first
                                 </p>
                             </div>
                             <button
-                                onClick={() => { if (product?.id) loadMovementHistory(String(product.id)); }}
+                                onClick={() => setHistoryReload((n) => n + 1)}
                                 disabled={historyLoading}
                                 className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 hover:text-redwood-brand bg-gray-50 hover:bg-white border border-gray-200 rounded-lg transition-all disabled:opacity-40"
                             >
@@ -1174,48 +1314,91 @@ export default function ProductOverview() {
 
                         {!historyLoading && !historyError && movements && movements.length > 0 && (
                             <div className="overflow-x-auto border border-gray-100 rounded-2xl">
+                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest" htmlFor="history-location-filter">
+                                        Location
+                                    </label>
+                                    <select
+                                        id="history-location-filter"
+                                        aria-label="History location filter"
+                                        value={historyLocationId}
+                                        onChange={(e) => {
+                                            setHistoryLocationId(e.target.value);
+                                            setHistoryPage(0);
+                                        }}
+                                        className="text-xs font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                                    >
+                                        <option value="">All locations</option>
+                                        {historyLocationOptions.map((loc) => (
+                                            <option key={loc.id} value={String(loc.id)}>
+                                                {loc.code}{loc.path ? ` · ${loc.path}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50">
                                         <tr>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Type</th>
                                             <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Reference</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty In</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty Out</th>
-                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit Price</th>
-                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Notes</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Location</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Qty</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Before → after</th>
+                                            <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Unit cost</th>
+                                            <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Journal</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {movements.map((m, idx) => {
-                                            const typeStyle = m.type === 'Purchase' ? 'bg-emerald-100 text-emerald-700'
-                                                : m.type === 'Sale' ? 'bg-rose-100 text-rose-700'
-                                                : m.type === 'Return' ? 'bg-blue-100 text-blue-700'
-                                                : 'bg-amber-100 text-amber-700';
+                                        {movements.map((m) => {
+                                            const qty = Number(m.quantity_delta) || 0;
+                                            const inbound = qty > 0;
                                             return (
-                                                <tr key={`${m.reference}-${idx}`} className="hover:bg-gray-50/60">
-                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.date ? new Date(m.date).toLocaleDateString() : '—'}</td>
+                                                <tr key={m.id} className="hover:bg-gray-50/60">
+                                                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{m.entry_date ? (formatLocalDate(m.entry_date) || '—') : '—'}</td>
                                                     <td className="px-4 py-3">
-                                                        <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest', typeStyle)}>{m.type}</span>
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-gray-100 text-gray-700">
+                                                            {formatMovementLabel(m)}
+                                                        </span>
                                                     </td>
-                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference}</td>
-                                                    <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">{m.qtyIn > 0 ? `+${m.qtyIn}` : ''}</td>
-                                                    <td className="px-4 py-3 text-right font-mono font-black text-rose-700">{m.qtyOut > 0 ? `-${m.qtyOut}` : ''}</td>
-                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-600">{m.unitCost && m.unitCost > 0 ? formatCurrency(m.unitCost) : '—'}</td>
-                                                    <td className="px-4 py-3 text-xs text-gray-500">{m.notes || ''}</td>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">
+                                                        {m.reference || m.source_id || '—'}
+                                                        {m.lots && m.lots.length > 0 && (
+                                                            <div data-testid={`movement-lots-${m.id}`} className="font-normal text-[10px] text-gray-500 mt-1">
+                                                                {m.lots.map((lot) => `${lot.lot_number} ${lot.qty > 0 ? '+' : ''}${lot.qty}`).join(' · ')}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td
+                                                        className="px-4 py-3 font-mono text-xs text-gray-700"
+                                                        title={m.location_path || undefined}
+                                                        data-testid={`movement-location-${m.id}`}
+                                                    >
+                                                        {m.location_code || '—'}
+                                                    </td>
+                                                    <td className={clsx('px-4 py-3 text-right font-mono font-black', inbound ? 'text-emerald-700' : 'text-rose-700')}>
+                                                        {inbound ? `+${qty}` : qty}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">{m.stock_before} → {m.stock_after}</td>
+                                                    <td className="px-4 py-3 text-right font-mono text-xs text-gray-600">{m.unit_cost != null ? formatCurrency(m.unit_cost) : '—'}</td>
+                                                    <td className="px-4 py-3 text-xs">
+                                                        {m.journal_entry_id != null ? (
+                                                            <Link to="/finance/all-ledger" className="font-bold text-redwood-brand">JE {m.journal_entry_id}</Link>
+                                                        ) : '—'}
+                                                    </td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
-                                    <tfoot className="bg-gray-50">
-                                        <tr>
-                                            <td colSpan={3} className="px-4 py-3 text-[10px] font-black text-gray-500 uppercase tracking-widest">{movements.length} movement{movements.length === 1 ? '' : 's'}</td>
-                                            <td className="px-4 py-3 text-right font-mono font-black text-emerald-700">+{movements.reduce((s, r) => s + r.qtyIn, 0)}</td>
-                                            <td className="px-4 py-3 text-right font-mono font-black text-rose-700">-{movements.reduce((s, r) => s + r.qtyOut, 0)}</td>
-                                            <td colSpan={2}></td>
-                                        </tr>
-                                    </tfoot>
                                 </table>
+                                <div className="flex items-center justify-between px-4 py-3 bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                    <span>{historyTotal} movement{historyTotal === 1 ? '' : 's'}</span>
+                                    <span className="flex items-center gap-3 normal-case tracking-normal font-semibold">
+                                        <button type="button" disabled={historyPage <= 0} onClick={() => setHistoryPage((p) => Math.max(0, p - 1))} className="disabled:opacity-40">Previous</button>
+                                        <span>Page {historyPage + 1} of {Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE))}</span>
+                                        <button type="button" disabled={(historyPage + 1) * HISTORY_PAGE_SIZE >= historyTotal} onClick={() => setHistoryPage((p) => p + 1)} className="disabled:opacity-40">Next</button>
+                                    </span>
+                                </div>
                             </div>
                         )}
                     </div>

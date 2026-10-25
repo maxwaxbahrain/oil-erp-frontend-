@@ -32,7 +32,8 @@ vi.mock('../../../services/glService', async () => {
   const actual = await vi.importActual<typeof import('../../../services/glService')>('../../../services/glService');
   return {
     ...actual,
-    getBankingAccountOptions: vi.fn().mockResolvedValue({ accounts: [], collections_bank_account_id: null }),
+    getBankingAccounts: vi.fn().mockResolvedValue([]),
+    getGLAccounts: vi.fn().mockResolvedValue([]),
   };
 });
 

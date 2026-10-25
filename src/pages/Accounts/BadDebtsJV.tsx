@@ -16,6 +16,22 @@ import {
 import { getCustomers, getInvoices, type Customer, type Invoice } from '../../services/api';
 import { getAccounts, DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { authFetch } from '../../api/axios';
+import { localIsoDate } from '../../utils/localDate';
+import { daysOverdue } from '../../utils/daysOverdue';
+import { getGLAccounts, type GLAccount } from '../../services/glService';
+import {
+    glAccountsToWriteOffRows,
+    jvAccountPreview,
+    localAccountsToWriteOffRows,
+    resolveAccountsReceivableAccount,
+    resolveBadDebtExpenseAccount,
+} from './badDebtAccounts';
+import {
+    AGE_BRACKETS,
+    emptyBracketStats,
+    inAgeBracket,
+    type AgeBracket,
+} from './badDebtsAgeBrackets';
 
 // Helper to generate JV number
 const nextBDJVNumber = (): string => {
@@ -33,19 +49,10 @@ interface BadDebtCandidate {
     amount: number;
 }
 
-type AgeBracket = '30-60' | '61-90' | '91-180' | '181-360' | '360+';
 type RiskFilter = 'all' | 'high_risk' | '360+' | '180+';
 type SortOption = 'days_desc' | 'days_asc' | 'amount_desc' | 'amount_asc' | 'customer_asc';
 
 const CFO_THRESHOLD = 5000;
-
-const AGE_BRACKETS: { key: AgeBracket; label: string; range: string }[] = [
-    { key: '30-60', label: '30–60 days', range: '30–60' },
-    { key: '61-90', label: '61–90 days', range: '61–90' },
-    { key: '91-180', label: '91–180 days', range: '91–180' },
-    { key: '181-360', label: '181–360 days', range: '181–360' },
-    { key: '360+', label: '360+ days', range: '360+' },
-];
 
 // ── UI tokens (dark redwood) ─────────────────────────────────────────────────
 
@@ -132,14 +139,6 @@ function formatDate(raw: string): string {
     }
 }
 
-function inAgeBracket(days: number, bracket: AgeBracket): boolean {
-    if (bracket === '30-60') return days >= 30 && days <= 60;
-    if (bracket === '61-90') return days >= 61 && days <= 90;
-    if (bracket === '91-180') return days >= 91 && days <= 180;
-    if (bracket === '181-360') return days >= 181 && days <= 360;
-    return days > 360;
-}
-
 function riskLabel(days: number): { label: string; color: string; dot: string } {
     if (days >= 180) return { label: 'High', color: 'var(--color-brand-red)', dot: '#EF4444' };
     if (days >= 91) return { label: 'Medium', color: 'var(--color-brand-amber)', dot: '#F59E0B' };
@@ -166,7 +165,7 @@ export default function BadDebtsJV() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [success, setSuccess] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(localIsoDate());
     const [notes, setNotes] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [recentJVs, setRecentJVs] = useState<any[]>([]);
@@ -174,6 +173,8 @@ export default function BadDebtsJV() {
     const [activeAgeBracket, setActiveAgeBracket] = useState<AgeBracket | null>('181-360');
     const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
     const [sortBy, setSortBy] = useState<SortOption>('days_desc');
+    const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
+    const [coaLoaded, setCoaLoaded] = useState(false);
 
     const loadRecentJVs = () => {
         try {
@@ -185,16 +186,43 @@ export default function BadDebtsJV() {
     useEffect(() => { loadRecentJVs(); }, []);
 
     useEffect(() => {
+        getGLAccounts()
+            .then((rows) => setGlAccounts(rows))
+            .catch(() => setGlAccounts([]))
+            .finally(() => setCoaLoaded(true));
+    }, []);
+
+    const glWriteOffRows = useMemo(
+        () => (glAccounts.length > 0 ? glAccountsToWriteOffRows(glAccounts) : []),
+        [glAccounts],
+    );
+
+    const postingCoaRows = useMemo(() => {
+        if (glAccounts.length > 0) return glAccountsToWriteOffRows(glAccounts);
+        let local = getAccounts();
+        if (local.length === 0) {
+            localStorage.setItem('chart_of_accounts', JSON.stringify(DEFAULT_ACCOUNTS));
+            local = DEFAULT_ACCOUNTS;
+        }
+        return localAccountsToWriteOffRows(local);
+    }, [glAccounts, coaLoaded]);
+
+    const accountPreview = useMemo(() => {
+        const badDebt = coaLoaded ? resolveBadDebtExpenseAccount(glWriteOffRows) : undefined;
+        const ar = coaLoaded ? resolveAccountsReceivableAccount(glWriteOffRows) : undefined;
+        return jvAccountPreview(coaLoaded, badDebt, ar);
+    }, [coaLoaded, glWriteOffRows]);
+
+    useEffect(() => {
         Promise.all([getInvoices(), getCustomers()]).then(([invoices, customers]) => {
-            const today = new Date();
+            const now = new Date();
             const custMap: Record<string, Customer> = {};
             customers.forEach(c => { custMap[String(c.id)] = c; });
 
             const overdue: BadDebtCandidate[] = invoices
                 .filter(inv => inv.status === 'Unpaid' || inv.status === 'Overdue')
                 .map(inv => {
-                    const due = new Date(inv.dueDate);
-                    const daysPastDue = Math.floor((today.getTime() - due.getTime()) / 86400000);
+                    const daysPastDue = daysOverdue(inv.dueDate, now);
                     const remaining = inv.grandTotal - (inv.amount_paid || 0);
                     return {
                         invoice: inv,
@@ -222,13 +250,7 @@ export default function BadDebtsJV() {
     );
 
     const bracketStats = useMemo(() => {
-        const stats: Record<AgeBracket, { count: number; total: number }> = {
-            '30-60': { count: 0, total: 0 },
-            '61-90': { count: 0, total: 0 },
-            '91-180': { count: 0, total: 0 },
-            '181-360': { count: 0, total: 0 },
-            '360+': { count: 0, total: 0 },
-        };
+        const stats = emptyBracketStats();
         for (const c of candidates) {
             for (const b of AGE_BRACKETS) {
                 if (inAgeBracket(c.daysPastDue, b.key)) {
@@ -324,16 +346,11 @@ export default function BadDebtsJV() {
         }
         setSaving(true);
         try {
-            let accounts = getAccounts();
-            if (accounts.length === 0) {
-                localStorage.setItem('chart_of_accounts', JSON.stringify(DEFAULT_ACCOUNTS));
-                accounts = DEFAULT_ACCOUNTS;
-            }
-            const badDebtAcc = accounts.find(a => a.code === '5250' || a.name.toLowerCase().includes('bad debt'));
-            const arAcc = accounts.find(a => a.code === '1120' || a.name.toLowerCase().includes('receivable'));
+            const badDebtAcc = resolveBadDebtExpenseAccount(postingCoaRows);
+            const arAcc = resolveAccountsReceivableAccount(postingCoaRows);
 
             if (!badDebtAcc || !arAcc) {
-                alert('Required accounts not found. Please ensure "Bad Debts" (5250) and "Accounts Receivable" (1120) exist in Chart of Accounts.');
+                alert('Required accounts not found. Please ensure Bad Debt Expense and Accounts Receivable exist in Chart of Accounts.');
                 setSaving(false);
                 return;
             }
@@ -355,7 +372,7 @@ export default function BadDebtsJV() {
                 lines: selectedCandidates.flatMap(c => [
                     {
                         id: `${Date.now()}-dr-${c.invoice.id}`,
-                        accountId: badDebtAcc.id,
+                        accountId: String(badDebtAcc.id ?? badDebtAcc.code),
                         accountCode: badDebtAcc.code,
                         accountName: badDebtAcc.name,
                         description: `Bad debt: ${c.invoice.invoiceNumber} — ${c.customer?.name}`,
@@ -364,7 +381,7 @@ export default function BadDebtsJV() {
                     },
                     {
                         id: `${Date.now()}-cr-${c.invoice.id}`,
-                        accountId: arAcc.id,
+                        accountId: String(arAcc.id ?? arAcc.code),
                         accountCode: arAcc.code,
                         accountName: arAcc.name,
                         description: `Write off: ${c.invoice.invoiceNumber} — ${c.customer?.name}`,
@@ -467,7 +484,7 @@ export default function BadDebtsJV() {
                 if (!a?.customerId) { failures.push(a?.invoiceNumber || 'unknown'); continue; }
                 const payload = {
                     amount: Number(a.amount) || 0,
-                    payment_date: new Date().toISOString().slice(0, 10),
+                    payment_date: localIsoDate(),
                     payment_method: 'Bad Debt Reversal',
                     reference: `REV ${jv.jvNumber} / ${a.invoiceNumber}`,
                     notes: `Reversal of bad-debt write-off ${jv.jvNumber} — ${a.invoiceNumber}`,
@@ -491,7 +508,7 @@ export default function BadDebtsJV() {
             const reversal = {
                 id: Date.now().toString(),
                 jvNumber: nextBDJVNumber(),
-                date: new Date().toISOString().slice(0, 10),
+                date: localIsoDate(),
                 reference: `Reversal of ${jv.jvNumber}`,
                 narration: `Reversal of bad-debt write-off ${jv.jvNumber}`,
                 type: 'Bad Debt Reversal' as const,
@@ -566,7 +583,7 @@ export default function BadDebtsJV() {
                             Bad debts write-off
                         </h1>
                         <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', margin: '4px 0 0' }}>
-                            Write off uncollectable invoices · auto-creates balanced JV · Dr 5250 / Cr 1120
+                            Write off uncollectable invoices · auto-creates balanced JV · {accountPreview.drLabel} / {accountPreview.crLabel}
                         </p>
                     </div>
                 </div>
@@ -612,7 +629,7 @@ export default function BadDebtsJV() {
                 <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--color-redwood-text-muted)', margin: '0 0 8px' }}>
                     Quick select by age bracket
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
                     {AGE_BRACKETS.map(b => {
                         const stats = bracketStats[b.key];
                         const isActive = activeAgeBracket === b.key;
@@ -688,7 +705,11 @@ export default function BadDebtsJV() {
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                         <span style={{ fontSize: 10, color: 'var(--color-redwood-text-main)' }}>
-                            Dr <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)' }}>5250</span> Bad Debts Expense
+                            Dr{' '}
+                            {accountPreview.drCode ? (
+                                <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)' }}>{accountPreview.drCode} </span>
+                            ) : null}
+                            {accountPreview.drName}
                         </span>
                         <span style={{ fontFamily: 'ui-monospace,monospace', fontWeight: 700, fontSize: 11, color: 'var(--color-brand-green)' }}>
                             {formatUsd(totalAmount)}
@@ -696,7 +717,11 @@ export default function BadDebtsJV() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: 10, color: 'var(--color-redwood-text-main)' }}>
-                            Cr <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)' }}>1120</span> Accounts Receivable
+                            Cr{' '}
+                            {accountPreview.crCode ? (
+                                <span style={{ fontFamily: 'ui-monospace,monospace', color: 'var(--color-redwood-text-muted)' }}>{accountPreview.crCode} </span>
+                            ) : null}
+                            {accountPreview.crName}
                         </span>
                         <span style={{ fontFamily: 'ui-monospace,monospace', fontWeight: 700, fontSize: 11, color: 'var(--color-brand-red)' }}>
                             {formatUsd(totalAmount)}
@@ -1049,7 +1074,7 @@ export default function BadDebtsJV() {
                     <div style={{ borderLeft: '1px solid var(--color-redwood-border)', paddingLeft: 16 }}>
                         <p style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-redwood-text-muted)', margin: 0 }}>JV preview</p>
                         <p style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', margin: '2px 0 0' }}>
-                            Dr 5250 {formatUsd(totalAmount)} · Cr 1120 {formatUsd(totalAmount)}
+                            {accountPreview.drCode ? `Dr ${accountPreview.drCode}` : 'Dr Bad Debt Expense'} {formatUsd(totalAmount)} · {accountPreview.crCode ? `Cr ${accountPreview.crCode}` : 'Cr Accounts Receivable'} {formatUsd(totalAmount)}
                         </p>
                     </div>
                     <div>

@@ -45,14 +45,17 @@ describe('Purchase Returns sidebar', () => {
     });
   }
 
-  it('shows Purchase Returns for admin, manager, and accountant after Material Receipt', async () => {
+  it('shows Purchase Returns for admin, manager, and accountant after Goods Received (GRN)', async () => {
     for (const role of ['admin', 'manager', 'accountant'] as const) {
       authState.role = role;
       await renderSidebar();
       const link = container.querySelector('a[href="/purchases/returns"]');
       expect(link?.textContent).toContain('Purchase Returns');
+      const payments = container.querySelector('a[href="/purchases/payments"]');
+      expect(payments?.textContent).toContain('Supplier payments');
       const html = container.innerHTML;
-      expect(html.indexOf('Purchase Returns')).toBeGreaterThan(html.indexOf('Material Receipt (GRN)'));
+      expect(html.indexOf('Purchase Returns')).toBeGreaterThan(html.indexOf('Goods Received (GRN)'));
+      expect(html.indexOf('href="/purchases/payments"')).toBeGreaterThan(html.indexOf('href="/purchases/returns"'));
     }
   });
 
@@ -61,7 +64,9 @@ describe('Purchase Returns sidebar', () => {
       authState.role = role;
       await renderSidebar();
       expect(container.querySelector('a[href="/purchases/returns"]')).toBeNull();
+      expect(container.querySelector('a[href="/purchases/payments"]')).toBeNull();
       expect(container.textContent).not.toContain('Purchase Returns');
+      expect(container.textContent).not.toContain('Supplier payments');
     }
   });
 });

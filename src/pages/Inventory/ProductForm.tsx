@@ -18,9 +18,14 @@ import {
     RefreshCw,
     Plus
 } from 'lucide-react';
-import { getProductById, saveProduct, deleteProduct, type Product, type ProductLocation, type ProductSpecification } from '../../services/productService';
+import { getProductById, saveProduct, deleteProduct, listProductBarcodes, addProductBarcode, removeProductBarcode, productCategoryService, type Product, type ProductLocation, type ProductSpecification, type ProductBarcodeRow, type ProductCategory } from '../../services/productService';
+import { getSuppliers, type Supplier } from '../../services/purchasesService';
+import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
 import { getSystemSettings, formatCurrency } from '../../services/settingsService';
+import { getSuggestSettings, type SuggestSettings } from '../../services/reorderService';
 import { ImageUpload } from '../../components/Inventory/ImageUpload';
+import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
+import { setLotTracking } from '../../services/stockLotService';
 
 export default function ProductForm() {
     const { id } = useParams();
@@ -29,7 +34,29 @@ export default function ProductForm() {
     const settings = getSystemSettings();
 
     const [loading, setLoading] = useState(false);
+    const [formError, setFormError] = useState('');
+    const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
+    const [trackingError, setTrackingError] = useState<string | null>(null);
+    const [trackingBusy, setTrackingBusy] = useState(false);
+    const [categories, setCategories] = useState<ProductCategory[]>([]);
+    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [stockLocations, setStockLocations] = useState<StockLocationNode[]>([]);
+    const [addingCategory, setAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [barcodes, setBarcodes] = useState<ProductBarcodeRow[]>([]);
+    const [barcodeDraft, setBarcodeDraft] = useState('');
+    const [barcodePack, setBarcodePack] = useState('');
+    const [barcodeError, setBarcodeError] = useState('');
     const [openLocationId, setOpenLocationId] = useState<string>('LOC-001');
+    // Read-only suggestion from /reorder; Apply only fills the form.
+    const [suggestion, setSuggestion] = useState<SuggestSettings | null>(null);
+    const [suggestLoading, setSuggestLoading] = useState(false);
+    const [suggestError, setSuggestError] = useState('');
+    // Cost as loaded from the server; a different cost on save revalues stock and needs confirming.
+    const [loadedCost, setLoadedCost] = useState<number | null>(null);
+    const [costDialogOpen, setCostDialogOpen] = useState(false);
+    const [costReason, setCostReason] = useState('');
+    const [showCostHistory, setShowCostHistory] = useState(false);
     const [formData, setFormData] = useState<Partial<Product>>({
         status: 'Active',
         category: '',
@@ -72,12 +99,33 @@ export default function ProductForm() {
         }
     }, [id]);
 
+    useEffect(() => {
+        productCategoryService.list().then(setCategories).catch(() => setCategories([]));
+        getSuppliers().then(setSuppliers).catch(() => setSuppliers([]));
+        getLocationsFlat()
+            .then((rows) => setStockLocations(rows.filter((row) => row.isActive && (row.kind === 'bin' || row.kind === 'warehouse'))))
+            .catch(() => setStockLocations([]));
+    }, []);
+
+    useEffect(() => {
+        if (!id) return;
+        listProductBarcodes(id).then(setBarcodes).catch(() => setBarcodes([]));
+    }, [id]);
+
+    useEffect(() => {
+        if (formData.categoryId || !formData.category) return;
+        const match = categories.find((row) => row.name.toLowerCase() === formData.category!.trim().toLowerCase());
+        if (!match) return;
+        setFormData((prev) => ({ ...prev, categoryId: match.id, category: match.name }));
+    }, [categories, formData.category, formData.categoryId]);
+
     async function loadProduct(prodId: string) {
         try {
             setLoading(true);
             const data = await getProductById(prodId);
             if (data) {
                 setFormData(data);
+                setLoadedCost(Number(data.pricing?.purchasePriceExWorks ?? 0));
                 if (data.locations?.[0]?.id) setOpenLocationId(data.locations[0].id);
             }
         } catch (error) {
@@ -88,8 +136,21 @@ export default function ProductForm() {
     }
 
     const handleSave = async () => {
+        setFormError('');
         if (!formData.name || !formData.category || !formData.sku) {
             alert('Please fill in all required fields (Name, Category, SKU)');
+            return;
+        }
+        if (formData.packQty != null && !(Number(formData.packQty) > 0)) {
+            setFormError('pack_qty must be greater than 0');
+            return;
+        }
+        if (formData.reorderQty != null && Number(formData.reorderQty) < 0) {
+            setFormError('reorder_qty must be greater than or equal to 0');
+            return;
+        }
+        if (formData.shelfLifeDays != null && !formData.expiryTracked) {
+            setFormError('shelf_life_days requires expiry_tracked');
             return;
         }
 
@@ -104,16 +165,72 @@ export default function ProductForm() {
             }
         }
 
+        // The same number saveProduct sends as cost; a change in edit mode is confirmed first.
+        const newCost = Number(formData.pricing?.purchasePriceExWorks ?? 0);
+        if (isEdit && loadedCost !== null && newCost !== loadedCost) {
+            setCostReason('');
+            setCostDialogOpen(true);
+            return;
+        }
+        await persist();
+    };
+
+    const persist = async (costChangeReason?: string) => {
         try {
             setLoading(true);
-            await saveProduct(formData);
+            await saveProduct(
+                {
+                    ...formData,
+                    baseUnit: (formData.baseUnit || '').trim() || formData.uom,
+                    costMethod: formData.costMethod || 'average',
+                    // Edit mode: tracking was already saved by its own endpoint.
+                    ...(isEdit ? { lotTracked: undefined, expiryTracked: undefined } : {}),
+                },
+                costChangeReason ? { costChangeReason } : undefined,
+            );
             alert('Product saved successfully!');
             navigate('/products');
         } catch (error) {
             console.error('Failed to save product:', error);
-            alert('Failed to save product. Please try again.');
+            const message = error instanceof Error ? error.message : 'Failed to save product. Please try again.';
+            setFormError(message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    /** Edit mode: tracking goes through its own endpoint (it seeds UNASSIGNED lots), not the product PUT. */
+    const changeTracking = async (next: { lotTracked: boolean; expiryTracked: boolean }) => {
+        if (!isEdit || !id) {
+            setFormData({
+                ...formData,
+                lotTracked: next.lotTracked,
+                expiryTracked: next.expiryTracked,
+                shelfLifeDays: next.expiryTracked ? formData.shelfLifeDays : undefined,
+            });
+            return;
+        }
+        setTrackingBusy(true);
+        setTrackingError(null);
+        setTrackingMessage(null);
+        try {
+            const result = await setLotTracking(Number(id), { lot_tracked: next.lotTracked, expiry_tracked: next.expiryTracked });
+            setFormData((prev) => ({
+                ...prev,
+                lotTracked: result.lot_tracked,
+                expiryTracked: result.expiry_tracked,
+                shelfLifeDays: result.expiry_tracked ? prev.shelfLifeDays : undefined,
+            }));
+            if (result.seeded.length > 0) {
+                const units = result.seeded.reduce((sum, row) => sum + row.qty, 0);
+                setTrackingMessage(`Seeded ${units} units into UNASSIGNED at ${result.seeded.length} location(s)`);
+            } else {
+                setTrackingMessage(result.lot_tracked || result.expiry_tracked ? 'Tracking is on.' : 'Tracking is off.');
+            }
+        } catch (error) {
+            setTrackingError(error instanceof Error ? error.message : 'Could not change tracking.');
+        } finally {
+            setTrackingBusy(false);
         }
     };
 
@@ -234,6 +351,53 @@ export default function ProductForm() {
         }));
     };
 
+    const handleAddCategory = async () => {
+        const name = newCategoryName.trim();
+        if (!name) return;
+        setFormError('');
+        try {
+            const created = await productCategoryService.create({ name, is_active: true });
+            setCategories((prev) => [...prev.filter((row) => row.id !== created.id), created]);
+            setFormData((prev) => ({ ...prev, categoryId: created.id, category: created.name }));
+            setNewCategoryName('');
+            setAddingCategory(false);
+        } catch (error) {
+            setFormError(error instanceof Error ? error.message : 'Failed to add category');
+        }
+    };
+
+    const handleAddBarcode = async () => {
+        if (!id || !barcodeDraft.trim()) return;
+        setBarcodeError('');
+        try {
+            const created = await addProductBarcode(id, {
+                barcode: barcodeDraft.trim(),
+                pack_qty: barcodePack.trim() === '' ? null : Number(barcodePack),
+                is_primary: false,
+            });
+            setBarcodes((prev) => [...prev, created]);
+            setBarcodeDraft('');
+            setBarcodePack('');
+        } catch (error) {
+            setBarcodeError(error instanceof Error ? error.message : 'Failed to add barcode');
+        }
+    };
+
+    const handleDeleteBarcode = async (row: ProductBarcodeRow) => {
+        if (!id || row.is_primary) return;
+        if (!window.confirm('Delete this barcode?')) return;
+        setBarcodeError('');
+        try {
+            await removeProductBarcode(id, row.id);
+            setBarcodes((prev) => prev.filter((item) => item.id !== row.id));
+        } catch (error) {
+            setBarcodeError(error instanceof Error ? error.message : 'Failed to delete barcode');
+        }
+    };
+
+    const fieldClass = 'w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-6 py-4 text-sm font-bold outline-none';
+    const minStockHint = mainLocation?.reorderPoint ?? formData.reorderLevel;
+
     const InfoTooltip = ({ text }: { text: string }) => (
         <div className="group relative inline-block ml-2 cursor-help">
             <HelpCircle size={14} className="text-gray-300" />
@@ -300,6 +464,12 @@ export default function ProductForm() {
                 </div>
             </div>
 
+            {formError && (
+                <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm font-bold rounded-2xl px-6 py-4">
+                    {formError}
+                </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
                 {/* Left Column: Form Sections */}
                 <div className="lg:col-span-2 space-y-10">
@@ -362,21 +532,73 @@ export default function ProductForm() {
                                 <div>
                                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Category: *</label>
                                     <select
-                                        value={formData.category || ''}
-                                        onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                        aria-label="Category"
+                                        value={formData.categoryId ?? ''}
+                                        onChange={(e) => {
+                                            const raw = e.target.value;
+                                            const categoryId = raw === '' ? undefined : Number(raw);
+                                            const row = categories.find((item) => item.id === categoryId);
+                                            setFormData({
+                                                ...formData,
+                                                categoryId,
+                                                category: row?.name ?? formData.category ?? '',
+                                            });
+                                        }}
                                         className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-6 py-5 text-sm font-bold outline-none cursor-pointer"
                                     >
                                         <option value="">Select Category</option>
-                                        <option value="Lubricants">Lubricants</option>
-                                        <option value="Filters">Filters</option>
-                                        <option value="Spare Parts">Spare Parts</option>
-                                        <option value="Batteries">Batteries</option>
+                                        {categories.map((row) => (
+                                            <option key={row.id} value={row.id}>{row.name}</option>
+                                        ))}
                                     </select>
+                                    <input
+                                        type="text"
+                                        aria-label="Category name"
+                                        value={formData.category || ''}
+                                        onChange={(e) => {
+                                            const category = e.target.value;
+                                            const row = categories.find((item) => item.name.toLowerCase() === category.trim().toLowerCase());
+                                            setFormData({
+                                                ...formData,
+                                                category,
+                                                categoryId: row ? row.id : undefined,
+                                            });
+                                        }}
+                                        className="w-full mt-3 bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-6 py-4 text-sm font-bold outline-none"
+                                        placeholder="Category name"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setAddingCategory((open) => !open)}
+                                        className="mt-3 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:text-gray-900"
+                                    >
+                                        + Add category
+                                    </button>
+                                    {addingCategory && (
+                                        <div className="mt-3 flex gap-3">
+                                            <input
+                                                type="text"
+                                                aria-label="New category name"
+                                                value={newCategoryName}
+                                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                                className="flex-1 bg-gray-50 border-2 border-transparent focus:border-gray-900 rounded-2xl px-4 py-3 text-sm font-bold outline-none"
+                                                placeholder="New category"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleAddCategory}
+                                                className="px-4 py-3 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl"
+                                            >
+                                                Save category
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest block mb-3 pl-1">Brand:</label>
                                     <input
                                         type="text"
+                                        aria-label="Brand"
                                         value={formData.brand || ''}
                                         onChange={e => setFormData({ ...formData, brand: e.target.value })}
                                         className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-sm font-bold transition-all outline-none"
@@ -467,6 +689,174 @@ export default function ProductForm() {
                         </div>
                     </div>
 
+                    <div className="bg-white p-12 rounded-[40px] border border-gray-100 shadow-sm space-y-8">
+                        <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Catalog</h2>
+
+                        <div>
+                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Units & packs</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input aria-label="Base unit" className={fieldClass} placeholder={formData.uom || 'unit'} value={formData.baseUnit ?? ''} onChange={(e) => setFormData({ ...formData, baseUnit: e.target.value })} />
+                                <input aria-label="Pack qty" type="number" className={fieldClass} placeholder="Pack qty" value={formData.packQty ?? ''} onChange={(e) => setFormData({ ...formData, packQty: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <input aria-label="Pack unit" className={fieldClass} placeholder="Pack unit" value={formData.packUnit ?? ''} onChange={(e) => setFormData({ ...formData, packUnit: e.target.value })} />
+                            </div>
+                            {isEdit && formData.packCount != null && (
+                                <p className="text-sm font-bold text-gray-500 mt-3">= {formData.packCount} packs</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <div className="flex items-center justify-between gap-4 mb-4">
+                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Replenishment</h3>
+                                {isEdit && id && (
+                                    <button
+                                        type="button"
+                                        data-testid="suggest-reorder"
+                                        disabled={suggestLoading}
+                                        onClick={async () => {
+                                            setSuggestLoading(true);
+                                            setSuggestError('');
+                                            try {
+                                                setSuggestion(await getSuggestSettings(Number(id)));
+                                            } catch (err) {
+                                                setSuggestion(null);
+                                                setSuggestError(err instanceof Error ? err.message : 'Could not load a suggestion.');
+                                            } finally {
+                                                setSuggestLoading(false);
+                                            }
+                                        }}
+                                        className="text-[10px] font-black uppercase tracking-widest text-redwood-brand underline disabled:opacity-50"
+                                    >
+                                        {suggestLoading ? 'Suggesting…' : 'Suggest'}
+                                    </button>
+                                )}
+                            </div>
+                            {isEdit && suggestError && <p className="text-xs font-bold text-red-600 mb-3">{suggestError}</p>}
+                            {isEdit && suggestion && (
+                                <div data-testid="reorder-suggestion" className="mb-4 p-4 border border-gray-200 rounded-xl bg-gray-50 text-xs text-gray-700 space-y-2">
+                                    <p className="font-black">
+                                        Suggested reorder point {suggestion.suggested_reorder_point} · reorder qty {suggestion.suggested_reorder_qty}
+                                    </p>
+                                    <p>
+                                        From avg daily {suggestion.avg_daily.toLocaleString(undefined, { maximumFractionDigits: 2 })} · lead time {suggestion.lead_time} days · safety factor {suggestion.safety_factor} · pack qty {suggestion.pack_qty ?? '—'} · window {suggestion.demand_window_days} days
+                                    </p>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            data-testid="apply-reorder-suggestion"
+                                            onClick={() => setFormData((prev) => ({
+                                                ...prev,
+                                                reorderPoint: suggestion.suggested_reorder_point,
+                                                reorderQty: suggestion.suggested_reorder_qty,
+                                            }))}
+                                            className="px-3 py-1 rounded-lg bg-gray-900 text-white text-[10px] font-black uppercase tracking-widest"
+                                        >
+                                            Apply
+                                        </button>
+                                        <span className="text-gray-500">Fills the two fields. Save the product to keep them.</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input aria-label="Reorder point" type="number" className={fieldClass} placeholder={minStockHint != null ? String(minStockHint) : 'Reorder point'} value={formData.reorderPoint ?? ''} onChange={(e) => setFormData({ ...formData, reorderPoint: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <input aria-label="Reorder qty" type="number" className={fieldClass} placeholder="Reorder qty" value={formData.reorderQty ?? ''} onChange={(e) => setFormData({ ...formData, reorderQty: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <input aria-label="Max stock" type="number" className={fieldClass} placeholder="Max stock" value={formData.maxStock ?? ''} onChange={(e) => setFormData({ ...formData, maxStock: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <input aria-label="Lead time days" type="number" className={fieldClass} placeholder="Lead time days" value={formData.leadTimeDays ?? ''} onChange={(e) => setFormData({ ...formData, leadTimeDays: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <select aria-label="Preferred supplier" className={fieldClass} value={formData.preferredSupplierId ?? ''} onChange={(e) => setFormData({ ...formData, preferredSupplierId: e.target.value === '' ? undefined : Number(e.target.value) })}>
+                                    <option value="">Preferred supplier</option>
+                                    {suppliers.map((supplier) => (
+                                        <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                                    ))}
+                                </select>
+                                <input aria-label="Supplier SKU" className={fieldClass} placeholder="Supplier SKU" value={formData.supplierSku ?? ''} onChange={(e) => setFormData({ ...formData, supplierSku: e.target.value })} />
+                                <select
+                                    aria-label="Default bin"
+                                    className={fieldClass}
+                                    value={formData.defaultLocationId ?? ''}
+                                    onChange={(e) => setFormData({
+                                        ...formData,
+                                        defaultLocationId: e.target.value === '' ? null : Number(e.target.value),
+                                    })}
+                                >
+                                    <option value="">Default bin</option>
+                                    {stockLocations.map((loc) => (
+                                        <option key={loc.id} value={loc.id}>
+                                            {loc.name} ({loc.path || loc.code})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Tracking</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <label className="flex items-center gap-3 text-sm font-bold text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        aria-label="Lot tracked"
+                                        checked={!!formData.lotTracked}
+                                        disabled={trackingBusy}
+                                        onChange={(e) => void changeTracking({ lotTracked: e.target.checked, expiryTracked: !!formData.expiryTracked })}
+                                    />
+                                    Lot tracked
+                                </label>
+                                <label className="flex items-center gap-3 text-sm font-bold text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        aria-label="Expiry tracked"
+                                        checked={!!formData.expiryTracked}
+                                        disabled={trackingBusy}
+                                        onChange={(e) => void changeTracking({ lotTracked: !!formData.lotTracked, expiryTracked: e.target.checked })}
+                                    />
+                                    Expiry tracked
+                                </label>
+                                <input
+                                    aria-label="Shelf life days"
+                                    type="number"
+                                    disabled={!formData.expiryTracked}
+                                    className={fieldClass}
+                                    placeholder="Shelf life days"
+                                    value={formData.expiryTracked ? (formData.shelfLifeDays ?? '') : ''}
+                                    onChange={(e) => setFormData({ ...formData, shelfLifeDays: e.target.value === '' ? undefined : Number(e.target.value) })}
+                                />
+                                <input aria-label="Hazmat class" className={fieldClass} placeholder="Hazmat class" value={formData.hazmatClass ?? ''} onChange={(e) => setFormData({ ...formData, hazmatClass: e.target.value })} />
+                            </div>
+                            {trackingMessage && <p data-testid="tracking-message" className="mt-2 text-xs font-bold text-gray-600">{trackingMessage}</p>}
+                            {trackingError && <p role="alert" data-testid="tracking-error" className="mt-2 text-xs font-bold text-rose-700">{trackingError}</p>}
+                        </div>
+
+                        <div>
+                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Physical</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input aria-label="Weight kg" type="number" className={fieldClass} placeholder="Weight kg" value={formData.weightKg ?? ''} onChange={(e) => setFormData({ ...formData, weightKg: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                                <input aria-label="Volume L" type="number" className={fieldClass} placeholder="Volume L" value={formData.volumeL ?? ''} onChange={(e) => setFormData({ ...formData, volumeL: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Costing</h3>
+                            <select
+                                aria-label="Cost method"
+                                className={fieldClass}
+                                value={formData.costMethod || 'average'}
+                                onChange={(e) => setFormData({ ...formData, costMethod: e.target.value as Product['costMethod'] })}
+                            >
+                                <option value="average">average</option>
+                                <option value="fifo">fifo</option>
+                                <option value="standard">standard</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Status</h3>
+                            <label className="flex items-center gap-3 text-sm font-bold text-gray-700">
+                                <input type="checkbox" aria-label="Discontinued" checked={!!formData.isDiscontinued} onChange={(e) => setFormData({ ...formData, isDiscontinued: e.target.checked })} />
+                                Discontinued
+                            </label>
+                            <p className="text-xs text-gray-500 mt-2">Stays in history and reports; hidden from new documents in a later release</p>
+                        </div>
+                    </div>
+
                     {/* 3. Pricing & Profit */}
                     <div className="bg-white p-12 rounded-[40px] border border-gray-100 shadow-sm space-y-10">
                         <div className="flex items-center gap-4">
@@ -489,12 +879,23 @@ export default function ProductForm() {
                                             type="number"
                                             inputMode="decimal"
                                             step="any"
+                                            aria-label="Cost"
                                             value={formData.pricing?.purchasePriceExWorks ?? ''}
                                             onChange={e => updatePricing({ purchasePriceExWorks: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
                                             className="w-full bg-gray-50 border-2 border-transparent focus:border-gray-900 focus:bg-white rounded-2xl px-8 py-5 text-lg font-black transition-all outline-none"
                                             placeholder="0"
                                         />
                                     </div>
+                                    {isEdit && (
+                                        <div className="mt-2 flex flex-wrap items-center gap-3 pl-1 text-[11px] font-bold text-gray-500">
+                                            <span>Changing the cost revalues stock on hand and posts a journal.</span>
+                                            {id && (
+                                                <button type="button" onClick={() => setShowCostHistory(true)} className="text-gray-900 underline">
+                                                    Cost history
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="text-[11px] font-black text-gray-500 uppercase tracking-widest block mb-3 pl-1">
@@ -828,6 +1229,49 @@ export default function ProductForm() {
                             </div>
                         </div>
                     </div>
+
+                    {isEdit && id && (
+                        <div className="bg-white p-12 rounded-[40px] border border-gray-100 shadow-sm space-y-6">
+                            <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Barcodes</h2>
+                            <p className="text-xs text-gray-500">The primary barcode stays editable only via the main barcode field.</p>
+                            {barcodeError && (
+                                <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm font-bold rounded-2xl px-4 py-3">{barcodeError}</div>
+                            )}
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-[11px] uppercase tracking-widest text-gray-400">
+                                        <th>Barcode</th>
+                                        <th>Pack qty</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {barcodes.map((row) => (
+                                        <tr key={row.id}>
+                                            <td className="py-2 font-mono">{row.barcode}</td>
+                                            <td>{row.pack_qty ?? ''}</td>
+                                            <td>
+                                                {row.is_primary ? (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest">Primary</span>
+                                                ) : (
+                                                    <button type="button" aria-label={`Delete barcode ${row.barcode}`} onClick={() => handleDeleteBarcode(row)} className="text-red-600 text-xs font-bold">
+                                                        Delete
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <div className="flex gap-3">
+                                <input aria-label="New barcode" className={fieldClass} value={barcodeDraft} onChange={(e) => setBarcodeDraft(e.target.value)} placeholder="Barcode" />
+                                <input aria-label="Barcode pack qty" type="number" className={fieldClass} value={barcodePack} onChange={(e) => setBarcodePack(e.target.value)} placeholder="Pack qty" />
+                                <button type="button" onClick={handleAddBarcode} className="px-4 py-3 bg-gray-900 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl">
+                                    Add barcode
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
 
@@ -892,6 +1336,54 @@ export default function ProductForm() {
 
                 </div>
             </div>
+
+            {costDialogOpen && (
+                <div role="dialog" aria-label="Confirm cost change" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                        <h3 className="text-sm font-black uppercase tracking-widest text-gray-900">Change cost?</h3>
+                        <p className="mt-3 text-sm text-gray-700" data-testid="cost-change-summary">
+                            Cost {formatCurrency(loadedCost ?? 0)} → {formatCurrency(Number(formData.pricing?.purchasePriceExWorks ?? 0))}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Saving revalues the stock on hand at the new cost and posts a journal.
+                        </p>
+                        <label className="mt-4 block text-[11px] font-black uppercase tracking-widest text-gray-500">
+                            Reason (optional)
+                            <textarea
+                                aria-label="Cost change reason"
+                                value={costReason}
+                                onChange={(e) => setCostReason(e.target.value)}
+                                rows={2}
+                                className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none focus:border-gray-900"
+                            />
+                        </label>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCostDialogOpen(false)}
+                                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-600"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => {
+                                    setCostDialogOpen(false);
+                                    void persist(costReason.trim() || undefined);
+                                }}
+                                className="rounded-xl bg-gray-900 px-4 py-2 text-xs font-black uppercase tracking-widest text-white"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showCostHistory && id && (
+                <CostHistoryPanel productId={Number(id)} onClose={() => setShowCostHistory(false)} />
+            )}
         </div>
     );
 }

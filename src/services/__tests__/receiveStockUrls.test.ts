@@ -37,33 +37,39 @@ const po: PurchaseOrder = {
   grandTotal: 500,
 };
 
-function findAddStockUrl(fetchMock: ReturnType<typeof vi.fn>): string {
-  const urls = fetchMock.mock.calls.map(([url]) => String(url));
-  const addStockUrl = urls.find((url) => url.includes('/add-stock'));
-  expect(addStockUrl).toBeTruthy();
-  return addStockUrl as string;
-}
-
 describe('receive stock API URLs', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
 
-  it('confirmGRN uses the /api products add-stock URL', async () => {
+  it('confirmGRN posts one receipt journal for the received quantity', async () => {
     localStorage.setItem('purchase_orders', JSON.stringify([po]));
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
-      .mockResolvedValueOnce(okResponse())
+      .mockResolvedValueOnce(okResponse({ total_amount: 500 }))
       .mockResolvedValueOnce(okResponse({ ...po, status: 'GRN' }));
     vi.stubGlobal('fetch', fetchMock);
 
     await confirmGRN(po.id);
 
-    const addStockUrl = findAddStockUrl(fetchMock);
-    expect(addStockUrl).toContain('/api/products/');
-    expect(addStockUrl).toMatch(/\/add-stock$/);
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    expect(grnReceiveCall).toBeTruthy();
+    const [, init] = grnReceiveCall!;
+    expect(init?.method).toBe('POST');
+    const body = JSON.parse(String(init?.body));
+    expect(body.grnSourceId).toBe('PO-URL-1');
+    expect(body.supplierId).toBe(42);
+    expect(body.lines).toEqual([{
+      productId: 123,
+      quantity: 50,
+      unitCost: 10,
+      entered_qty: 50,
+      entered_uom: 'base',
+      entered_unit_price: 10,
+    }]);
+    expect(fetchMock.mock.calls.find(([url]) => String(url).includes('/add-stock'))).toBeUndefined();
   });
 
   it('postGRN uses the batch /api/products/grn-receive endpoint with cost + source', async () => {
@@ -115,12 +121,149 @@ describe('receive stock API URLs', () => {
     const [, init] = grnReceiveCall!;
     expect(init?.method).toBe('POST');
     const body = JSON.parse(String(init?.body));
-    expect(body.grnSourceId).toBe('GRN-URL-1');
+    expect(body.grnSourceId).toBe('PO-URL-1:GRN-URL-1');
     expect(body.supplierId).toBe(42);
     expect(body.lines).toHaveLength(1);
     expect(body.lines[0]).toMatchObject({ productId: 123, quantity: 30, unitCost: 10 });
 
     const addStockUrl = fetchMock.mock.calls.find(([url]) => String(url).includes('/add-stock'));
     expect(addStockUrl).toBeUndefined();
+  });
+
+  it('postGRN sends location_id on receipt lines when put-away is set', async () => {
+    localStorage.setItem('purchase_orders', JSON.stringify([po]));
+    localStorage.setItem(
+      'grns',
+      JSON.stringify([
+        {
+          id: 'GRN-LOC-1',
+          grnNumber: 'GRN-LOC-1',
+          poReference: po.poNumber,
+          poId: po.id,
+          warehouse: 'Main Warehouse',
+          receivedBy: 'Tester',
+          receivedDate: '2026-05-29',
+          status: 'Draft',
+          items: [
+            {
+              productId: '123',
+              productName: 'Test Product',
+              sku: 'TEST-123',
+              uom: 'pcs',
+              orderedQty: 50,
+              receivedQty: 50,
+              acceptedQty: 50,
+              rejectedQty: 0,
+              unitCost: 10,
+              totalCost: 500,
+              locationId: 5,
+            },
+          ],
+          goodsValue: 500,
+          freightCost: 0,
+          landedCost: 500,
+          createdAt: '2026-05-29T00:00:00.000Z',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
+      .mockResolvedValueOnce(okResponse({ lines_processed: 1, total_amount: 500 }))
+      .mockResolvedValueOnce(okResponse({ ...po, status: 'GRN' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await postGRN('GRN-LOC-1');
+
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    const body = JSON.parse(String((grnReceiveCall?.[1] as RequestInit).body));
+    expect(body.lines[0]).toMatchObject({
+      productId: 123,
+      quantity: 50,
+      unitCost: 10,
+      location_id: 5,
+    });
+    expect(body.lines[0]).not.toHaveProperty('locationId');
+  });
+
+  it('postGRN sends a pack PO line as base units', async () => {
+    const packPo: PurchaseOrder = {
+      ...po,
+      items: [
+        {
+          productId: '123',
+          productName: 'Test Product',
+          uom: 'case',
+          quantity: 36,
+          unitPrice: 7.5,
+          taxRate: 0,
+          discount: 0,
+          total: 270,
+          entered_uom: 'pack',
+          entered_qty: 3,
+          entered_unit_price: 90,
+          pack_qty_snapshot: 12,
+        },
+      ],
+    };
+    localStorage.setItem('purchase_orders', JSON.stringify([packPo]));
+    localStorage.setItem(
+      'grns',
+      JSON.stringify([
+        {
+          id: 'GRN-PACK-1',
+          grnNumber: 'GRN-PACK-1',
+          poReference: packPo.poNumber,
+          poId: packPo.id,
+          warehouse: 'Main Warehouse',
+          receivedBy: 'Tester',
+          receivedDate: '2026-05-29',
+          status: 'Draft',
+          items: [
+            {
+              productId: '123',
+              productName: 'Test Product',
+              sku: 'TEST-123',
+              uom: 'case',
+              orderedQty: 36,
+              receivedQty: 36,
+              acceptedQty: 36,
+              rejectedQty: 0,
+              unitCost: 7.5,
+              totalCost: 270,
+              enteredUom: 'pack',
+              enteredQty: 3,
+              enteredUnitPrice: 90,
+              packQtySnapshot: 12,
+            },
+          ],
+          goodsValue: 270,
+          freightCost: 0,
+          landedCost: 270,
+          createdAt: '2026-05-29T00:00:00.000Z',
+        },
+      ]),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
+      .mockResolvedValueOnce(okResponse({ lines_processed: 1, total_amount: 270 }))
+      .mockResolvedValueOnce(okResponse({ ...packPo, status: 'GRN' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await postGRN('GRN-PACK-1');
+
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    const body = JSON.parse(String((grnReceiveCall?.[1] as RequestInit).body));
+    expect(body.lines).toEqual([
+      {
+        productId: 123,
+        quantity: 36,
+        unitCost: 7.5,
+        entered_qty: 36,
+        entered_uom: 'base',
+        entered_unit_price: 7.5,
+      },
+    ]);
   });
 });

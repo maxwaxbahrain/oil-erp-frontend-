@@ -102,7 +102,7 @@ export function saveMonthlyHours(employeeId: string, period: string, hours: Mont
 }
 
 function defaultDocs(employeeId: string): PortalDocument[] {
-    const d = new Date().toISOString().split('T')[0];
+    const d = new Date().toISOString().split('T')[0]; // utc-date-ok: addedAt metadata
     return [
         { id: `${employeeId}-d1`, employeeId, name: 'Employment contract', category: 'HR', addedAt: d },
         { id: `${employeeId}-d2`, employeeId, name: 'ID / license on file', category: 'Compliance', addedAt: d },
@@ -130,7 +130,7 @@ export function addPortalDocument(employeeId: string, name: string, category: st
         employeeId,
         name: name.trim(),
         category: category.trim() || 'General',
-        addedAt: new Date().toISOString().split('T')[0]
+        addedAt: new Date().toISOString().split('T')[0] // utc-date-ok: addedAt metadata
     };
     try {
         const raw = localStorage.getItem(DOCS_KEY);

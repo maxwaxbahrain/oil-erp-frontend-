@@ -23,6 +23,7 @@ import {
 // ITEM 16 — Escape closes the payment / invoice preview modals.
 import { useEscape } from '../../hooks/useEscape';
 import { customerStatementTotals, invoiceCountsTowardCustomerBalance } from '../../utils/invoiceBalance';
+import { signedOutstanding } from '../../utils/outstandingTotals';
 import {
     getCustomerInvoices,
     getCustomerSalesOrders,
@@ -61,6 +62,12 @@ import { getCustomerCreditNotes, updateCreditNote, type CreditNote } from '../..
 import { saveExpense, type Expense } from '../../services/expenseService';
 import { getCompanySettings , getSystemSettings } from '../../services/settingsService';
 import { formatDateOnly } from '../../utils/formatters';
+import { formatLocalDate, formatStoredTimestamp } from '../../utils/dates';
+import {
+    customerLedgerRowLabel,
+    customerLedgerStatementCsv,
+    customerLedgerStatementType,
+} from '../../utils/customerLedgerStatement';
 import {
     isLegacyReversalRow,
     isVoidedPayment,
@@ -95,7 +102,7 @@ interface CustomerStats {
 interface LedgerEntry {
     id: string;
     date: string;
-    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale' | 'Reversal' | 'Adjustment';
+    type: 'Invoice' | 'Payment' | 'Credit Note' | 'Debit Note' | 'Van Sale' | 'Reversal' | 'Adjustment' | 'Opening Balance' | 'Balance brought forward';
     referenceNumber: string;
     description: string;
     debit: number;
@@ -223,6 +230,7 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                         <th>Date</th>
                         <th>Type</th>
                         <th>Reference</th>
+                        <th>Description</th>
                         <th>Debit</th>
                         <th>Credit</th>
                         <th>Balance</th>
@@ -231,9 +239,10 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
                 <tbody>
                     ${ledger.map(entry => `
                         <tr>
-                            <td>${formatDateOnly(entry.date)}</td>
-                            <td>${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type}</td>
+                            <td>${formatLocalDate(entry.date)}</td>
+                            <td>${customerLedgerStatementType(entry)}</td>
                             <td>${entry.referenceNumber}</td>
+                            <td>${entry.description}</td>
                             <td>${entry.debit > 0 ? '' + entry.debit.toLocaleString() : '-'}</td>
                             <td>${entry.credit > 0 ? '' + entry.credit.toLocaleString() : '-'}</td>
                             <td>${entry.balance.toLocaleString()}</td>
@@ -257,18 +266,15 @@ const generateCustomerLedgerPDF = (customer: Customer, ledger: LedgerEntry[]) =>
 const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += `Customer Ledger - ${customer.name}\n\n`;
-    csvContent += "Date,Type,Reference,Debit,Credit,Balance\n";
-
-    ledger.forEach(entry => {
-        csvContent += `${formatDateOnly(entry.date)},`;
-        csvContent += `${entry.voided && entry.type === 'Payment' ? 'Payment (Voided)' : entry.type},${entry.referenceNumber},`;
-        csvContent += `${entry.debit},${entry.credit},${entry.balance}\n`;
-    });
+    csvContent += customerLedgerStatementCsv(ledger.map((entry) => ({
+        ...entry,
+        date: formatLocalDate(entry.date),
+    })));
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Ledger_${customer.code}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Ledger_${customer.code}_${new Date().toISOString().split('T')[0]}.csv`); // utc-date-ok: export filename
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -278,11 +284,12 @@ const generateCustomerLedgerExcel = (customer: Customer, ledger: LedgerEntry[]) 
  *  from the API; the UI never recomputes it. */
 function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
     const rawType = (row.type || '').toLowerCase();
+    const openingLabel = customerLedgerRowLabel(rawType);
     const adjustmentLabel = ledgerTypeLabel(rawType, row);
-    const displayType: LedgerEntry['type'] = adjustmentLabel ?? (
+    const displayType: LedgerEntry['type'] = openingLabel ?? adjustmentLabel ?? (
         rawType === 'van_sale' ? 'Van Sale' :
         rawType === 'credit' || rawType === 'credit_note' || rawType === 'return_credit' ||
-            rawType === 'credit_adjustment' || rawType === 'opening_balance'
+            rawType === 'credit_adjustment'
             ? 'Credit Note' :
         rawType === 'debit' ? 'Debit Note' :
         rawType === 'payment' ? 'Payment' :
@@ -293,8 +300,16 @@ function mapPartyRowToDisplay(row: PartyLedgerRow): LedgerEntry {
         id: String(row.id),
         date: row.date ?? '',
         type: displayType,
-        referenceNumber: row.reference || `${rawType.toUpperCase()}-${String(row.id).slice(-4)}`,
-        description: row.description || `${row.type} transaction`,
+        referenceNumber: openingLabel === 'Opening Balance'
+            ? 'OPENING'
+            : openingLabel === 'Balance brought forward'
+                ? (row.reference || '')
+                : (row.reference || `${rawType.toUpperCase()}-${String(row.id).slice(-4)}`),
+        description: openingLabel === 'Opening Balance'
+            ? 'Opening balance'
+            : openingLabel === 'Balance brought forward'
+                ? 'Balance brought forward'
+                : (row.description || `${row.type} transaction`),
         debit: Number(row.debit) || 0,
         credit: Number(row.credit) || 0,
         balance: Number(row.running_balance) || 0,
@@ -308,7 +323,10 @@ import DocumentVault from './DocumentVault';
 // Visual-only date helper (Month YYYY).
 function _fmtMonthYear(dateStr: string | undefined | null): string {
   if (!dateStr) return '—';
-  const formatted = formatDateOnly(dateStr, 'en-US', { month: 'short', year: 'numeric' });
+  const trimmed = dateStr.trim();
+  const formatted = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+    ? formatLocalDate(trimmed, { month: 'short', year: 'numeric' })
+    : formatDateOnly(dateStr, 'en-US', { month: 'short', year: 'numeric' });
   return formatted || dateStr;
 }
 
@@ -969,18 +987,20 @@ export default function CustomerOverview() {
       })
       .reduce((sum: number, inv: any) => sum + (Number(inv.amount ?? (inv as any).grandTotal) || 0), 0);
 
-    const _balanceDisplay: number = Math.max(0, Number(stats.outstandingBalance) || 0);
+    const _balanceDisplay: number = signedOutstanding(Number(stats.outstandingBalance) || 0);
     const _creditLimitDisplay: number = Number(stats.creditLimit) || 0;
 
     const _creditUsedPct: number = _creditLimitDisplay > 0
-      ? Math.min(100, (_balanceDisplay / _creditLimitDisplay) * 100)
+      ? Math.min(100, (Math.max(0, _balanceDisplay) / _creditLimitDisplay) * 100)
       : 0;
 
-    const _balanceColor: string = _overdueAmount > 0
-      ? '#EF4444'
-      : _creditUsedPct > 80
-        ? '#F59E0B'
-        : '#4F8EF7';
+    const _balanceColor: string = _balanceDisplay < 0
+      ? '#22C55E'
+      : _overdueAmount > 0
+        ? '#EF4444'
+        : _creditUsedPct > 80
+          ? '#F59E0B'
+          : '#4F8EF7';
 
     const liveCustomerPayments = livePayments(payments ?? []);
 
@@ -1058,7 +1078,7 @@ export default function CustomerOverview() {
                         <div style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)' }}>
                             {(customer as any).address ?? (customer as any).city ?? ''}
                             {((customer as any).address || (customer as any).city) ? ' · ' : ''}
-                            Customer since {_fmtMonthYear((customer as any).createdAt ?? (customer as any).created_at)}
+                            Customer since {formatStoredTimestamp((customer as any).createdAt ?? (customer as any).created_at, { month: 'short', year: 'numeric' }) || '—'}
                             {' · '}
                             {(customer as any).paymentTerms ?? (customer as any).payment_terms ?? 'COD'} terms
                         </div>
@@ -1115,9 +1135,10 @@ export default function CustomerOverview() {
                         ✏ Edit customer
                     </button>
 
-                    {/* Send statement + Credit hold — new visual buttons, no handler */}
+                    {/* Send statement uses the same ledger rows as Download PDF. */}
                     <button
                         type="button"
+                        onClick={() => { if (customer) generateCustomerLedgerPDF(customer, ledger); }}
                         style={{
                             background: 'rgba(245,158,11,.12)', color: '#B45309',
                             border: '1px solid rgba(245,158,11,.3)', borderRadius: 8, padding: '7px 13px',
@@ -1316,7 +1337,9 @@ export default function CustomerOverview() {
                         value: _lastPayment ? `$${Number(_lastPayment.amount).toFixed(2)}` : '—',
                         color: '#4F8EF7',
                         sub: _lastPayment
-                            ? formatDateOnly(_lastPayment.payment_date ?? _lastPayment.created_at ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? (_lastPayment.payment_date
+                                ? formatLocalDate(_lastPayment.payment_date, { month: 'short', day: 'numeric', year: 'numeric' })
+                                : formatDateOnly(_lastPayment.created_at ?? '', 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }))
                             : '—',
                     },
                     {
@@ -1664,7 +1687,7 @@ export default function CustomerOverview() {
                                                         || String(inv.status ?? '').toLowerCase() === 'overdue';
                                                     const dueDateStr = inv.dueDate ?? inv.due_date ?? inv.invoiceDate ?? '';
                                                     const dueFmt = dueDateStr
-                                                        ? formatDateOnly(dueDateStr, 'en-US', { month: 'short', day: 'numeric' })
+                                                        ? formatLocalDate(dueDateStr, { month: 'short', day: 'numeric' })
                                                         : '—';
                                                     return (
                                                         <tr
@@ -1682,7 +1705,7 @@ export default function CustomerOverview() {
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t2,#8BA3C7)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
                                                                 {inv.invoiceDate
-                                                                    ? formatDateOnly(inv.invoiceDate, 'en-US', { month: 'short', day: 'numeric' })
+                                                                    ? formatLocalDate(inv.invoiceDate, { month: 'short', day: 'numeric' })
                                                                     : '—'}
                                                             </td>
                                                             <td style={{ fontSize: 11, color: 'var(--t,#EEF2FF)', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
@@ -1725,10 +1748,12 @@ export default function CustomerOverview() {
                                     {_sortedPayments.slice(0, 5).map((p: any, i: number) => {
                                         const amt = Number(p.amount ?? 0);
                                         const pct = _paymentMaxAmt > 0 ? Math.round((amt / _paymentMaxAmt) * 100) : 0;
-                                        const dateStr = p.payment_date ?? p.date ?? p.createdAt;
-                                        const label = dateStr
-                                            ? formatDateOnly(dateStr, 'en-US', { month: 'short', day: 'numeric' })
-                                            : '—';
+                                        const calendarDate = p.payment_date ?? p.date;
+                                        const label = calendarDate
+                                            ? formatLocalDate(calendarDate, { month: 'short', day: 'numeric' })
+                                            : (p.createdAt
+                                                ? formatDateOnly(p.createdAt, 'en-US', { month: 'short', day: 'numeric' })
+                                                : '—');
                                         return (
                                             <div
                                                 key={i}
@@ -1997,7 +2022,7 @@ export default function CustomerOverview() {
                                                     style={{ transition: 'background .15s' }}
                                                 >
                                                     <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                        {formatDateOnly(entry.date)}
+                                                        {formatLocalDate(entry.date)}
                                                     </td>
                                                     <td style={ledgerTdStyle}>
                                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -2113,7 +2138,7 @@ export default function CustomerOverview() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {ledgerOpeningBalance !== null && (
+                                            {ledgerOpeningBalance !== null && !ledger.some((entry) => entry.type === 'Opening Balance' || entry.type === 'Balance brought forward') && (
                                                 <tr style={{ background: 'rgba(79,142,247,.08)' }}>
                                                     <td colSpan={6} style={{ ...ledgerTdStyle, fontWeight: 700, color: 'var(--t,#EEF2FF)' }}>
                                                         Opening balance
@@ -2201,7 +2226,7 @@ export default function CustomerOverview() {
                                                             {doc.docType === 'Invoice' ? doc.invoiceNumber : doc.orderNumber}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
-                                                            {formatDateOnly(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate)}
+                                                            {formatLocalDate(doc.docType === 'Invoice' ? doc.invoiceDate : doc.orderDate)}
                                                         </td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>
                                                             {doc.lineItems.length} {doc.lineItems.length === 1 ? 'Item' : 'Items'}
@@ -2308,7 +2333,7 @@ export default function CustomerOverview() {
                                                     <td colSpan={4} style={ledgerTfootStyle}></td>
                                                     <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.6px' }}>
                                                         <span style={{ display: 'block', color: 'var(--t2,#8BA3C7)' }}>Total Invoiced</span>
-                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Total Outstanding</span>
+                                                        <span style={{ display: 'block', color: '#F59E0B', marginTop: 4 }}>Open invoices</span>
                                                     </td>
                                                     <td style={{ ...ledgerTfootStyle, textAlign: 'right', fontFamily: 'monospace' }}>
                                                         <span style={{ display: 'block', color: 'var(--t,#EEF2FF)' }}>{totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -2393,7 +2418,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s', background: isReversal ? 'rgba(239,68,68,.04)' : 'transparent' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(pay.payment_date)}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatLocalDate(pay.payment_date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontFamily: 'monospace', fontWeight: 700 }}>{pay.reference || `PAY-${String(pay.id).slice(-4)}`}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{pay.payment_method}</td>
                                                         <td style={{
@@ -2624,7 +2649,7 @@ export default function CustomerOverview() {
                                                         onMouseLeave={_tableRowHoverLeave}
                                                         style={{ transition: 'background .15s' }}
                                                     >
-                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatDateOnly(exp.date)}</td>
+                                                        <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{formatLocalDate(exp.date)}</td>
                                                         <td style={{ ...ledgerTdStyle, fontWeight: 700 }}>{exp.vendor}</td>
                                                         <td style={{ ...ledgerTdStyle, color: 'var(--t2,#8BA3C7)' }}>{exp.category}</td>
                                                         <td style={{ ...ledgerTdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{exp.currency} ${exp.amount.toFixed(2)}</td>
@@ -2728,11 +2753,11 @@ export default function CustomerOverview() {
                                     <div className="grid grid-cols-2 gap-8 pt-2">
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Instrument Date</p>
-                                            <p className="text-xs font-black text-gray-700">{formatDateOnly(selectedInvoice.invoiceDate || selectedInvoice.orderDate)}</p>
+                                            <p className="text-xs font-black text-gray-700">{formatLocalDate(selectedInvoice.invoiceDate || selectedInvoice.orderDate)}</p>
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Maturity Date</p>
-                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? formatDateOnly(selectedInvoice.dueDate) : 'N/A'}</p>
+                                            <p className="text-xs font-black text-gray-700">{selectedInvoice.dueDate ? formatLocalDate(selectedInvoice.dueDate) : 'N/A'}</p>
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-8 pt-2">

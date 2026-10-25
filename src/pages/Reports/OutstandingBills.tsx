@@ -7,42 +7,25 @@ import { getInvoices, getCustomerPayments, type Invoice } from '../../services/a
 import { getCustomers } from '../../services/customerService';
 import { formatCurrency } from '../../services/settingsService';
 import { livePayments } from '../../utils/paymentVoid';
+import {
+    balanceOf,
+    bucketOutstanding,
+    daysPastDueLocal,
+    isDueSoon,
+    isFullyPaid,
+    isOverdue,
+    isPartial,
+    isUnpaidNoPayment,
+    tabCounts,
+} from '../../utils/outstandingBills';
 
 // Page-size for the bottom pager.
 const PAGE_SIZE = 25;
 
-// Status badges use API-derived status + remaining_balance; date logic stays local.
-const balanceOf = (i: Invoice) => Number(i.remaining_balance ?? 0);
-const isFullyPaid = (i: Invoice) =>
-  String(i.status).toLowerCase() === 'paid' || balanceOf(i) <= 0.01;
-const isPartial = (i: Invoice) =>
-  String(i.status).toLowerCase() === 'partial' && balanceOf(i) > 0.01;
-const isUnpaidNoPayment = (i: Invoice) =>
-  String(i.status).toLowerCase() === 'unpaid' && balanceOf(i) > 0.01;
-
-const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-const todayStart = () => startOfDay(new Date());
-
-const daysPastDue = (i: Invoice): number => {
-    if (!i.dueDate || balanceOf(i) <= 0.01) return 0;
-    const due = new Date(i.dueDate);
-    if (Number.isNaN(due.getTime())) return 0;
-    return Math.floor((todayStart() - startOfDay(due)) / 86400000);
-};
-
-const isOverdue = (i: Invoice) => daysPastDue(i) > 0; // 'due today' is NOT overdue
-const isDueSoon = (i: Invoice) => {
-    if (!i.dueDate || balanceOf(i) <= 0.01) return false;
-    const due = new Date(i.dueDate);
-    if (Number.isNaN(due.getTime())) return false;
-    const diffDays = Math.floor((startOfDay(due) - todayStart()) / 86400000);
-    return diffDays >= 0 && diffDays <= 7;
-};
-
-const computedStatus = (i: Invoice): 'Paid' | 'Partial' | 'Overdue' | 'Due soon' | 'Unpaid' => {
+const computedStatus = (i: Invoice, today: Date): 'Paid' | 'Partial' | 'Overdue' | 'Due soon' | 'Unpaid' => {
     if (isFullyPaid(i)) return 'Paid';
-    if (isOverdue(i)) return 'Overdue';
-    if (isDueSoon(i)) return 'Due soon';
+    if (isOverdue(i, today)) return 'Overdue';
+    if (isDueSoon(i, today)) return 'Due soon';
     if (isPartial(i)) return 'Partial';
     return 'Unpaid';
 };
@@ -138,6 +121,7 @@ export default function OutstandingBills() {
 
     // Filter pipeline (uses resolved name so customers with empty customerName
     // are still matched correctly).
+    const today = new Date();
     const passesCustomer = (inv: Invoice) => customerFilter === 'all' || nameOf(inv) === customerFilter;
     const passesSearch = (inv: Invoice) => {
         if (!search) return true;
@@ -147,10 +131,10 @@ export default function OutstandingBills() {
     };
     const passesStatus = (inv: Invoice) => {
         if (statusFilter === 'all') return true;
-        if (statusFilter === 'Overdue')  return isOverdue(inv);
-        if (statusFilter === 'Due soon') return isDueSoon(inv);
+        if (statusFilter === 'Overdue')  return isOverdue(inv, today);
+        if (statusFilter === 'Due soon') return isDueSoon(inv, today);
         if (statusFilter === 'Partial')  return isPartial(inv);
-        if (statusFilter === 'Unpaid')   return isUnpaidNoPayment(inv) && !isOverdue(inv) && !isDueSoon(inv);
+        if (statusFilter === 'Unpaid')   return isUnpaidNoPayment(inv);
         return true;
     };
 
@@ -164,32 +148,22 @@ export default function OutstandingBills() {
     });
 
     // Filter pill counts use the customer+search scope (so a customer filter narrows the pill numbers too).
+    const pills = tabCounts(baseScoped, today);
     const counts = {
-        all: baseScoped.length,
-        Overdue: baseScoped.filter(isOverdue).length,
-        'Due soon': baseScoped.filter(isDueSoon).length,
-        Partial: baseScoped.filter(isPartial).length,
-        Unpaid: baseScoped.filter(i => isUnpaidNoPayment(i) && !isOverdue(i) && !isDueSoon(i)).length,
+        all: pills.all,
+        Overdue: pills.overdue,
+        'Due soon': pills.dueSoon,
+        Partial: pills.partial,
+        Unpaid: pills.unpaid,
     };
 
     // KPI tile amounts based on customer+search scope (independent of which pill is selected).
     const totalOutstanding = baseScoped.reduce((s, i) => s + balanceOf(i), 0);
-    const totalOverdue     = baseScoped.filter(isOverdue).reduce((s, i) => s + balanceOf(i), 0);
-    const totalDueSoon     = baseScoped.filter(isDueSoon).reduce((s, i) => s + balanceOf(i), 0);
+    const totalDueSoon     = baseScoped.filter(i => isDueSoon(i, today)).reduce((s, i) => s + balanceOf(i), 0);
 
-    // Aging buckets (past-due age) for the row of 4 aging cards.
-    const aging = baseScoped.reduce(
-        (acc, i) => {
-            const d = daysPastDue(i);
-            const bal = balanceOf(i);
-            if (d <= 30)       acc.current += bal;
-            else if (d <= 60)  acc.b30    += bal;
-            else if (d <= 90)  acc.b60    += bal;
-            else               acc.b90    += bal;
-            return acc;
-        },
-        { current: 0, b30: 0, b60: 0, b90: 0 },
-    );
+    // Aging by days past the due date. Current is not yet due (days <= 0).
+    const aging = bucketOutstanding(baseScoped, today);
+    const totalOverdue = aging.b30 + aging.b60 + aging.b90 + aging.b90plus;
 
     // Pagination
     const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -223,7 +197,7 @@ export default function OutstandingBills() {
             startY: 34,
             head: [['Bill #', 'Customer', 'Bill date', 'Due date', 'Status', 'Days past due', 'Total', 'Paid', 'Balance']],
             body: filtered.map(inv => {
-                const dp = daysPastDue(inv);
+                const dp = !inv.dueDate || balanceOf(inv) <= 0.01 ? 0 : daysPastDueLocal(inv.dueDate, today);
                 const total = Number(inv.grandTotal) || 0;
                 const paid = Number(inv.amount_paid) || 0;
                 return [
@@ -231,7 +205,7 @@ export default function OutstandingBills() {
                     nameOf(inv),
                     inv.invoiceDate || '',
                     inv.dueDate || '',
-                    computedStatus(inv),
+                    computedStatus(inv, today),
                     dp > 0 ? `${dp}d` : '—',
                     formatCurrency(total),
                     formatCurrency(paid),
@@ -243,7 +217,7 @@ export default function OutstandingBills() {
             headStyles: { fillColor: [33, 33, 33] },
             footStyles: { fillColor: [33, 33, 33], textColor: 255, fontStyle: 'bold' },
         });
-        doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`);
+        doc.save(`OutstandingBills_${new Date().toISOString().slice(0, 10)}.pdf`); // utc-date-ok: export filename
     };
 
     const asOf = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -318,22 +292,26 @@ export default function OutstandingBills() {
             </div>
 
             {/* Aging buckets */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="rounded-2xl p-5 border bg-emerald-50 border-emerald-100">
-                    <p className="text-sm font-semibold text-emerald-700">Current (0–30 days)</p>
+                    <p className="text-sm font-semibold text-emerald-700">Current</p>
                     <p className="text-2xl font-black font-mono text-emerald-700 mt-1">{loading ? '...' : formatCurrency(aging.current)}</p>
                 </div>
                 <div className="rounded-2xl p-5 border bg-yellow-50 border-yellow-100">
-                    <p className="text-sm font-semibold text-yellow-700">31–60 days</p>
+                    <p className="text-sm font-semibold text-yellow-700">1–30 days</p>
                     <p className="text-2xl font-black font-mono text-yellow-700 mt-1">{loading ? '...' : formatCurrency(aging.b30)}</p>
                 </div>
                 <div className="rounded-2xl p-5 border bg-orange-50 border-orange-100">
-                    <p className="text-sm font-semibold text-orange-700">61–90 days</p>
+                    <p className="text-sm font-semibold text-orange-700">31–60 days</p>
                     <p className="text-2xl font-black font-mono text-orange-700 mt-1">{loading ? '...' : formatCurrency(aging.b60)}</p>
                 </div>
                 <div className="rounded-2xl p-5 border bg-rose-50 border-rose-100">
-                    <p className="text-sm font-semibold text-rose-700">&gt;90 days (critical)</p>
+                    <p className="text-sm font-semibold text-rose-700">61–90 days</p>
                     <p className="text-2xl font-black font-mono text-rose-700 mt-1">{loading ? '...' : formatCurrency(aging.b90)}</p>
+                </div>
+                <div className="rounded-2xl p-5 border bg-rose-50 border-rose-200">
+                    <p className="text-sm font-semibold text-rose-800">&gt;90 days (critical)</p>
+                    <p className="text-2xl font-black font-mono text-rose-800 mt-1">{loading ? '...' : formatCurrency(aging.b90plus)}</p>
                 </div>
             </div>
 
@@ -418,8 +396,8 @@ export default function OutstandingBills() {
                                 <tbody className="divide-y divide-gray-50">
                                     {pageRows.map(inv => {
                                         const balance = balanceOf(inv);
-                                        const dpd = daysPastDue(inv);
-                                        const cs = computedStatus(inv);
+                                        const dpd = !inv.dueDate || balanceOf(inv) <= 0.01 ? 0 : daysPastDueLocal(inv.dueDate, today);
+                                        const cs = computedStatus(inv, today);
                                         const id = String(inv.id);
                                         return (
                                             <tr key={id} className="hover:bg-gray-50 transition-all">

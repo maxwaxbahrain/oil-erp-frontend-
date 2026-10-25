@@ -130,7 +130,7 @@ export default function AnomalyDetection() {
                             title: `Unusual large invoice — ${inv.customerName}`,
                             description: `Invoice ${inv.invoiceNumber} is ${((inv.grandTotal / avg) * 100).toFixed(0)}% of average invoice value. This is ${((inv.grandTotal - avg) / stdDev).toFixed(1)} standard deviations above normal.`,
                             value: formatCurrency(inv.grandTotal),
-                            detectedAt: inv.invoiceDate || today.toISOString().slice(0, 10),
+                            detectedAt: inv.invoiceDate || today.toISOString().slice(0, 10), // utc-date-ok: detectedAt timestamp
                             relatedTo: inv.customerName
                         });
                     }
@@ -158,7 +158,7 @@ export default function AnomalyDetection() {
                         title: `Customer inactive — ${info.name}`,
                         description: `${info.name} has not placed an order in ${daysSince} days. They previously spent ${formatCurrency(info.totalSpend)} total. Risk of losing this customer.`,
                         value: `${daysSince} days silent`,
-                        detectedAt: info.date.toISOString().slice(0, 10),
+                        detectedAt: info.date.toISOString().slice(0, 10), // utc-date-ok: detectedAt timestamp
                         relatedTo: info.name
                     });
                 }
@@ -177,7 +177,7 @@ export default function AnomalyDetection() {
                             title: `Unusually high price — ${p.name}`,
                             description: `${p.name} is priced at ${formatCurrency(p.unit_price)}, which is ${((p.unit_price / avgPrice) * 100).toFixed(0)}% of average product price. Verify this is intentional.`,
                             value: formatCurrency(p.unit_price),
-                            detectedAt: today.toISOString().slice(0, 10),
+                            detectedAt: today.toISOString().slice(0, 10), // utc-date-ok: detectedAt timestamp
                             relatedTo: p.name
                         });
                     }
@@ -189,7 +189,7 @@ export default function AnomalyDetection() {
                             title: `Unusually low price — ${p.name}`,
                             description: `${p.name} is priced at ${formatCurrency(p.unit_price)}, much lower than average. Possible pricing error or below cost sale.`,
                             value: formatCurrency(p.unit_price),
-                            detectedAt: today.toISOString().slice(0, 10),
+                            detectedAt: today.toISOString().slice(0, 10), // utc-date-ok: detectedAt timestamp
                             relatedTo: p.name
                         });
                     }
@@ -227,7 +227,7 @@ export default function AnomalyDetection() {
                         title: `Zero stock — active product — ${p.name}`,
                         description: `${p.name} has 0 units in stock but has active sales history. You may lose orders if customers request this product.`,
                         value: '0 units',
-                        detectedAt: today.toISOString().slice(0, 10),
+                        detectedAt: today.toISOString().slice(0, 10), // utc-date-ok: detectedAt timestamp
                         relatedTo: p.name
                     });
                 }

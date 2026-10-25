@@ -6,6 +6,7 @@
 import { createWorker } from 'tesseract.js';
 import { authFetch } from '../api/axios';
 import { getOilErpApiHost } from '../config/apiBase';
+import { localIsoDate } from '../utils/localDate';
 
 export interface SupplierInfo {
     name: string;
@@ -335,7 +336,7 @@ CRITICAL PRICE RULES — READ CAREFULLY:
             },
             invoice: {
                 number: parsed.invoice?.number || `INV-${Date.now()}`,
-                date: parsed.invoice?.date || new Date().toISOString().slice(0, 10),
+                date: parsed.invoice?.date || localIsoDate(),
                 currency: parsed.invoice?.currency || 'USD'
             },
             products,
@@ -681,14 +682,17 @@ VALIDATION: Before returning, verify:
         for (const pattern of patterns) {
             const match = text.match(pattern);
             if (match) {
-                const date = new Date(match[1]);
+                const raw = match[1].trim();
+                // Date-only ISO parses as UTC midnight; keep the calendar day written on the invoice.
+                if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+                const date = new Date(raw);
                 if (!isNaN(date.getTime())) {
-                    return date.toISOString().split('T')[0];
+                    return localIsoDate(date);
                 }
             }
         }
 
-        return new Date().toISOString().split('T')[0];
+        return localIsoDate();
     }
 
     /**

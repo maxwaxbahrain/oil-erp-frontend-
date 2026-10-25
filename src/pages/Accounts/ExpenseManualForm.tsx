@@ -19,6 +19,7 @@ import {
 import type { BankingAccount } from '../../services/glService';
 import { expenseMethodIsCash, expensePaymentAccountIdForSave } from '../../utils/bankingAccounts';
 import { PaidFromBankPicker } from './paidFromBankPicker';
+import { localIsoDate } from '../../utils/localDate';
 
 const RECEIPT_ACCEPT = 'image/png,image/jpeg,image/webp,application/pdf';
 const RECEIPT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
@@ -80,6 +81,9 @@ export function ExpenseManualForm({
     customers,
     banks,
     defaultBank,
+    accountsLoading = false,
+    accountsError = null,
+    reloadAccounts,
     onClose,
     onSaved,
     onOpenChart,
@@ -91,6 +95,9 @@ export function ExpenseManualForm({
     customers: CustomerComboboxOption[];
     banks: BankingAccount[];
     defaultBank: BankingAccount | null;
+    accountsLoading?: boolean;
+    accountsError?: string | null;
+    reloadAccounts?: () => void;
     onClose: () => void;
     onSaved: () => Promise<void> | void;
     onOpenChart: () => void;
@@ -399,7 +406,11 @@ export function ExpenseManualForm({
         .map((flag, index) => flag.severity === 'error' ? index : -1)
         .filter(index => index >= 0);
     const unackedErrors = errorPolicyIdxs.filter(index => !policyErrorAcks[index]);
-    const saveBlocked = saving || (hasHighDup && !dupAcknowledged) || unackedErrors.length > 0;
+    const paidFromBlocked =
+        !expenseMethodIsCash(paymentMethod)
+        && !expensePosted
+        && (accountsLoading || Boolean(accountsError) || paymentAccountId === '');
+    const saveBlocked = saving || paidFromBlocked || (hasHighDup && !dupAcknowledged) || unackedErrors.length > 0;
     const existingImage = !receiptPreview && receiptUrl && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(receiptUrl);
 
     return (
@@ -456,7 +467,7 @@ export function ExpenseManualForm({
                                 ref={dateRef}
                                 type="date"
                                 className="expense-input"
-                                defaultValue={editingExpense?.date || new Date().toISOString().split('T')[0]}
+                                defaultValue={editingExpense?.date || localIsoDate()}
                                 onChange={() => {
                                     if (fieldErrors.date) setFieldErrors((prev) => ({ ...prev, date: '' }));
                                 }}
@@ -617,6 +628,9 @@ export function ExpenseManualForm({
                         value={paymentAccountId}
                         onChange={setPaymentAccountId}
                         posted={expensePosted}
+                        loading={accountsLoading}
+                        error={accountsError}
+                        onRetry={reloadAccounts}
                     />
                     {saveError && <p className="expense-error" role="alert">{saveError}</p>}
 

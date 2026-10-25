@@ -18,6 +18,7 @@ import { regenerateInvoiceShareToken } from './api';
 import type { CompanySettings } from './settingsService';
 import { formatCityLine, getCompanySettings } from './settingsService';
 import { showToast } from '../utils/showToast';
+import { formatLineQuantity } from '../utils/packEntry';
 
 const MAROON: [number, number, number] = [128, 0, 32];
 const LOGO_MAX_W_MM = 40;
@@ -332,7 +333,7 @@ export async function generateInvoicePDF(invoice: Invoice, company: CompanySetti
   const body = invoice.lineItems.map((li) => [
     li.product || '—',
     (li.description || '').slice(0, 60),
-    String(li.quantity),
+    formatLineQuantity(li),
     formatMoney(li.rate),
     formatMoney(li.amount),
   ]);
@@ -463,7 +464,7 @@ export async function generateInvoiceWord(invoice: Invoice, company: CompanySett
         children: [
           new TableCell({ children: [cellPara(li.product || '—')] }),
           new TableCell({ children: [cellPara((li.description || '').slice(0, 200))] }),
-          new TableCell({ children: [cellPara(String(li.quantity))] }),
+          new TableCell({ children: [cellPara(formatLineQuantity(li))] }),
           new TableCell({ children: [cellPara(formatMoney(li.rate))] }),
           new TableCell({ children: [cellPara(formatMoney(li.amount))] }),
         ],

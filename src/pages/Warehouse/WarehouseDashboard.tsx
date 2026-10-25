@@ -1,13 +1,8 @@
-import { useState, useEffect, type CSSProperties } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Globe,
-  AlertTriangle,
-  RefreshCw,
-  ClipboardCheck,
-} from 'lucide-react';
-import { getProducts, type Product } from '../../services/api';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Box, RefreshCw } from 'lucide-react';
+import { formatCurrency } from '../../services/settingsService';
+import { getInventorySummary, type InventorySummary, type MovementWindow } from '../../services/inventoryLedgerService';
 
 const panel: CSSProperties = {
   background: 'var(--color-redwood-bg-surface)',
@@ -25,6 +20,8 @@ const rowStyle: CSSProperties = {
   borderRadius: '7px',
   padding: '7px 9px',
   marginBottom: '5px',
+  color: 'inherit',
+  textDecoration: 'none',
 };
 
 const headerBtn: CSSProperties = {
@@ -38,24 +35,8 @@ const headerBtn: CSSProperties = {
   fontFamily: "'DM Sans',sans-serif",
 };
 
-function notConnectedBlock(title: string, explanation: string) {
-  return (
-    <div
-      style={{
-        background: 'var(--color-redwood-row-bg)',
-        border: '1px solid var(--color-redwood-border)',
-        borderRadius: '9px',
-        padding: '14px 12px',
-      }}
-    >
-      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '6px' }}>
-        {title}
-      </div>
-      <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.55, color: 'var(--color-redwood-text-muted)' }}>
-        {explanation}
-      </p>
-    </div>
-  );
+function qty(n: number): string {
+  return Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function kpiCard(cfg: {
@@ -64,7 +45,7 @@ function kpiCard(cfg: {
   badge: string;
   badgeBg: string;
   badgeColor: string;
-  value: string | number;
+  value: string;
   valueColor: string;
   sub: string;
 }) {
@@ -92,15 +73,23 @@ function kpiCard(cfg: {
   );
 }
 
+function windowSub(window: MovementWindow | undefined, loading: boolean): { value: string; sub: string } {
+  if (loading || !window) return { value: '—', sub: '—' };
+  return {
+    value: qty(window.units),
+    sub: `${window.lines} lines · ${formatCurrency(window.value)}`,
+  };
+}
+
 export default function WarehouseDashboard() {
   const navigate = useNavigate();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [summary, setSummary] = useState<InventorySummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [cols, setCols] = useState({ kpi: 4, twoCol: true });
 
-  const [cols, setCols] = useState({ kpi: 4, bins: 3, twoCol: true });
   useEffect(() => {
     const update = () => setCols({
       kpi: window.innerWidth >= 1024 ? 4 : 2,
-      bins: window.innerWidth >= 768 ? 3 : 2,
       twoCol: window.innerWidth >= 1024,
     });
     update();
@@ -109,30 +98,29 @@ export default function WarehouseDashboard() {
   }, []);
 
   useEffect(() => {
-    getProducts().then(setProducts).catch(console.error);
+    let cancelled = false;
+    setError(null);
+    getInventorySummary()
+      .then((data) => {
+        if (!cancelled) setSummary(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setSummary(null);
+          setError(err instanceof Error ? err.message : 'Could not load the warehouse summary.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const lowStockCount = products.filter((p) => {
-    if (p.current_stock === 0) return true;
-    if (p.minimum_stock !== undefined && p.current_stock <= p.minimum_stock) return true;
-    return false;
-  }).length;
-
-  const reorderAlerts = products
-    .filter((p) => p.minimum_stock !== undefined && p.current_stock <= p.minimum_stock)
-    .sort((a, b) => a.current_stock - b.current_stock)
-    .slice(0, 6)
-    .map((p) => ({
-      label: p.name,
-      action: p.current_stock === 0
-        ? 'Out of stock — reorder'
-        : `${p.current_stock} left — below min (${p.minimum_stock})`,
-      color: p.current_stock === 0 ? 'var(--color-brand-red)' : 'var(--color-brand-amber)',
-    }));
+  const report = summary;
+  const received = windowSub(report?.received_30d, !report);
+  const returned = windowSub(report?.returned_to_supplier_30d, !report);
 
   return (
     <div style={{ paddingBottom: '80px' }}>
-      {/* ────────── A) Page header ────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontFamily: "'Syne',sans-serif", fontSize: '20px', fontWeight: 600, letterSpacing: '-0.5px', color: 'var(--color-redwood-text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -140,16 +128,36 @@ export default function WarehouseDashboard() {
             Warehouse Management
           </h1>
           <div style={{ fontSize: '10.5px', color: 'var(--color-redwood-text-subtle)', marginTop: '2px' }}>
-            Bin locations · Batch &amp; lot tracking · Expiry dates · Pick lists · Reorder alerts
+            Stock ledger · on hand · receipts and returns
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button type="button" style={headerBtn}>Scan Barcode</button>
-          <button type="button" style={headerBtn}>Generate Pick List</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {summary && summary.ledger_drift_count > 0 && (
+            <Link
+              to="/warehouse/stock?drift=1"
+              style={{
+                fontSize: '10.5px',
+                fontWeight: 700,
+                padding: '6px 10px',
+                borderRadius: '999px',
+                background: 'rgba(239,68,68,.15)',
+                color: 'var(--color-brand-red-tint)',
+                textDecoration: 'none',
+              }}
+            >
+              Ledger drift {summary.ledger_drift_count}
+            </Link>
+          )}
+          <button type="button" style={headerBtn} onClick={() => navigate('/warehouse/stock')}>Stock on hand</button>
         </div>
       </div>
 
-      {/* ────────── B) 4 KPI cards ────────── */}
+      {error && (
+        <div style={{ marginBottom: '10px', fontSize: '12px', color: 'var(--color-brand-red)' }}>
+          {error}
+        </div>
+      )}
+
       <div style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols.kpi}, 1fr)`,
@@ -157,110 +165,104 @@ export default function WarehouseDashboard() {
         marginBottom: '12px',
       }}>
         {kpiCard({
-          stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)',
-          label: 'Low Stock Items',
-          badge: 'Critical', badgeBg: 'rgba(239,68,68,.2)', badgeColor: 'var(--color-brand-red-tint)',
-          value: lowStockCount,
-          valueColor: 'var(--color-brand-amber)',
-          sub: 'Below reorder point',
-        })}
-        {kpiCard({
-          stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
-          label: 'Expiry Alerts',
-          badge: '—', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)',
-          value: '—',
-          valueColor: 'var(--color-redwood-text-muted)',
-          sub: 'No expiry tracking connected yet',
+          stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
+          label: 'Stock value at cost',
+          badge: 'Ledger', badgeBg: 'rgba(34,197,94,.15)', badgeColor: '#86EFAC',
+          value: report ? formatCurrency(report.stock_value_at_cost) : '—',
+          valueColor: 'var(--color-redwood-text-main)',
+          sub: report ? `GL 1200 ${formatCurrency(report.gl_inventory_1200)} · diff ${formatCurrency(report.gl_difference)}` : '—',
         })}
         {kpiCard({
           stripe: 'linear-gradient(90deg,#4F8EF7,#93C5FD)',
-          label: 'Active Batches',
-          badge: '—', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)',
-          value: '—',
-          valueColor: 'var(--color-redwood-text-muted)',
-          sub: 'Batch tracking not configured yet',
+          label: 'Units on hand',
+          badge: 'Ledger', badgeBg: 'rgba(79,142,247,.15)', badgeColor: '#93C5FD',
+          value: report ? qty(report.units_on_hand) : '—',
+          valueColor: 'var(--color-redwood-text-main)',
+          sub: report ? `${report.products_active} active products` : '—',
         })}
         {kpiCard({
-          stripe: 'linear-gradient(90deg,#22C55E,#86EFAC)',
-          label: 'Pick Lists Today',
-          badge: '—', badgeBg: 'rgba(148,163,184,.12)', badgeColor: 'var(--color-redwood-text-muted)',
-          value: '—',
-          valueColor: 'var(--color-redwood-text-muted)',
-          sub: 'Pick list workflow not connected yet',
+          stripe: 'linear-gradient(90deg,#F59E0B,#FCD34D)',
+          label: 'Received 30d',
+          badge: 'GRN', badgeBg: 'rgba(245,158,11,.15)', badgeColor: 'var(--color-brand-amber)',
+          value: received.value,
+          valueColor: 'var(--color-redwood-text-main)',
+          sub: received.sub,
+        })}
+        {kpiCard({
+          stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
+          label: 'Returned to supplier 30d',
+          badge: '30d', badgeBg: 'rgba(239,68,68,.12)', badgeColor: 'var(--color-brand-red-tint)',
+          value: returned.value,
+          valueColor: 'var(--color-redwood-text-main)',
+          sub: returned.sub,
         })}
       </div>
 
-      {/* ────────── C) Two-column main ────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols.kpi > 2 ? 3 : 1}, 1fr)`, gap: '9px', marginBottom: '12px' }}>
+        {[
+          { label: 'Low stock', value: report ? String(report.below_min_count) : '—', to: '/warehouse/stock?below_min=1' },
+          { label: 'Zero stock', value: report ? String(report.zero_stock_count) : '—', to: '/warehouse/stock?zero=1' },
+          { label: 'No movement 90d', value: report ? String(report.no_movement_90d_count) : '—', to: '/warehouse/stock' },
+        ].map((item) => (
+          <Link key={item.label} to={item.to} style={{ ...panel, textDecoration: 'none', color: 'inherit' }}>
+            <div style={{ fontSize: '10.5px', color: 'var(--color-redwood-text-muted)' }}>{item.label}</div>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '18px', fontWeight: 700, color: 'var(--color-redwood-text-main)' }}>{item.value}</div>
+          </Link>
+        ))}
+      </div>
+
       <div style={{
         display: 'grid',
         gridTemplateColumns: cols.twoCol ? '1fr minmax(250px,0.7fr)' : '1fr',
         gap: '10px',
+        marginBottom: '12px',
       }}>
-        {/* LEFT — Bin Locations */}
         <div style={panel}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
-              <Globe size={13} style={{ color: 'var(--color-redwood-text-muted)' }} />
-              Bin Locations — Stock Floor Map
-            </div>
-            <button onClick={() => navigate('/products')} style={{ fontSize: '10px', color: 'var(--color-brand-blue)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-              Edit locations →
-            </button>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '10px' }}>
+            Top movers 90d
           </div>
-          {notConnectedBlock(
-            'Bin locations not available yet',
-            'This grid previously showed demo rack, batch, and expiry data without a warehouse-bin API. Live bin mapping will appear here once storage locations are connected.',
+          {!report ? (
+            <div style={{ fontSize: '12px', color: 'var(--color-redwood-text-muted)' }}>—</div>
+          ) : report.top_movers_90d.length === 0 ? (
+            <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
+              No outbound movement in 90 days
+            </div>
+          ) : report.top_movers_90d.map((row) => (
+            <Link key={row.product_id} to={`/products/${row.product_id}`} style={rowStyle}>
+              <span style={{ fontSize: '11px', color: 'var(--color-redwood-text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                {row.name}
+              </span>
+              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--color-brand-amber)', flexShrink: 0, marginLeft: '8px' }}>
+                {qty(row.units_out)} out
+              </span>
+            </Link>
+          ))}
+        </div>
+
+        <div style={panel}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '10px' }}>
+            <RefreshCw size={13} style={{ color: 'var(--color-redwood-text-muted)' }} />
+            Reorder Alerts
+          </div>
+          {!report ? (
+            <div style={{ fontSize: '12px', color: 'var(--color-redwood-text-muted)' }}>—</div>
+          ) : (
+            <>
+              <Link to="/warehouse/stock?below_min=1" style={rowStyle}>
+                <span style={{ fontSize: '11px', color: 'var(--color-redwood-text-main)' }}>Below minimum</span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--color-brand-amber)' }}>{report.below_min_count}</span>
+              </Link>
+              <Link to="/warehouse/stock?zero=1" style={rowStyle}>
+                <span style={{ fontSize: '11px', color: 'var(--color-redwood-text-main)' }}>Zero stock</span>
+                <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--color-brand-red)' }}>{report.zero_stock_count}</span>
+              </Link>
+            </>
           )}
         </div>
+      </div>
 
-        {/* RIGHT — 3 stacked panels */}
-        <div className="flex flex-col gap-[10px]">
-          {/* Panel 1 — Expiry Alerts */}
-          <div style={panel}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '10px' }}>
-              <AlertTriangle size={13} style={{ color: 'var(--color-redwood-text-muted)' }} />
-              Expiry Alerts
-            </div>
-            {notConnectedBlock(
-              'Expiry alerts not connected yet',
-              'Demo expiry batches are hidden until lot/expiry data is available from inventory or warehouse endpoints.',
-            )}
-          </div>
-
-          {/* Panel 2 — Reorder Alerts (real when minimum_stock is set) */}
-          <div style={panel}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '10px' }}>
-              <RefreshCw size={13} style={{ color: 'var(--color-redwood-text-muted)' }} />
-              Reorder Alerts
-            </div>
-            {reorderAlerts.length === 0 ? (
-              <div style={{ fontSize: '11px', color: 'var(--color-redwood-text-muted)', textAlign: 'center', padding: '12px 0' }}>
-                No products below minimum stock
-              </div>
-            ) : reorderAlerts.map((row, i) => (
-              <div key={i} style={rowStyle}>
-                <span style={{ fontSize: '11px', color: 'var(--color-redwood-text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                  {row.label}
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: row.color, flexShrink: 0, marginLeft: '8px', whiteSpace: 'nowrap' }}>
-                  {row.action}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Panel 3 — Active Pick Lists */}
-          <div style={panel}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: '10px' }}>
-              <ClipboardCheck size={13} style={{ color: 'var(--color-redwood-text-muted)' }} />
-              Active Pick Lists
-            </div>
-            {notConnectedBlock(
-              'Pick lists not connected yet',
-              'Demo pick-list rows are hidden until outbound pick-list and dispatch endpoints are wired in.',
-            )}
-          </div>
-        </div>
+      <div style={{ ...panel, fontSize: '11px', color: 'var(--color-redwood-text-muted)' }}>
+        Coming next: bins, lots &amp; expiry, pick lists
       </div>
     </div>
   );

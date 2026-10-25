@@ -18,6 +18,8 @@ import {
     type Product,
     type Van,
 } from '../../services/api';
+import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate, localIsoDatePlusDays } from '../../utils/localDate';
 import CreditHoldBanner from '../../components/CreditHoldBanner';
 import { useAuth } from '../../contexts/AuthContext';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
@@ -27,7 +29,17 @@ import { authFetch } from '../../api/axios';
 import { PAYMENT_METHODS } from '../../constants/data';
 import SearchableSelect from '../../components/common/SearchableSelect';
 import InvoiceLineRow, { type InvoiceLineItem } from './InvoiceLineRow';
-import { useBankingAccountOptions } from '../../hooks/useBankingAccountOptions';
+import InvoicePickListLink from './InvoicePickListLink';
+import { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import {
+    planBarcodeScan,
+    readDocumentEntry,
+    toLinePayload,
+    type PackEntryValue,
+    type PackProduct,
+} from '../../utils/packEntry';
+import { useCompanyPaymentAccounts } from '../../hooks/useCompanyPaymentAccounts';
 // ITEM 7G — Real PDF download (mirrors payslip/receipt PDFs).
 import { generateInvoicePDF } from '../../utils/invoicePDF';
 // ITEM 16 — Escape closes the topmost open inline modal.
@@ -135,6 +147,47 @@ function vanSelectLabel(v: Van): string {
     return `${vanNumber} — ${driver}`;
 }
 
+function catalogPack(product: { id: string; packQty?: number | null; packUnit?: string | null; baseUnit?: string | null; uom?: string }): PackProduct {
+    return {
+        id: product.id,
+        packQty: product.packQty,
+        packUnit: product.packUnit,
+        baseUnit: product.baseUnit || product.uom,
+        unit: product.uom,
+    };
+}
+
+function applyInvoiceEntry(
+    item: InvoiceLineItem,
+    value: PackEntryValue,
+    product: PackProduct | null | undefined,
+): InvoiceLineItem {
+    const stayingPack = item.enteredUom === 'pack' && value.enteredUom === 'pack';
+    const snapshot = value.enteredUom !== 'pack'
+        ? null
+        : stayingPack && item.packQtySnapshot != null && Number(item.packQtySnapshot) > 0
+            ? Number(item.packQtySnapshot)
+            : (Number(product?.packQty) > 0 ? Number(product?.packQty) : item.packQtySnapshot ?? null);
+    const priced = toLinePayload({
+        ...value,
+        packQty: product?.packQty,
+        packQtySnapshot: snapshot,
+    }, { price: 'rate', amount: 'amount' });
+    return {
+        ...item,
+        enteredQty: value.enteredQty,
+        enteredUom: value.enteredUom,
+        enteredUnitPrice: value.enteredUnitPrice,
+        packQtySnapshot: snapshot,
+        baseRate: value.enteredUom === 'base' ? value.enteredUnitPrice : (item.baseRate ?? item.rate),
+        packUnit: product?.packUnit || item.packUnit,
+        baseUnit: product?.baseUnit || product?.unit || item.baseUnit,
+        quantity: Number(priced.quantity) || 0,
+        rate: Number(priced.rate) || 0,
+        amount: Number(priced.amount) || 0,
+    };
+}
+
 function vanToSelectOption(v: Van): { id: string; name: string } {
     return { id: String(v.id), name: vanSelectLabel(v) };
 }
@@ -163,14 +216,26 @@ async function persistInvoiceWithSalesmanFk(
             rawPid != null && String(rawPid).trim() !== '' && Number(rawPid) > 0
                 ? Number(rawPid)
                 : undefined;
+        const pack = item.enteredUom === 'pack';
+        const priced = pack
+            ? toLinePayload({
+                enteredQty: Number(item.enteredQty) || 0,
+                enteredUom: 'pack',
+                enteredUnitPrice: Number(item.enteredUnitPrice) || 0,
+                packQtySnapshot: item.packQtySnapshot,
+            }, { price: 'rate', amount: 'amount' })
+            : null;
         return {
             product: item.product || '',
             description: item.description || '',
-            quantity: Number(item.quantity) || 1,
-            rate: Number(item.rate) || 0,
-            amount: Number(item.amount) || 0,
+            quantity: pack ? Number(priced?.quantity) || 0 : Number(item.quantity) || 1,
+            rate: pack ? Number(priced?.rate) || 0 : Number(item.rate) || 0,
+            amount: pack ? Number(priced?.amount) || 0 : Number(item.amount) || 0,
             product_id,
             itemCode: null,
+            entered_qty: pack ? Number(item.enteredQty) || 0 : Number(item.quantity) || 0,
+            entered_uom: pack ? 'pack' : 'base',
+            entered_unit_price: pack ? Number(item.enteredUnitPrice) || 0 : Number(item.rate) || 0,
         };
     });
 
@@ -178,7 +243,7 @@ async function persistInvoiceWithSalesmanFk(
         invoiceNumber: formData.invoiceNumber || `INV-${Date.now()}`,
         customerId: String(formData.customerId),
         customerName: formData.customerName || '',
-        invoiceDate: formData.invoiceDate || new Date().toISOString().split('T')[0],
+        invoiceDate: formData.invoiceDate || localIsoDate(),
         dueDate: formData.dueDate || null,
         lineItems,
         subtotal: Number(formData.subtotal) || 0,
@@ -319,9 +384,10 @@ export default function InvoiceFormPage() {
     const location = useLocation();
     const { hasRole } = useAuth();
     const canOverrideCreditHold = hasRole(...MANAGEMENT_ROLES);
-    const { cash: depositCash, banks: depositBanks } = useBankingAccountOptions();
+    const { accounts: depositAccounts } = useCompanyPaymentAccounts();
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
+    const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     // FIX 1 — inline success notice replaces the blocking alert().
@@ -359,8 +425,8 @@ export default function InvoiceFormPage() {
         // below once getInvoices() resolves. Was: Date.now().slice(-6) which
         // looked random and didn't increment cleanly across creations.
         invoiceNumber: `INV-000001`,
-        invoiceDate: new Date().toISOString().split('T')[0],
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        invoiceDate: localIsoDate(),
+        dueDate: localIsoDatePlusDays(30),
         lineItems: [
             {
                 id: '1',
@@ -448,6 +514,14 @@ export default function InvoiceFormPage() {
                 ]);
                 setCustomers(customersOpenForNewDocument(customersData));
                 setProducts(productsData);
+                const packs = new Map<string, PackProduct>();
+                try {
+                    const catalog = await getCatalogProducts();
+                    for (const row of catalog) packs.set(String(row.id), catalogPack(row));
+                } catch {
+                    packs.clear();
+                }
+                setCatalogPacks(packs);
                 setSalesmen(salesmenData);
                 // Populate form when editing - fetch from API if navigated directly by URL
                 let invoiceToEdit = existingInvoice;
@@ -585,21 +659,36 @@ export default function InvoiceFormPage() {
                         customerId: String(inv.customerId || ''),
                         customerName: inv.customerName || '',
                         invoiceNumber: inv.invoiceNumber || '',
-                        invoiceDate: inv.invoiceDate || new Date().toISOString().split('T')[0],
+                        invoiceDate: inv.invoiceDate || localIsoDate(),
                         dueDate: inv.dueDate || '',
-                        lineItems: (inv.lineItems || []).map((item: any, idx: number) => ({
+                        lineItems: (inv.lineItems || []).map((item: any, idx: number) => {
+                            const quantity = Number(item.quantity) || 1;
+                            const rate = Number(item.rate) || 0;
+                            const entry = readDocumentEntry(item, quantity, rate);
+                            const pack = packs.get(String(item.productId || ''));
+                            return {
                             id: String(idx + 1),
                             productId: item.productId || '',
                             product: item.product || '',
                             description: item.description || '',
-                            quantity: Number(item.quantity) || 1,
-                            rate: Number(item.rate) || 0,
+                            quantity,
+                            rate,
                             amount: Number(item.amount) || 0,
                             isService: false,
                             // ITEM 7D — Preserve per-line discount/tax on edit.
                             lineDiscount: Number(item.lineDiscount ?? item.line_discount ?? 0) || 0,
                             lineTaxRate: Number(item.lineTaxRate ?? item.line_tax_rate ?? 0) || 0,
-                        })),
+                            enteredQty: entry.enteredQty,
+                            enteredUom: entry.enteredUom,
+                            enteredUnitPrice: entry.enteredUnitPrice,
+                            packQtySnapshot: entry.packQtySnapshot,
+                            baseRate: entry.enteredUom === 'pack' && entry.packQtySnapshot
+                                ? entry.enteredUnitPrice / entry.packQtySnapshot
+                                : rate,
+                            packUnit: pack?.packUnit || undefined,
+                            baseUnit: pack?.baseUnit || pack?.unit || undefined,
+                            };
+                        }),
                         subtotal: storedSubtotal,
                         taxRate: editTaxRate,
                         taxAmount: storedTaxAmount,
@@ -762,18 +851,92 @@ export default function InvoiceFormPage() {
                 lineItems: prev.lineItems.map(item => {
                     if (item.id !== lineId) return item;
 
+                    const pack = catalogPacks.get(String(selectedProduct.id));
                     return {
                         ...item,
                         productId: selectedProduct.id,
                         product: selectedProduct.name,
                         description: `${selectedProduct.name}${unitSuffix}`,
                         rate,
-                        amount: item.quantity * rate
+                        amount: item.quantity * rate,
+                        enteredUom: 'base' as const,
+                        enteredQty: item.quantity,
+                        enteredUnitPrice: rate,
+                        packQtySnapshot: null,
+                        baseRate: rate,
+                        packUnit: pack?.packUnit || undefined,
+                        baseUnit: pack?.baseUnit || pack?.unit || undefined,
                     };
                 })
             };
         });
-    }, [products]);
+    }, [products, catalogPacks]);
+
+    const handleEntryChange = useCallback((id: string, value: PackEntryValue) => {
+        setFormData(prev => ({
+            ...prev,
+            lineItems: prev.lineItems.map(item => {
+                if (item.id !== id) return item;
+                return applyInvoiceEntry(item, value, catalogPacks.get(String(item.productId)) || null);
+            }),
+        }));
+    }, [catalogPacks]);
+
+    const handleBarcodeScan = useCallback(async (code: string) => {
+        try {
+            const found = await lookupProductByBarcode(code);
+            const product = found.product;
+            const pack = catalogPack({ ...product, uom: product.uom });
+            const basePrice = getCustomerPrice(
+                formData.customerId,
+                String(product.id),
+                Number(product.pricing?.sellingPrice) || 0,
+            );
+            setCatalogPacks((prev) => {
+                const next = new Map(prev);
+                next.set(String(product.id), pack);
+                return next;
+            });
+            setFormData((prev) => {
+                const plan = planBarcodeScan(prev.lineItems, { ...pack, id: String(product.id) }, found.matchedPackQty, basePrice);
+                const stamp = (item: InvoiceLineItem): InvoiceLineItem => applyInvoiceEntry(item, {
+                    enteredQty: plan.enteredQty,
+                    enteredUom: plan.mode,
+                    enteredUnitPrice: plan.mode === 'pack' && item.enteredUom === 'pack' && plan.index >= 0
+                        ? Number(item.enteredUnitPrice) || plan.enteredUnitPrice
+                        : plan.enteredUnitPrice,
+                }, pack);
+                if (plan.index >= 0) {
+                    return {
+                        ...prev,
+                        lineItems: prev.lineItems.map((item, index) => (index === plan.index ? stamp(item) : item)),
+                    };
+                }
+                const blank = prev.lineItems.findIndex((item) => !item.productId && !item.product && !item.isService);
+                const fresh: InvoiceLineItem = {
+                    id: `${Date.now()}`,
+                    productId: String(product.id),
+                    product: product.name,
+                    description: product.name,
+                    quantity: 0,
+                    rate: basePrice,
+                    amount: 0,
+                    baseRate: basePrice,
+                    isService: false,
+                    lineDiscount: 0,
+                    lineTaxRate: 0,
+                };
+                if (blank >= 0) {
+                    const lineItems = prev.lineItems.slice();
+                    lineItems[blank] = stamp({ ...fresh, id: prev.lineItems[blank].id });
+                    return { ...prev, lineItems };
+                }
+                return { ...prev, lineItems: [...prev.lineItems, stamp(fresh)] };
+            });
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Barcode lookup failed');
+        }
+    }, [catalogPacks, formData.customerId]);
 
     const handleLineItemChange = useCallback((id: string, field: keyof InvoiceLineItem, value: string | number) => {
         setFormData(prev => ({
@@ -784,7 +947,12 @@ export default function InvoiceFormPage() {
                 const updatedItem = { ...item, [field]: value } as InvoiceLineItem;
 
                 if (field === 'quantity' || field === 'rate') {
+                    if (updatedItem.enteredUom === 'pack') return item;
                     updatedItem.amount = (Number(updatedItem.quantity) || 0) * (Number(updatedItem.rate) || 0);
+                    updatedItem.enteredUom = 'base';
+                    updatedItem.enteredQty = Number(updatedItem.quantity) || 0;
+                    updatedItem.enteredUnitPrice = Number(updatedItem.rate) || 0;
+                    updatedItem.baseRate = Number(updatedItem.rate) || 0;
                 }
 
                 return updatedItem;
@@ -844,6 +1012,14 @@ export default function InvoiceFormPage() {
                     product: li.product,
                     description: li.description,
                     quantity: Number(li.quantity) || 0,
+                    entered_uom: li.enteredUom,
+                    entered_qty: li.enteredQty,
+                    enteredQty: li.enteredQty,
+                    enteredUom: li.enteredUom,
+                    pack_qty_snapshot: li.packQtySnapshot,
+                    packQtySnapshot: li.packQtySnapshot,
+                    packUnit: li.packUnit,
+                    baseUnit: li.baseUnit,
                     rate: Number(li.rate) || 0,
                     discount: Number(li.lineDiscount) || 0,
                     taxRate: Number(li.lineTaxRate) || 0,
@@ -859,7 +1035,7 @@ export default function InvoiceFormPage() {
                 salesman: selectedSalesmanName ?? parseSalesmanNameFromNotes(formData.notes) ?? undefined,
                 notes: formData.notes,
                 deposit_account_name:
-                    [...depositBanks, ...depositCash].find((account) => String(account.id) === formData.depositAccountId)?.name
+                    depositAccounts.find((account) => String(account.id) === formData.depositAccountId)?.name
                     || undefined,
             });
         } catch (e: any) {
@@ -1087,19 +1263,16 @@ export default function InvoiceFormPage() {
 
                                 <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Date:</span>
                                 <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
-                                    {formData.invoiceDate
-                                        ? new Date(formData.invoiceDate).toLocaleDateString('en-GB',
-                                            { day: 'numeric', month: 'short', year: 'numeric' })
-                                        : '—'}
+                                    {formData.invoiceDate ? (formatLocalDate(formData.invoiceDate) || '—') : '—'}
                                 </span>
 
                                 <span style={{ color: '#8BA3C7', marginLeft: 4 }}>Due:</span>
                                 <span style={{ fontSize: 11, color: '#EEF2FF', fontWeight: 500 }}>
-                                    {formData.dueDate
-                                        ? new Date(formData.dueDate).toLocaleDateString('en-GB',
-                                            { day: 'numeric', month: 'short', year: 'numeric' })
-                                        : '—'}
+                                    {formData.dueDate ? (formatLocalDate(formData.dueDate) || '—') : '—'}
                                 </span>
+                                {isEditMode && invoiceIdParam && invoiceIdParam !== 'new' ? (
+                                    <InvoicePickListLink invoiceId={Number(invoiceIdParam)} />
+                                ) : null}
                             </div>
                         </div>
                     </div>
@@ -1233,7 +1406,7 @@ export default function InvoiceFormPage() {
                                 onChange={(val) => setFormData((p) => ({ ...p, salesmanEmployeeId: val }))}
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
-                                theme="dark"
+                                variant="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                         )}
@@ -1249,7 +1422,7 @@ export default function InvoiceFormPage() {
                             placeholder={vansLoading ? 'Loading vans…' : 'Search and select van...'}
                             displayKey="name"
                             disabled={vansLoading}
-                            theme="dark"
+                            variant="dark"
                             className="!px-4 !py-3 !border-2 border-gray-300"
                         />
                     </div>
@@ -1275,7 +1448,7 @@ export default function InvoiceFormPage() {
                                 placeholder="Search and select customer..."
                                 displayKey="name"
                                 disabled={loading || isEditMode}
-                                theme="dark"
+                                variant="dark"
                                 className="!px-4 !py-3 !border-2 border-gray-300"
                             />
                             {isEditMode && (
@@ -1493,8 +1666,10 @@ export default function InvoiceFormPage() {
                                         key={item.id}
                                         item={item}
                                         products={products}
+                                        packProduct={catalogPacks.get(String(item.productId)) || null}
                                         onProductSelect={handleProductSelect}
                                         onLineItemChange={handleLineItemChange}
+                                        onEntryChange={handleEntryChange}
                                         onRemove={handleRemoveLineItem}
                                     />
                                 ))}
@@ -1502,7 +1677,8 @@ export default function InvoiceFormPage() {
                         </table>
                     </div>
 
-                    <div className="flex gap-3 mt-4">
+                    <div className="flex gap-3 mt-4 flex-wrap items-center">
+                        <BarcodeScanField onScan={handleBarcodeScan} />
                         <button onClick={handleAddLineItem}
                             className="px-6 py-3 bg-white border-2 border-gray-300 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
                             <Plus size={18} /> Add Product
@@ -1561,11 +1737,8 @@ export default function InvoiceFormPage() {
                                 className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 text-sm font-bold focus:border-[#4F8EF7] outline-none bg-white transition-all shadow-sm"
                             >
                                 <option value="">No preference</option>
-                                {depositBanks.map((account) => (
-                                    <option key={`bank-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
-                                ))}
-                                {depositCash.map((account) => (
-                                    <option key={`cash-${account.id}`} value={String(account.id)}>{account.code} — {account.name}</option>
+                                {depositAccounts.map((account) => (
+                                    <option key={account.id} value={String(account.id)}>{account.code} — {account.name}</option>
                                 ))}
                             </select>
                         </div>

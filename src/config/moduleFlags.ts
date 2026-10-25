@@ -6,11 +6,11 @@ import { isStaging } from './appEnv';
 // Routes and components are untouched; only sidebar links are gated here
 // (except sales_returns, which is also gated at the route level).
 
-// sales_returns: enabled in all environments since Oct 3 2026 (GL fixes M6+M8 live).
 const PILOT_VISIBLE = isStaging;
 
 export const MODULE_FLAGS = {
-  sales_returns: true,
+  // sales_returns: enabled everywhere Oct 3 2026; set to PILOT_VISIBLE Oct 24 2026 — hidden on production until the page has real documents (release prerequisite 1)
+  sales_returns: PILOT_VISIBLE,
 
   // Mock / invoice-math screens — not GL-aligned. Gated at route + sidebar (all envs).
   finance_accounting_dashboard: false,

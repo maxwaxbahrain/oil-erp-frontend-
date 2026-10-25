@@ -92,6 +92,8 @@ describe('receivables check', () => {
       net: 18,
     });
     expect(report.gapAddsUp).toBe(true);
+    expect(report.residuals).toEqual([]);
+    expect(report.ledgerNet).toBe(0);
     const difference = report.gapLines.find((line) => line.label.startsWith('Difference'))!;
     const onlyAged = report.gapLines.find((line) => line.label === 'In Aged Receivable only')!;
     const onlyCollections = report.gapLines.find((line) => line.label === 'In Collections only')!;

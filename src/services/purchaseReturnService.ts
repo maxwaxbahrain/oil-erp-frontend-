@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL } from './api';
 import { authFetch } from '../api/axios';
+import { readDocumentEntry } from '../utils/packEntry';
 
 export type PurchaseReturnStatus = 'draft' | 'posted' | 'cancelled';
 export type RefundMode = 'none' | 'cash' | 'bank';
@@ -14,6 +15,11 @@ export interface PurchaseReturnLine {
   unit_cost: number | null;
   amount: number | null;
   reason: string;
+  entered_qty?: number | null;
+  entered_uom?: string | null;
+  entered_unit_price?: number | null;
+  pack_qty_snapshot?: number | null;
+  lot_id?: number | null;
 }
 
 export interface PurchaseReturn {
@@ -41,6 +47,11 @@ export interface PurchaseReturnLineInput {
   product_id: number;
   quantity: number;
   reason: string;
+  /** Lot-tracked products: return from this lot. Omitted means FEFO. */
+  lot_id?: number | null;
+  entered_qty?: number;
+  entered_uom?: string;
+  entered_unit_price?: number;
 }
 
 export interface PurchaseReturnWriteBody {
@@ -74,6 +85,7 @@ function numOrNull(v: unknown): number | null {
 }
 
 function mapLine(raw: Record<string, unknown>): PurchaseReturnLine {
+  const entry = readDocumentEntry(raw, Number(raw.quantity) || 0, Number(raw.unit_cost) || 0);
   return {
     id: (raw.id as number | string) ?? '',
     product_id: Number(raw.product_id),
@@ -81,6 +93,11 @@ function mapLine(raw: Record<string, unknown>): PurchaseReturnLine {
     unit_cost: numOrNull(raw.unit_cost),
     amount: numOrNull(raw.amount),
     reason: String(raw.reason ?? ''),
+    entered_qty: entry.enteredQty,
+    entered_uom: entry.enteredUom,
+    entered_unit_price: entry.enteredUnitPrice,
+    pack_qty_snapshot: entry.packQtySnapshot,
+    lot_id: numOrNull(raw.lot_id),
   };
 }
 

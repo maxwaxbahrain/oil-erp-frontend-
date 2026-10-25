@@ -5,6 +5,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrency } from '../../services/settingsService';
 import { getGLTrialBalance, type GLTrialBalance, type GLTrialBalanceRow } from '../../services/glService';
+import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate } from '../../utils/localDate';
 
 interface TrialEntry {
     account: string;
@@ -18,7 +20,7 @@ const GL_COVERAGE_NOTE =
 
 function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    const today = localIsoDate(now);
     const y = now.getFullYear();
     const m = now.getMonth();
     let end: Date;
@@ -30,7 +32,7 @@ function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
     } else {
         end = new Date(y, 11, 31);
     }
-    const endIso = end.toISOString().slice(0, 10);
+    const endIso = localIsoDate(end);
     return endIso > today ? today : endIso;
 }
 
@@ -62,6 +64,7 @@ export default function TrialBalance() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month');
+    const [reloadKey, setReloadKey] = useState(0);
 
     const requestedAsOf = useMemo(() => asOfForPeriod(period), [period]);
 
@@ -82,7 +85,7 @@ export default function TrialBalance() {
                 setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [requestedAsOf]);
+    }, [requestedAsOf, reloadKey]);
 
     const entries = useMemo(() => (tb ? mapGlRows(tb.accounts) : []), [tb]);
     const totalDebit = tb?.total_debit ?? 0;
@@ -115,7 +118,7 @@ export default function TrialBalance() {
         doc.setFontSize(16);
         doc.text('Trial Balance', 14, 16);
         doc.setFontSize(10);
-        doc.text(`General ledger as of ${asOfLabel}`, 14, 22);
+        doc.text(`General ledger as of ${formatLocalDate(asOfLabel) || asOfLabel}`, 14, 22);
         doc.text(
             isBalanced
                 ? `Balanced · Totals: ${formatCurrency(totalDebit)}`
@@ -178,11 +181,19 @@ export default function TrialBalance() {
                 </div>
             </div>
 
-            {/* Error */}
+            {/* Error — never silent zeros when load failed */}
             {error && (
-                <div className="rounded-2xl p-4 flex items-center gap-3 bg-red-50 border border-red-200">
+                <div className="rounded-2xl p-4 flex items-center gap-3 flex-wrap bg-red-50 border border-red-200" role="alert">
                     <XCircle size={20} className="text-red-600 shrink-0" />
-                    <p className="text-sm font-black text-red-700">{error}</p>
+                    <p className="text-sm font-black text-red-700 flex-1 min-w-[12rem]">{error}</p>
+                    <button
+                        type="button"
+                        onClick={() => setReloadKey((k) => k + 1)}
+                        disabled={loading}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase hover:bg-indigo-500 disabled:opacity-40 print:hidden"
+                    >
+                        Retry
+                    </button>
                 </div>
             )}
 
@@ -200,7 +211,7 @@ export default function TrialBalance() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-gray-100">
                     <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                        Trial Balance — as of {asOfLabel}
+                        Trial Balance — as of {formatLocalDate(asOfLabel) || asOfLabel}
                     </p>
                 </div>
                 {loading ? (
@@ -208,7 +219,7 @@ export default function TrialBalance() {
                 ) : error ? (
                     <div className="p-16 text-center text-red-500 font-bold">Could not load trial balance.</div>
                 ) : entries.length === 0 ? (
-                    <div className="p-16 text-center text-gray-400 font-bold">No posted GL activity as of {asOfLabel}.</div>
+                    <div className="p-16 text-center text-gray-400 font-bold">No posted GL activity as of {formatLocalDate(asOfLabel) || asOfLabel}.</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">

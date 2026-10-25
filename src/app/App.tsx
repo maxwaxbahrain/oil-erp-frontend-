@@ -39,12 +39,17 @@ import CommandBar from '../components/VoiceAssistant/CommandBar';
 import AdvisorDock from '../components/advisor/AdvisorDock';
 import { SubscriptionRequiredDialog } from '../components/common/SubscriptionRequired';
 import { isProduction, isStaging, appEnv } from '../config/appEnv';
+import { postLoginHomePath } from '../config/stagingHome';
+import { rolePillLabel } from '../utils/roleLabel';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { getInvoices, getCustomers, getProducts, getPayments, isCustomerPayment } from '../services/api';
+import { getInvoices, getCustomers, getProductsStrict, getPayments } from '../services/api';
 import { getPurchaseOrders } from '../services/purchasesService';
-import { getArSummary, type ArSummary } from '../services/customerService';
-import { calculateReceivables, capReceivablesByLedger } from '../utils/arMetrics';
+import { getArSummary } from '../services/customerService';
+import { computeAlertCounts } from '../utils/alertCounts';
+import { formatLowStockShort, summarizeLowStock } from '../utils/lowStock';
 import api from '../api/axios';
+import { HandsFreeHeaderChip } from '../pages/Agent/handsFree/HandsFreeProvider';
+import { ErpShellProvider, type ErpShellData } from '../contexts/ErpShellContext';
 
 // Six role dashboards — pill cycles through these; each route must exist.
 const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
@@ -75,11 +80,24 @@ function roleIndexForPath(pathname: string): number {
 
 function App() {
   const location = useLocation();
-  const { hasRole } = useAuth();
+  const { user, hasRole } = useAuth();
   const canSeeFinance = hasRole(...FINANCE_ROLES);
   const canSeeDeliveries = hasRole(...DELIVERY_ROLES);
   const canSeeAdmin = hasRole(...ADMIN_ROLES);
-  const [aiCtx, setAiCtx] = useState<any>({ invoices: [], customers: [], products: [], payments: [], purchaseOrders: [], arSummary: null });
+  const [aiCtx, setAiCtx] = useState<ErpShellData>({
+    invoices: [],
+    customers: [],
+    products: [],
+    payments: [],
+    purchaseOrders: [],
+    arSummary: null,
+    productsLoad: 'loading',
+    invoicesLoad: 'loading',
+    paymentsLoad: 'loading',
+    arLoad: 'loading',
+  });
+  const [shellReloadKey, setShellReloadKey] = useState(0);
+  const reloadShell = useCallback(() => setShellReloadKey((k) => k + 1), []);
   // sidebarOpen drives the full drawer overlay. A separate 54px icon
   // rail (rendered below) is ALWAYS visible on lg+ and isn't affected
   // by this state. Default closed on all viewports.
@@ -153,23 +171,20 @@ function App() {
     try { return sessionStorage.getItem('soltol_alert_dismissed') !== '1'; } catch { return true; }
   });
   const [trialBanner, setTrialBanner] = useState<{ daysLeft: number } | null>(null);
-  const alertCounts = useMemo(() => {
-    const invs = (aiCtx.invoices as any[]) || [];
-    const pays = ((aiCtx.payments as any[]) || []).filter(isCustomerPayment);
-    const prods = (aiCtx.products as any[]) || [];
-    const receivables = calculateReceivables(invs, pays, new Date());
-    const ar = aiCtx.arSummary as ArSummary | null | undefined;
-    const ledgerByCustomer =
-      ar && Array.isArray(ar.per_customer)
-        ? new Map(ar.per_customer.map((c) => [String(c.id), c.balance]))
-        : null;
-    const capped = capReceivablesByLedger(receivables, ledgerByCustomer);
-    const unpaid = capped.invoices.length;
-    const unpaidTotal = capped.total;
-    const overdue = capped.invoices.filter((r) => r.bucket !== 'current').length;
-    const lowStock = prods.filter((p) => Number(p.current_stock || 0) < 10).length;
-    return { unpaid, unpaidTotal, overdue, lowStock };
-  }, [aiCtx]);
+  const alertCounts = useMemo(
+    () =>
+      computeAlertCounts({
+        invoices: aiCtx.invoices,
+        payments: aiCtx.payments,
+        products: aiCtx.products,
+        arSummary: aiCtx.arSummary,
+        productsLoad: aiCtx.productsLoad,
+        invoicesLoad: aiCtx.invoicesLoad,
+        paymentsLoad: aiCtx.paymentsLoad,
+        arLoad: aiCtx.arLoad,
+      }),
+    [aiCtx],
+  );
 
   // Trial banner — fetch once on mount (not per navigation). Change guards
   // avoid re-renders when the API returns the same days_left.
@@ -202,8 +217,12 @@ function App() {
     const items: { label: string; severity: 'info' | 'warn' }[] = [];
     const overdue = (aiCtx.invoices as any[]).filter(i => String(i.status || '').toLowerCase() === 'overdue').length;
     if (overdue) items.push({ label: `${overdue} overdue invoice${overdue === 1 ? '' : 's'}`, severity: 'warn' });
-    const lowStock = (aiCtx.products as any[]).filter(p => Number(p.current_stock || 0) < 10).length;
-    if (lowStock) items.push({ label: `${lowStock} product${lowStock === 1 ? '' : 's'} low on stock`, severity: 'warn' });
+    if (aiCtx.productsLoad === 'ok') {
+      const lowStockSummary = summarizeLowStock(aiCtx.products as any[]);
+      if (lowStockSummary.alertCount) {
+        items.push({ label: formatLowStockShort(lowStockSummary), severity: 'warn' });
+      }
+    }
     return items;
   })();
 
@@ -220,17 +239,43 @@ function App() {
   }, [notifsOpen]);
 
   useEffect(() => {
+    setAiCtx((prev) => ({
+      ...prev,
+      productsLoad: 'loading',
+      invoicesLoad: 'loading',
+      paymentsLoad: 'loading',
+      arLoad: 'loading',
+    }));
     Promise.all([
-      getInvoices().catch(() => []),
+      getInvoices()
+        .then((inv) => ({ ok: true as const, invoices: Array.isArray(inv) ? inv : [] }))
+        .catch(() => ({ ok: false as const, invoices: [] as any[] })),
       getCustomers().catch(() => []),
-      getProducts().catch(() => []),
-      getPayments().catch(() => []),
+      getProductsStrict()
+        .then((p) => ({ ok: true as const, products: Array.isArray(p) ? p : [] }))
+        .catch(() => ({ ok: false as const, products: [] as any[] })),
+      getPayments()
+        .then((pays) => ({ ok: true as const, payments: Array.isArray(pays) ? pays : [] }))
+        .catch(() => ({ ok: false as const, payments: [] as any[] })),
       getPurchaseOrders().catch(() => []),
-      getArSummary().catch(() => null),
-    ]).then(([inv, cust, prod, pays, pos, ar]) => {
-      setAiCtx({ invoices: inv, customers: cust, products: prod, payments: pays, purchaseOrders: pos, arSummary: ar });
+      getArSummary()
+        .then((ar) => ({ ok: true as const, ar }))
+        .catch(() => ({ ok: false as const, ar: null })),
+    ]).then(([invResult, cust, prodResult, payResult, pos, arResult]) => {
+      setAiCtx({
+        invoices: invResult.invoices,
+        customers: cust,
+        products: prodResult.products,
+        payments: payResult.payments,
+        purchaseOrders: pos,
+        arSummary: arResult.ar,
+        productsLoad: prodResult.ok ? 'ok' : 'failed',
+        invoicesLoad: invResult.ok ? 'ok' : 'failed',
+        paymentsLoad: payResult.ok ? 'ok' : 'failed',
+        arLoad: arResult.ok ? 'ok' : 'failed',
+      });
     });
-  }, []);
+  }, [shellReloadKey]);
 
   // Global keyboard shortcut: Escape closes the advisor panel, then the
   // drawer overlay (any viewport) before falling back to history.back.
@@ -290,14 +335,12 @@ function App() {
   }
 
   // Landing page — show it to anonymous visitors, but immediately
-  // redirect authenticated users to /dashboard so the shell mounts
-  // and the role pill stays available. Returning <AppRoutes /> bare
-  // (without the shell) for authenticated users used to drop the
-  // chrome and surface as a "black screen" momentarily.
+  // redirect authenticated users into the shell. Staging admins land
+  // on Zava Nexus; everyone else keeps /dashboard.
   if (location.pathname === '/') {
     const token = localStorage.getItem('access_token');
     if (token) {
-      return <Navigate to="/dashboard" replace />;
+      return <Navigate to={postLoginHomePath(user?.role)} replace />;
     }
     return <AppRoutes />;
   }
@@ -320,6 +363,7 @@ function App() {
   const showAlertStrip = showAlertBar && hasAlerts;
 
   return (
+    <ErpShellProvider value={aiCtx} reloadShell={reloadShell}>
     <div className="flex h-screen flex-col bg-redwood-bg-light overflow-hidden text-redwood-text-main font-inter">
       {/* Trial slot — always mounted; fixed height when visible avoids mount/unmount reflow */}
       <div
@@ -481,6 +525,30 @@ function App() {
             </div>
             {/* Breadcrumb pill removed — nav goes logo → role pill →
                 search directly per latest mockup. */}
+            {location.pathname.startsWith('/agent') ? (
+              <span
+                aria-label={`Signed in as ${rolePillLabel(user?.role)}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(79,142,247,.12)',
+                  color: '#93C5FD',
+                  border: '1px solid rgba(79,142,247,.3)',
+                  borderRadius: '999px',
+                  padding: '0 11px',
+                  height: '38px',
+                  fontSize: '10.5px',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <User size={11} strokeWidth={2.5} />
+                {rolePillLabel(user?.role)}
+              </span>
+            ) : (
             <button
               type="button"
               onClick={cycleRole}
@@ -510,7 +578,10 @@ function App() {
               {ROLES[roleIndex]}
               <ChevronDown size={10} strokeWidth={2.5} />
             </button>
+            )}
           </div>
+
+          <HandsFreeHeaderChip />
 
           {/* Header-center command bar — search + voice (mic desktop only). */}
           <div
@@ -738,13 +809,14 @@ function App() {
                 {alertCounts.unpaid > 0 && (
                   <>
                     <strong style={{ color: '#FCD34D', fontWeight: 600 }}>{alertCounts.unpaid} unpaid invoice{alertCounts.unpaid === 1 ? '' : 's'}</strong>
-                    {alertCounts.unpaidTotal > 0 && ` totalling $${alertCounts.unpaidTotal.toLocaleString()}`}
+                    {alertCounts.unpaidTotal > 0 && ` · Owed to us $${alertCounts.unpaidTotal.toLocaleString()}`}
+                    {alertCounts.creditTotal > 0 && ` · credits $${alertCounts.creditTotal.toLocaleString()} · net $${alertCounts.netTotal.toLocaleString()}`}
                   </>
                 )}
                 {alertCounts.unpaid > 0 && (alertCounts.overdue > 0 || alertCounts.lowStock > 0) && ' · '}
                 {alertCounts.overdue > 0 && <>{alertCounts.overdue} overdue</>}
                 {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
-                {alertCounts.lowStock > 0 && <>{alertCounts.lowStock} item{alertCounts.lowStock === 1 ? '' : 's'} low stock</>}
+                {alertCounts.lowStock > 0 && <>{alertCounts.lowStockLabel}</>}
               </span>
               {alertCounts.unpaid > 0 && (
                 <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
@@ -775,7 +847,7 @@ function App() {
             { key: 'overview',  label: 'Overview',       route: '/dashboard',          icon: LayoutDashboard, prefix: ['/'], show: true },
             { key: 'finance',   label: 'Finance & Tax',  route: '/finance/dashboard',  icon: Receipt,         prefix: ['/finance', '/tax'], show: canSeeFinance },
             { key: 'warehouse', label: 'Warehouse',      route: '/warehouse/dashboard',icon: Package,         prefix: ['/warehouse', '/products', '/inventory'], show: true },
-            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales'], show: canSeeDeliveries },
+            { key: 'mobile',    label: 'Field & Mobile', route: '/logistics/pod',      icon: Smartphone,      prefix: ['/logistics', '/pod', '/van-sales', '/field'], show: canSeeDeliveries || hasRole('sales') },
             { key: 'security',  label: 'Security',       route: '/settings/users',     icon: Shield,          prefix: ['/settings/users'], show: canSeeAdmin },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'], show: true },
             { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'], show: true },
@@ -940,6 +1012,7 @@ function App() {
       />
     </div>
     </div>
+    </ErpShellProvider>
   );
 }
 

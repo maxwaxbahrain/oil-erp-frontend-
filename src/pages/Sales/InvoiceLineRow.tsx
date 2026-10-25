@@ -1,7 +1,9 @@
 import { memo } from 'react';
 import { Trash2 } from 'lucide-react';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import PackQtyInput from '../../components/Inventory/PackQtyInput';
 import type { Product } from '../../services/api';
+import type { PackEntryValue, PackProduct } from '../../utils/packEntry';
 
 export interface InvoiceLineItem {
     id: string;
@@ -14,21 +16,33 @@ export interface InvoiceLineItem {
     isService?: boolean;
     lineDiscount?: number;
     lineTaxRate?: number;
+    enteredQty?: number;
+    enteredUom?: 'base' | 'pack';
+    enteredUnitPrice?: number;
+    packQtySnapshot?: number | null;
+    /** Catalog or customer price for one base unit. Pack toggle prefills from this. */
+    baseRate?: number;
+    packUnit?: string;
+    baseUnit?: string;
 }
 
 type InvoiceLineRowProps = {
     item: InvoiceLineItem;
     products: Product[];
+    packProduct?: PackProduct | null;
     onProductSelect: (lineId: string, productId: string) => void;
     onLineItemChange: (id: string, field: keyof InvoiceLineItem, value: string | number) => void;
+    onEntryChange?: (id: string, value: PackEntryValue) => void;
     onRemove: (id: string) => void;
 };
 
 function InvoiceLineRow({
     item,
     products,
+    packProduct,
     onProductSelect,
     onLineItemChange,
+    onEntryChange,
     onRemove,
 }: InvoiceLineRowProps) {
     const isServiceLine = !!item.isService;
@@ -41,6 +55,12 @@ function InvoiceLineRow({
         : null;
     const qty = Number(item.quantity) || 0;
     const overStock = !isServiceLine && availableStock !== null && qty > availableStock;
+    const packMode = item.enteredUom === 'pack';
+    const entryValue: PackEntryValue = {
+        enteredQty: packMode ? Number(item.enteredQty) || 0 : Number(item.quantity) || 0,
+        enteredUom: packMode ? 'pack' : 'base',
+        enteredUnitPrice: packMode ? Number(item.enteredUnitPrice) || 0 : Number(item.rate) || 0,
+    };
 
     return (
         <tr className="hover:bg-gray-50">
@@ -65,7 +85,7 @@ function InvoiceLineRow({
                         onChange={(productId) => onProductSelect(item.id, productId)}
                         placeholder="Search product..."
                         displayKey="name"
-                        theme="dark"
+                        variant="dark"
                         className="!px-3 !py-2"
                     />
                 )}
@@ -93,17 +113,15 @@ function InvoiceLineRow({
             </td>
 
             <td className="!px-3 !py-3">
-                <input
-                    type="number"
-                    value={item.quantity || ''}
-                    onChange={(e) => onLineItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                    min="1"
-                    placeholder="Enter quantity"
-                    className={`w-full border-2 rounded-lg !px-3 !py-2 text-sm text-right font-mono font-bold focus:outline-none ${
-                        overStock
-                            ? 'border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500'
-                            : 'border-gray-300 focus:border-[#4F8EF7]'
-                    }`}
+                <PackQtyInput
+                    product={isServiceLine ? null : packProduct}
+                    value={entryValue}
+                    basePrice={Number(item.baseRate ?? item.rate) || 0}
+                    packQtySnapshot={item.packQtySnapshot}
+                    onChange={(next) => {
+                        if (onEntryChange) onEntryChange(item.id, next);
+                        else onLineItemChange(item.id, 'quantity', next.enteredQty);
+                    }}
                 />
                 {overStock && (
                     <p className="text-[10px] font-bold text-rose-600 mt-1 text-right">
@@ -115,12 +133,14 @@ function InvoiceLineRow({
             <td className="!px-3 !py-3">
                 <input
                     type="number"
+                    aria-label="Rate"
                     value={item.rate || ''}
                     onChange={(e) => onLineItemChange(item.id, 'rate', parseFloat(e.target.value) || 0)}
                     min="0"
                     step="0.01"
+                    readOnly={packMode}
                     placeholder="Enter rate"
-                    className="w-full border-2 border-gray-300 rounded-lg !px-3 !py-2 text-sm text-right font-mono font-bold focus:border-[#4F8EF7] focus:outline-none"
+                    className={`w-full border-2 border-gray-300 rounded-lg !px-3 !py-2 text-sm text-right font-mono font-bold focus:border-[#4F8EF7] focus:outline-none ${packMode ? 'bg-gray-100' : ''}`}
                 />
             </td>
 

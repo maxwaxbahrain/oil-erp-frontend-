@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ACCESS_TOKEN_KEY } from '../../api/axios';
-import { getInvoices } from '../api';
+import { getInvoices, getProducts, getProductsStrict } from '../api';
 
 function mockResp(ok: boolean, status: number, body: unknown) {
   return {
@@ -29,5 +29,22 @@ describe('apiRequest auth headers', () => {
     expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
       Authorization: 'Bearer test-login-token',
     });
+  });
+});
+
+describe('getProducts vs getProductsStrict', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('getProducts returns [] on HTTP 500', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResp(false, 500, { detail: 'boom' })));
+    await expect(getProducts()).resolves.toEqual([]);
+  });
+
+  it('getProductsStrict rejects on HTTP 500', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResp(false, 500, { detail: 'boom' })));
+    await expect(getProductsStrict()).rejects.toThrow(/HTTP 500/);
   });
 });

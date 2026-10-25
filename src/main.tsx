@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './styles/theme.css'
 import App from './app/App.tsx'
 import { AuthProvider } from './contexts/AuthContext'
+import { HandsFreeProvider } from './pages/Agent/handsFree/HandsFreeProvider'
 
 // Root error boundary — last line of defence against render-time
 // crashes (e.g. malformed API rows that previously took the whole
@@ -49,7 +50,9 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <HandsFreeProvider>
+            <App />
+          </HandsFreeProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

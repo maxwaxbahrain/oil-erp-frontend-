@@ -15,7 +15,16 @@ import {
 } from '../services/settingsService';
 import { syncAuthUser, clearAuthUser } from '../store/authStore';
 
-export type AuthRole = 'admin' | 'manager' | 'accountant' | 'driver' | 'sales';
+const KNOWN_AUTH_ROLES = ['admin', 'manager', 'accountant', 'driver', 'sales', 'warehouse'] as const;
+
+export type AuthRole = (typeof KNOWN_AUTH_ROLES)[number];
+
+/** Login and /me. Known role strings, including warehouse, map onto AuthRole. Anything else is kept as returned. */
+export function mapAuthRole(role: unknown): AuthRole {
+  const value = String(role ?? '').trim().toLowerCase();
+  if ((KNOWN_AUTH_ROLES as readonly string[]).includes(value)) return value as AuthRole;
+  return role as AuthRole;
+}
 
 export interface AuthUser {
   id?: number | string;
@@ -37,7 +46,7 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<AuthUser>;
   logout: () => void;
   hasRole: (...roles: AuthRole[]) => boolean;
 }
@@ -99,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         id: data.id,
         username: data.username,
         full_name: data.full_name,
-        role: data.role,
+        role: mapAuthRole(data.role),
       };
       setUser(restored);
       syncAuthUser(restored);
@@ -128,12 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const nextUser: AuthUser = {
       username: data.username,
       full_name: data.full_name,
-      role: data.role,
+      role: mapAuthRole(data.role),
     };
     persistSession(data.access_token, nextUser);
     setToken(data.access_token);
     setUser(nextUser);
     loadTenantProfile();
+    return nextUser;
   }, []);
 
   const hasRole = useCallback(

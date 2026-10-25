@@ -1,6 +1,8 @@
-import { getPurchaseOrders, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
+import { getPurchaseOrders, receiptFailureReason, updatePurchaseOrder, type PurchaseOrder } from './purchasesService';
 import { getOilErpApiBase } from '../config/apiBase';
 import { authFetch } from '../api/axios';
+import { localIsoDate } from '../utils/localDate';
+import { readDocumentEntry, roundMoney } from '../utils/packEntry';
 
 // FIX W3-1 — Path B (this module) now writes stock to the SAME backend
 // endpoint that Path A uses (PurchasesDashboard's Confirm GRN button).
@@ -24,6 +26,15 @@ export interface GRNItem {
     rejectedQty: number;
     unitCost: number;
     totalCost: number;
+    enteredQty?: number;
+    enteredUom?: 'base' | 'pack';
+    enteredUnitPrice?: number;
+    packQtySnapshot?: number | null;
+    locationId?: number | null;
+    /** Lot-tracked products: required on receipt. */
+    lotNumber?: string;
+    /** YYYY-MM-DD. Blank lets the backend use received date + shelf life. */
+    expiryDate?: string;
 }
 
 export interface GRN {
@@ -91,6 +102,8 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
     // lines stay editable afterward for partial receipts.
     const grnItems: GRNItem[] = po.items.map(item => {
         const orderedQty = item.quantity;
+        const entry = readDocumentEntry(item as unknown as Record<string, unknown>, orderedQty, item.unitPrice);
+        const pack = entry.enteredUom === 'pack' && (entry.packQtySnapshot || 0) > 0;
         return {
             productId: item.productId,
             productName: item.productName,
@@ -101,7 +114,11 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
             acceptedQty: orderedQty,
             rejectedQty: 0,
             unitCost: item.unitPrice,
-            totalCost: orderedQty * item.unitPrice,
+            totalCost: pack ? roundMoney(entry.enteredQty * entry.enteredUnitPrice) : orderedQty * item.unitPrice,
+            enteredQty: pack ? entry.enteredQty : orderedQty,
+            enteredUom: pack ? 'pack' : 'base',
+            enteredUnitPrice: pack ? entry.enteredUnitPrice : item.unitPrice,
+            packQtySnapshot: pack ? entry.packQtySnapshot : null,
         };
     });
 
@@ -112,7 +129,7 @@ export const createGRNFromPO = async (poId: string, warehouse: string = 'Main Wa
         poId: po.id,
         warehouse,
         receivedBy: 'Current User', // Should be replaced with actual user
-        receivedDate: new Date().toISOString().split('T')[0],
+        receivedDate: localIsoDate(),
         status: 'Draft',
         items: grnItems,
         goodsValue: 0,
@@ -214,7 +231,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
     const skipped: PostGRNResult['skipped'] = [];
 
     // Batch goods receipt — one backend call updates stock/cost and posts GL once.
-    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number }> = [];
+    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number; locationId?: number | null; lotNumber?: string; expiryDate?: string }> = [];
 
     for (const item of grn.items) {
         if (item.acceptedQty <= 0) {
@@ -244,6 +261,9 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             productName: item.productName,
             quantity: item.acceptedQty,
             unitCost,
+            locationId: item.locationId ?? null,
+            lotNumber: item.lotNumber?.trim() || undefined,
+            expiryDate: item.expiryDate || undefined,
         });
     }
 
@@ -271,7 +291,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                grnSourceId: grn.id,
+                grnSourceId: `${linkedPO?.poNumber || grn.poId || grn.id}:${grn.id}`,
                 supplierId,
                 receiptDate: grn.receivedDate,
                 reference: `${grn.grnNumber} @ ${grn.warehouse}`,
@@ -279,6 +299,12 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
                     productId: line.productId,
                     quantity: line.quantity,
                     unitCost: line.unitCost,
+                    entered_qty: line.quantity,
+                    entered_uom: 'base',
+                    entered_unit_price: line.unitCost,
+                    ...(line.locationId != null ? { location_id: line.locationId } : {}),
+                    ...(line.lotNumber ? { lotNumber: line.lotNumber } : {}),
+                    ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
                 })),
             }),
         });
@@ -286,7 +312,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             succeeded = attempted;
         } else {
             const text = await res.text().catch(() => '');
-            const reason = `HTTP ${res.status} ${text}`.trim();
+            const reason = receiptFailureReason(res.status, text);
             for (const line of receiptLines) {
                 failures.push({
                     productId: String(line.productId),
@@ -310,9 +336,11 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         const failSummary = failures.length
             ? failures.map((f) => f.productName || f.productId).join(', ')
             : skipped.filter((s) => s.reason === 'no-productId').map((s) => s.productName || 'unnamed line').join(', ');
+        // The backend detail (e.g. a missing lot number) says why; keep it in the message.
+        const reasons = Array.from(new Set(failures.map((f) => f.reason).filter(Boolean)));
         throw new Error(
             failures.length
-                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}`
+                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}${reasons.length ? ` (${reasons.join('; ')})` : ''}`
                 : `No stock was updated — no line items had a linked product. Link products on the PO before receiving.`,
         );
     }

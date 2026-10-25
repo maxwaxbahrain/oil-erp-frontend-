@@ -55,8 +55,33 @@ export interface Product {
     sku: string;
     barcode?: string;
     category: string;
+    categoryName?: string | null;
+    barcodes?: { barcode: string; packQty: number | null; isPrimary: boolean }[];
     subCategory?: string;
     brand?: string;
+    categoryId?: number | null;
+    baseUnit?: string | null;
+    packQty?: number | null;
+    packUnit?: string | null;
+    reorderPoint?: number | null;
+    reorderQty?: number | null;
+    maxStock?: number | null;
+    preferredSupplierId?: number | null;
+    supplierSku?: string | null;
+    defaultLocationId?: number | null;
+    defaultLocationCode?: string | null;
+    lotTracked?: boolean;
+    shelfLifeDays?: number | null;
+    expiryTracked?: boolean;
+    /** GET /products/{id} only, lot-tracked products. */
+    lotsSummary?: { lots: number; nearestExpiry: string | null; expiredQty: number } | null;
+    hazmatClass?: string | null;
+    weightKg?: number | null;
+    volumeL?: number | null;
+    costMethod?: 'average' | 'fifo' | 'standard' | null;
+    isDiscontinued?: boolean;
+    /** Read-only. stock / pack_qty when the server computed it. */
+    packCount?: number | null;
     status: 'Active' | 'Inactive' | 'Draft';
     description: string;
     shortDescription?: string;
@@ -133,6 +158,66 @@ function num(v: unknown, fallback = 0): number {
     return Number.isNaN(n) ? fallback : n;
 }
 
+function optFloat(v: unknown): number | undefined {
+    if (v == null || v === '') return undefined;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isNaN(n) ? undefined : n;
+}
+
+function optInt(v: unknown): number | undefined {
+    if (v == null || v === '') return undefined;
+    const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+    return Number.isNaN(n) ? undefined : n;
+}
+
+function optBool(v: unknown): boolean | undefined {
+    if (v == null || v === '') return undefined;
+    if (typeof v === 'boolean') return v;
+    if (v === 1 || v === '1' || v === 'true' || v === 'True') return true;
+    if (v === 0 || v === '0' || v === 'false' || v === 'False') return false;
+    return undefined;
+}
+
+function optText(v: unknown): string | undefined {
+    if (v == null) return undefined;
+    const text = String(v).trim();
+    return text ? text : undefined;
+}
+
+function optCostMethod(v: unknown): Product['costMethod'] {
+    if (v === 'average' || v === 'fifo' || v === 'standard') return v;
+    return undefined;
+}
+
+/** "12 x case" when a pack size is set. */
+export function formatPack(packQty?: number | null, packUnit?: string | null): string | null {
+    if (packQty == null || !(Number(packQty) > 0)) return null;
+    const qty = Number(packQty);
+    const unit = (packUnit || '').trim();
+    return unit ? `${qty} x ${unit}` : String(qty);
+}
+
+export function apiErrorDetail(raw: string): string {
+    const text = (raw || '').trim();
+    if (!text) return '';
+    try {
+        const parsed = JSON.parse(text) as { detail?: unknown };
+        const detail = parsed && typeof parsed === 'object' && 'detail' in parsed ? parsed.detail : parsed;
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail)) {
+            return detail.map((item) => {
+                if (typeof item === 'string') return item;
+                if (item && typeof item === 'object' && 'msg' in item) return String((item as { msg: unknown }).msg);
+                return JSON.stringify(item);
+            }).join('; ');
+        }
+        if (detail && typeof detail === 'object') return JSON.stringify(detail);
+    } catch {
+        return text;
+    }
+    return text;
+}
+
 function parseProductsJson(payload: unknown): Record<string, unknown>[] {
     if (Array.isArray(payload)) return payload as Record<string, unknown>[];
     if (payload && typeof payload === 'object') {
@@ -141,6 +226,76 @@ function parseProductsJson(payload: unknown): Record<string, unknown>[] {
         if (Array.isArray(inner)) return inner as Record<string, unknown>[];
     }
     return [];
+}
+
+function optCategoryName(raw: Record<string, unknown>): string | null {
+    const value = raw.category_name ?? raw.categoryName;
+    if (value == null) return null;
+    const text = String(value).trim();
+    return text || null;
+}
+
+function mapBarcodes(value: unknown): Product['barcodes'] {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => {
+        const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        return {
+            barcode: row.barcode != null ? String(row.barcode) : '',
+            packQty: optFloat(row.pack_qty ?? row.packQty) ?? null,
+            isPrimary: optBool(row.is_primary ?? row.isPrimary) === true,
+        };
+    });
+}
+
+export interface CsvImportFailure {
+    row: number;
+    external_id: string | null;
+    error: string;
+}
+
+export interface CsvImportResult {
+    created: number;
+    updated?: number;
+    failed: CsvImportFailure[];
+}
+
+/** GET /api/v1/csv/export/products — the server file, not a client-built CSV. */
+export async function exportProductsCsv(): Promise<Blob> {
+    const response = await authFetch(apiUrl('v1/csv/export/products'), { cache: 'no-store' });
+    if (!response.ok) {
+        const raw = await response.text().catch(() => '');
+        throw new Error(apiErrorDetail(raw) || `HTTP ${response.status}`);
+    }
+    return response.blob();
+}
+
+/** POST /api/v1/csv/import/products as multipart field "file". */
+export async function importProductsCsv(file: File): Promise<CsvImportResult> {
+    const body = new FormData();
+    body.append('file', file);
+    const response = await authFetch(apiUrl('v1/csv/import/products'), { method: 'POST', body });
+    const raw = await response.text().catch(() => '');
+    if (!response.ok) throw new Error(apiErrorDetail(raw) || `HTTP ${response.status}`);
+    let parsed: Record<string, unknown> = {};
+    try {
+        parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    } catch {
+        throw new Error('Import response was not JSON');
+    }
+    const failed = Array.isArray(parsed.failed) ? parsed.failed : [];
+    return {
+        created: num(parsed.created),
+        updated: parsed.updated == null ? undefined : num(parsed.updated),
+        failed: failed.map((item) => {
+            const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+            const error = row.error;
+            return {
+                row: num(row.row),
+                external_id: row.external_id == null ? null : String(row.external_id),
+                error: typeof error === 'string' ? error : JSON.stringify(error ?? ''),
+            };
+        }),
+    };
 }
 
 /** Map FastAPI product row to the rich `Product` shape used by the catalog UI. */
@@ -165,6 +320,30 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         sku,
         barcode,
         category,
+        categoryName: optCategoryName(raw),
+        barcodes: mapBarcodes(raw.barcodes),
+        brand: optText(raw.brand),
+        categoryId: optInt(raw.category_id),
+        baseUnit: optText(raw.base_unit),
+        packQty: optFloat(raw.pack_qty),
+        packUnit: optText(raw.pack_unit),
+        reorderPoint: optFloat(raw.reorder_point),
+        reorderQty: optFloat(raw.reorder_qty),
+        maxStock: optFloat(raw.max_stock),
+        preferredSupplierId: optInt(raw.preferred_supplier_id),
+        supplierSku: optText(raw.supplier_sku),
+        defaultLocationId: optInt(raw.default_location_id),
+        defaultLocationCode: optText(raw.default_location_code),
+        lotTracked: optBool(raw.lot_tracked),
+        shelfLifeDays: optInt(raw.shelf_life_days),
+        expiryTracked: optBool(raw.expiry_tracked),
+        lotsSummary: mapLotsSummary(raw.lots_summary),
+        hazmatClass: optText(raw.hazmat_class),
+        weightKg: optFloat(raw.weight_kg),
+        volumeL: optFloat(raw.volume_l),
+        costMethod: optCostMethod(raw.cost_method),
+        isDiscontinued: optBool(raw.is_discontinued),
+        packCount: optFloat(raw.pack_count),
         status: isActive ? 'Active' : 'Inactive',
         description,
         shortDescription: description.slice(0, 120),
@@ -206,7 +385,7 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         aiEnabled: false,
         aiDemandPrediction: 0,
         aiConfidenceLevel: 0,
-        leadTimeDays: 0,
+        leadTimeDays: optInt(raw.lead_time_days) ?? 0,
         minOrderQty: 0,
         specifications: [],
         tags: [],
@@ -258,6 +437,16 @@ export function saveImportedProduct(product: Product): void {
         existing.unshift(product);
     }
     localStorage.setItem(IMPORTED_PRODUCTS_KEY, JSON.stringify(existing));
+}
+
+function mapLotsSummary(raw: unknown): Product['lotsSummary'] {
+    if (!raw || typeof raw !== 'object') return null;
+    const row = raw as Record<string, unknown>;
+    return {
+        lots: Number(row.lots) || 0,
+        nearestExpiry: row.nearest_expiry != null ? String(row.nearest_expiry) : null,
+        expiredQty: Number(row.expired_qty) || 0,
+    };
 }
 
 export async function getProducts(): Promise<Product[]> {
@@ -314,13 +503,18 @@ export async function getProductById(id: string): Promise<Product | undefined> {
     } catch { return undefined; }
 }
 
-export async function saveProduct(product: Partial<Product>): Promise<Product> {
+export interface SaveProductOptions {
+    /** Sent as cost_change_reason on the PUT; the backend records it on the cost revaluation. */
+    costChangeReason?: string;
+}
+
+export async function saveProduct(product: Partial<Product>, options: SaveProductOptions = {}): Promise<Product> {
     // Translate the nested frontend form shape to the flat backend Product schema.
     // Backend `ProductUpdate` / `ProductCreate` accepts only these flat keys
     // (see app/schemas/product.py on bettano-erp-backend). Every other rich
     // field on the frontend `Product` type — locations, pricing, specifications,
     // images, tags, seo, … — is UI-only and stays in the localStorage cache.
-    const backendPayload = {
+    const backendPayload: Record<string, unknown> = {
         name: product.name ?? '',
         sku: product.sku ?? '',
         category: product.category ?? '',
@@ -336,6 +530,37 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
         image: product.images?.find((img) => img.isPrimary)?.url ?? product.images?.[0]?.url ?? product.image ?? null,
         is_active: product.status === 'Active',
     };
+    const catalogPairs: [string, unknown][] = [
+        ['brand', product.brand],
+        ['category_id', product.categoryId],
+        ['base_unit', product.baseUnit],
+        ['pack_qty', product.packQty],
+        ['pack_unit', product.packUnit],
+        ['reorder_point', product.reorderPoint],
+        ['reorder_qty', product.reorderQty],
+        ['max_stock', product.maxStock],
+        ['lead_time_days', product.leadTimeDays || undefined],
+        ['preferred_supplier_id', product.preferredSupplierId],
+        ['supplier_sku', product.supplierSku],
+        ['lot_tracked', product.lotTracked],
+        ['shelf_life_days', product.shelfLifeDays],
+        ['expiry_tracked', product.expiryTracked],
+        ['hazmat_class', product.hazmatClass],
+        ['weight_kg', product.weightKg],
+        ['volume_l', product.volumeL],
+        ['cost_method', product.costMethod],
+        ['is_discontinued', product.isDiscontinued],
+    ];
+    for (const [key, value] of catalogPairs) {
+        if (value !== undefined) backendPayload[key] = value;
+    }
+    if (product.defaultLocationId !== undefined) {
+        backendPayload.default_location_id = product.defaultLocationId;
+    }
+    const costChangeReason = options.costChangeReason?.trim();
+    if (costChangeReason) {
+        backendPayload.cost_change_reason = costChangeReason;
+    }
 
     // Hit the backend FIRST. If it fails, throw — the form's catch block
     // will surface the real error instead of showing a fake success alert.
@@ -367,12 +592,10 @@ export async function saveProduct(product: Partial<Product>): Promise<Product> {
     }
 
     if (!resp.ok) {
-        let detail = '';
-        try { detail = await resp.text(); } catch { /* ignore */ }
-        throw new Error(
-            `Backend ${resp.status} on ${method} /products` +
-                (detail ? `: ${detail.slice(0, 200)}` : ''),
-        );
+        let raw = '';
+        try { raw = await resp.text(); } catch { /* ignore */ }
+        const detail = apiErrorDetail(raw);
+        throw new Error(detail || `Backend ${resp.status} on ${method} /products`);
     }
 
     type BackendRow = {
@@ -609,6 +832,114 @@ export async function saveCategory(category: Partial<Category>): Promise<Categor
         localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
         setTimeout(() => resolve(savedCategory), 100);
     });
+}
+
+export interface ProductCategory {
+    id: number;
+    name: string;
+    parent_id?: number | null;
+    is_active: boolean;
+}
+
+export interface ProductBarcodeRow {
+    id: number;
+    product_id: number;
+    tenant_id?: number | null;
+    barcode: string;
+    pack_qty?: number | null;
+    is_primary: boolean;
+}
+
+async function throwIfNotOk(resp: Response): Promise<void> {
+    if (resp.ok) return;
+    let raw = '';
+    try { raw = await resp.text(); } catch { /* ignore */ }
+    throw new Error(apiErrorDetail(raw) || `HTTP ${resp.status}`);
+}
+
+export const productCategoryService = {
+    async list(): Promise<ProductCategory[]> {
+        const response = await authFetch(apiUrl('product-categories/'), { cache: 'no-store' });
+        await throwIfNotOk(response);
+        const payload = await response.json().catch(() => []);
+        return Array.isArray(payload) ? payload as ProductCategory[] : [];
+    },
+    async create(body: { name: string; parent_id?: number | null; is_active?: boolean }): Promise<ProductCategory> {
+        const response = await authFetch(apiUrl('product-categories/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: body.name, parent_id: body.parent_id ?? null, is_active: body.is_active ?? true }),
+        });
+        await throwIfNotOk(response);
+        return response.json() as Promise<ProductCategory>;
+    },
+    async update(id: number, body: { name?: string; parent_id?: number | null; is_active?: boolean }): Promise<ProductCategory> {
+        const response = await authFetch(apiUrl(`product-categories/${id}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await throwIfNotOk(response);
+        return response.json() as Promise<ProductCategory>;
+    },
+};
+
+export async function listProductBarcodes(productId: string): Promise<ProductBarcodeRow[]> {
+    const response = await authFetch(apiUrl(`products/${encodeURIComponent(productId)}/barcodes`), { cache: 'no-store' });
+    await throwIfNotOk(response);
+    const payload = await response.json().catch(() => []);
+    return Array.isArray(payload) ? payload as ProductBarcodeRow[] : [];
+}
+
+export async function addProductBarcode(
+    productId: string,
+    body: { barcode: string; pack_qty?: number | null; is_primary?: boolean },
+): Promise<ProductBarcodeRow> {
+    const response = await authFetch(apiUrl(`products/${encodeURIComponent(productId)}/barcodes`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            barcode: body.barcode,
+            pack_qty: body.pack_qty ?? null,
+            is_primary: body.is_primary ?? false,
+        }),
+    });
+    await throwIfNotOk(response);
+    return response.json() as Promise<ProductBarcodeRow>;
+}
+
+export async function removeProductBarcode(productId: string, barcodeId: number): Promise<void> {
+    const response = await authFetch(apiUrl(`products/${encodeURIComponent(productId)}/barcodes/${barcodeId}`), {
+        method: 'DELETE',
+    });
+    await throwIfNotOk(response);
+}
+
+export interface ProductBarcodeLookup {
+    product: Product;
+    matchedPackQty: number | null;
+}
+
+/** GET /api/products/lookup — matched_pack_qty is set when a secondary barcode matched. */
+export async function lookupProductByBarcode(barcode: string): Promise<ProductBarcodeLookup> {
+    const response = await authFetch(
+        apiUrl(`products/lookup?barcode=${encodeURIComponent(barcode)}`),
+        { cache: 'no-store' },
+    );
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(apiErrorDetail(text) || `HTTP ${response.status}`);
+    }
+    const raw = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const body = raw && typeof raw === 'object' ? raw : {};
+    const productRaw = (body.product && typeof body.product === 'object'
+        ? body.product
+        : body) as Record<string, unknown>;
+    const matched = body.matched_pack_qty ?? body.matchedPackQty ?? productRaw.matched_pack_qty ?? productRaw.matchedPackQty;
+    const matchedPackQty = matched == null || matched === '' || Number.isNaN(Number(matched))
+        ? null
+        : Number(matched);
+    return { product: mapApiProductToProduct(productRaw), matchedPackQty };
 }
 
 export async function deleteCategory(id: string): Promise<void> {

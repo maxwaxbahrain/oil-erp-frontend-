@@ -19,6 +19,8 @@ import type { ComprehensiveEmployee, SalaryStructure } from '../../services/empl
 // TASK 3 — Real PDF download for payslips. Replaces the W4-3 print-CSS
 // approach in the View modal with an actual file download via jspdf.
 import { generatePayslipPDF } from '../../utils/payslipPDF';
+import { formatLocalDate } from '../../utils/dates';
+import { localMonthEndIso, localMonthStartIso } from '../../utils/localDate';
 
 export default function PayrollManagement() {
     // STEP 11C — pending reimbursable expenses pulled from Expense module.
@@ -317,8 +319,8 @@ export default function PayrollManagement() {
             // (Draft status, current month's window) and use its real id.
             const now = new Date();
             const period = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-            const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+            const startDate = localMonthStartIso(now);
+            const endDate = localMonthEndIso(now);
             const newRun = await createPayrollRun(period, startDate, endDate);
 
             // Stamp every PayrollItem with the real run id so processPayroll's
@@ -815,7 +817,7 @@ export default function PayrollManagement() {
                                 <tbody className="divide-y divide-gray-100">
                                     {reimbursableExpenses.map(exp => (
                                         <tr key={exp.id}>
-                                            <td className="px-4 py-3 text-xs">{new Date(exp.date).toLocaleDateString()}</td>
+                                            <td className="px-4 py-3 text-xs">{formatLocalDate(exp.date) || '—'}</td>
                                             <td className="px-4 py-3 text-xs font-bold">{exp.createdBy}</td>
                                             <td className="px-4 py-3 text-xs">{exp.vendor} <span className="text-gray-400">— {exp.description || exp.category}</span></td>
                                             <td className="px-4 py-3 text-xs">{exp.paymentMethod}</td>

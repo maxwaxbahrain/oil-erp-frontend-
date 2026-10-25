@@ -6,8 +6,11 @@ export const FINANCE_ROLES: AuthRole[] = ['admin', 'accountant'];
 /** Backend require_management — admin + manager + accountant */
 export const MANAGEMENT_ROLES: AuthRole[] = ['admin', 'manager', 'accountant'];
 
-/** Internal web staff — full ERP sidebar (non-SPOD field roles) */
+/** Internal web staff — full ERP sidebar (non-SPOD field roles). Warehouse is not included. */
 export const INTERNAL_WEB_ROLES: AuthRole[] = ['admin', 'manager', 'accountant'];
+
+/** Existing warehouse pages. Warehouse staff plus the internal roles that already open them. */
+export const WAREHOUSE_PAGE_ROLES: AuthRole[] = ['admin', 'manager', 'accountant', 'warehouse'];
 
 /** SPOD field roles — strict sidebar whitelist */
 export const SPOD_FIELD_ROLES: AuthRole[] = ['sales', 'driver'];
@@ -42,6 +45,7 @@ export const SALES_PREMIUM_ROLES: AuthRole[] = SALES_INTEL_ROLES;
 /** Sales sidebar whitelist — only these paths render for sales role */
 export const SALES_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/',
+    '/dashboard',
     '/portal',
     '/customers',
     '/sales/orders',
@@ -60,11 +64,13 @@ export const SALES_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/news',
     '/voice/dashboard',
     '/voice/calls',
+    '/field/fleet-mileage',
 ]);
 
 /** Driver sidebar whitelist — SPOD field minus sales + voice, plus logistics */
 export const DRIVER_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/',
+    '/dashboard',
     '/portal',
     '/products',
     '/pulse',
@@ -76,19 +82,33 @@ export const DRIVER_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/logistics/pod',
     '/logistics/operations',
     '/logistics/routes',
+    '/field/fleet-mileage',
+]);
+
+/** Warehouse floor — these sidebar items and nothing else. The pick screen is not a sidebar link. */
+export const WAREHOUSE_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
+    '/warehouse/stock',
+    '/warehouse/locations',
+    '/warehouse/picking',
+    '/warehouse/counts',
+    '/warehouse/counts/:id',
+    '/warehouse/expiry',
 ]);
 
 export function isSpodFieldRole(role: AuthRole | undefined): boolean {
     return role === 'sales' || role === 'driver';
 }
 
-/** For sales/driver: strict path allowlist. Internal staff: always true (section guards apply). */
+/** Sales, driver, and warehouse use a strict path allowlist. Internal staff: always true (section guards apply). */
 export function isSidebarPathAllowed(role: AuthRole | undefined, path: string): boolean {
-    if (!role || !isSpodFieldRole(role)) {
+    if (!role || (role !== 'sales' && role !== 'driver' && role !== 'warehouse')) {
         return true;
     }
     if (role === 'sales') {
         return SALES_SIDEBAR_PATHS.has(path);
+    }
+    if (role === 'warehouse') {
+        return WAREHOUSE_SIDEBAR_PATHS.has(path);
     }
     return DRIVER_SIDEBAR_PATHS.has(path);
 }

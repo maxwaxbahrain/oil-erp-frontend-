@@ -5,6 +5,15 @@
 
 import autoTable from 'jspdf-autotable';
 import { generateStandardPDF } from './documentGenerator';
+import { formatLocalDate } from './dates';
+import { formatLineQuantity } from './packEntry';
+
+/** Same shape as Date#toLocaleDateString() with no options: numeric month/day/year. */
+const PDF_DATE: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+};
 
 export interface InvoicePDFLineItem {
     product?: string;
@@ -14,6 +23,14 @@ export interface InvoicePDFLineItem {
     discount?: number;     // per-line %; optional (ITEM 7D)
     taxRate?: number;      // per-line %; optional (ITEM 7D)
     amount: number;        // line total before per-line discount/tax
+    entered_uom?: string | null;
+    enteredUom?: string | null;
+    entered_qty?: number | null;
+    enteredQty?: number | null;
+    pack_qty_snapshot?: number | null;
+    packQtySnapshot?: number | null;
+    packUnit?: string | null;
+    baseUnit?: string | null;
 }
 
 export interface InvoicePDFInput {
@@ -72,10 +89,10 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(80, 80, 80);
         doc.text(`Invoice #: ${invoiceNumber}`, 14, y);
-        doc.text(`Invoice Date: ${new Date(invoiceDate).toLocaleDateString()}`, 140, y);
+        doc.text(`Invoice Date: ${formatLocalDate(invoiceDate, PDF_DATE) || invoiceDate}`, 140, y);
         y += 6;
         if (dueDate) {
-            doc.text(`Due Date: ${new Date(dueDate).toLocaleDateString()}`, 140, y);
+            doc.text(`Due Date: ${formatLocalDate(dueDate, PDF_DATE) || dueDate}`, 140, y);
         }
         if (salesman) {
             doc.text(`Salesman: ${salesman}`, 14, y);
@@ -105,7 +122,7 @@ export function generateInvoicePDF(input: InvoicePDFInput): void {
             : [['Item', 'Qty', 'Rate', 'Amount']];
         const body = lineItems.map(li => {
             const itemLabel = [li.product, li.description].filter(Boolean).join(' — ') || '—';
-            const qty = (Number(li.quantity) || 0).toString();
+            const qty = formatLineQuantity(li);
             const rate = (Number(li.rate) || 0).toFixed(2);
             const amt = (Number(li.amount) || 0).toFixed(2);
             return hasPerLineTax

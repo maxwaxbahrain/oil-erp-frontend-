@@ -89,12 +89,13 @@ describe('expense paid-from bank', () => {
     shown.cleanup();
   });
 
-  it('renders nothing for a bank transfer when no banks loaded, and the select when one bank is present', () => {
+  it('shows a load-failed message for a bank transfer when no banks loaded, and the select when one bank is present', () => {
     const empty = mount(
       <PaidFromBankPicker method="Bank Transfer" banks={[]} value="" onChange={() => undefined} posted={false} />,
     );
     expect(empty.host.querySelector('select')).toBeNull();
-    expect(empty.host.textContent).toBe('');
+    expect(empty.host.querySelector('#expense-paid-from-bank')).not.toBeNull();
+    expect(empty.host.textContent).toContain('Could not load bank accounts — choose Cash or try again');
     empty.cleanup();
 
     const one = mount(

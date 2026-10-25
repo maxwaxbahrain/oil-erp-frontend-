@@ -57,6 +57,21 @@ function vanDisplayStats(van: Van, index: number) {
   return { stops, orderValue, isLoaded };
 }
 
+export function pluralize(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+export function computeFleetSummary(vans: Van[]) {
+  const activeVans = vans.filter((v) => String(v.status).toLowerCase() === 'active').length;
+  const totalStops = vans.reduce((sum, van, i) => sum + vanDisplayStats(van, i).stops, 0);
+  const zones = Math.min(vans.length, 3);
+  return {
+    deliveries: totalStops,
+    zones,
+    activeVans,
+  };
+}
+
 function driverRole(index: number): string {
   return index === 0 ? 'Senior driver' : 'Driver';
 }
@@ -237,16 +252,7 @@ export default function DriverApp() {
     [vans, uiSelectedVanId]
   );
 
-  const fleetSummary = useMemo(() => {
-    const activeVans = vans.filter((v) => String(v.status).toLowerCase() === 'active').length;
-    const totalStops = vans.reduce((sum, van, i) => sum + vanDisplayStats(van, i).stops, 0);
-    const zones = Math.max(1, Math.min(vans.length, 3));
-    return {
-      deliveries: totalStops || 9,
-      zones: zones || 3,
-      activeVans: activeVans || vans.length,
-    };
-  }, [vans]);
+  const fleetSummary = useMemo(() => computeFleetSummary(vans), [vans]);
 
   const statusBarDate = useMemo(
     () =>
@@ -628,8 +634,8 @@ export default function DriverApp() {
         invoiceNumber: '',
         customerId: String(customerId),
         customerName: selectedStop.customerName,
-        invoiceDate: new Date().toISOString().slice(0, 10),
-        dueDate: new Date().toISOString().slice(0, 10),
+        invoiceDate: localIsoDate(),
+        dueDate: localIsoDate(),
         lineItems: selectedStop.items.map((i) => ({
           product: i.description,
           description: i.description,
@@ -1101,7 +1107,7 @@ export default function DriverApp() {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{dateLabel}</div>
                 <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45 }}>
-                  {fleetSummary.deliveries} deliveries scheduled today · {fleetSummary.zones} zones
+                  {pluralize(fleetSummary.deliveries, 'delivery', 'deliveries')} scheduled today · {pluralize(fleetSummary.zones, 'zone', 'zones')}
                 </div>
               </div>
               <span style={badge(C.green, 'rgba(34,197,94,.14)')}>

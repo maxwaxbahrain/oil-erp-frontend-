@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useCallback, useMemo, type CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { parseNewExpenseParams } from './expenseQueryParams';
+import { formatLocalDate, isSameLocalMonth } from '../../utils/dates';
 import {
     DollarSign, Upload, Plus,
     Edit2, Trash2, RefreshCw,
@@ -27,6 +28,8 @@ import { getCustomers as loadCustomerList } from '../../services/customerService
 // ITEM 16 — Escape closes the manual entry modal and the category dropdown.
 import { useEscape } from '../../hooks/useEscape';
 import { useBankingAccounts } from '../../hooks/useBankingAccounts';
+import { getGLAccounts, type GLAccount } from '../../services/glService';
+import { companyPaymentAccounts } from '../../utils/bankingAccounts';
 
 export { PaidFromBankPicker } from './paidFromBankPicker';
 
@@ -61,13 +64,7 @@ function formatMoney(n: number) {
 
 function formatExpenseDate(raw: string): string {
     if (!raw) return '—';
-    try {
-        const d = new Date(raw.includes('T') ? raw : `${raw}T12:00:00`);
-        if (Number.isNaN(d.getTime())) return raw;
-        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch {
-        return raw;
-    }
+    return formatLocalDate(raw) || raw;
 }
 
 function statusBadgeStyle(status: Expense['status']): CSSProperties {
@@ -186,7 +183,39 @@ export default function ExpenseManagement() {
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [customers, setCustomers] = useState<CustomerComboboxOption[]>([]);
-    const { banks, defaultBank, reload: reloadBanks } = useBankingAccounts();
+    const {
+        banks,
+        defaultBank,
+        loading: banksLoading,
+        error: banksError,
+        reload: reloadBanks,
+    } = useBankingAccounts();
+    const [chartAccounts, setChartAccounts] = useState<GLAccount[]>([]);
+    const [chartLoading, setChartLoading] = useState(true);
+    const [chartError, setChartError] = useState<string | null>(null);
+    const reloadChartAccounts = useCallback(async () => {
+        setChartLoading(true);
+        try {
+            const rows = await getGLAccounts();
+            setChartAccounts(Array.isArray(rows) ? rows : []);
+            setChartError(null);
+        } catch (error) {
+            setChartAccounts([]);
+            setChartError(error instanceof Error ? error.message : 'Could not load chart accounts');
+        } finally {
+            setChartLoading(false);
+        }
+    }, []);
+    const accountsLoading = Boolean(banksLoading) || chartLoading;
+    const accountsError = banksError || chartError || null;
+    const reloadAccounts = useCallback(() => {
+        void reloadBanks();
+        void reloadChartAccounts();
+    }, [reloadBanks, reloadChartAccounts]);
+    const paidFromAccounts = useMemo(
+        () => companyPaymentAccounts(chartAccounts, banks),
+        [chartAccounts, banks],
+    );
 
     const refreshCategories = useCallback(async () => {
         try {
@@ -201,10 +230,15 @@ export default function ExpenseManagement() {
         const onFocus = () => {
             void refreshCategories();
             void reloadBanks();
+            void reloadChartAccounts();
         };
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
-    }, [refreshCategories, reloadBanks]);
+    }, [refreshCategories, reloadBanks, reloadChartAccounts]);
+
+    useEffect(() => {
+        void reloadChartAccounts();
+    }, [reloadChartAccounts]);
 
     useEffect(() => {
         loadData();
@@ -399,7 +433,7 @@ export default function ExpenseManagement() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `expenses-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.download = `expenses-${new Date().toISOString().slice(0, 10)}.csv`; // utc-date-ok: export filename
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -410,10 +444,7 @@ export default function ExpenseManagement() {
     };
 
     const now = new Date();
-    const thisMonthExpenses = expenses.filter(e => {
-        const d = new Date(e.date);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
+    const thisMonthExpenses = expenses.filter(e => isSameLocalMonth(e.date, now));
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
     const thisMonthCount = thisMonthExpenses.length;
     const monthLabel = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -1025,7 +1056,7 @@ export default function ExpenseManagement() {
                                         </div>
                                         <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
                                             <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>Date</p>
-                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{new Date(aiExtractedData.date).toLocaleDateString()}</p>
+                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-redwood-text-main)', margin: 0 }}>{formatLocalDate(aiExtractedData.date) || '—'}</p>
                                             <ConfidenceBadge value={aiExtractedData.perFieldConfidence?.date ?? aiExtractedData.confidence} />
                                         </div>
                                         <div style={{ padding: 14, borderRadius: 10, background: 'var(--color-redwood-row-bg)', border: '1px solid var(--color-redwood-border)' }}>
@@ -1059,8 +1090,11 @@ export default function ExpenseManagement() {
                             categories={categories}
                             refreshCategories={refreshCategories}
                             customers={customers}
-                            banks={banks}
+                            banks={paidFromAccounts}
                             defaultBank={defaultBank}
+                            accountsLoading={accountsLoading}
+                            accountsError={accountsError}
+                            reloadAccounts={reloadAccounts}
                             onClose={() => {
                                 setShowManualForm(false);
                                 setEditingExpense(null);

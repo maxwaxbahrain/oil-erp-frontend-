@@ -4,6 +4,7 @@
 // ============================================
 
 import { calculateDistance } from './locationService';
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
 
 const STORAGE_KEY_MILEAGE_RECORDS = 'pod_mileage_records';
 
@@ -67,7 +68,7 @@ export async function initializeDailyMileage(
 ): Promise<MileageRecord> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
 
     const record: MileageRecord = {
         id: crypto.randomUUID(),
@@ -92,7 +93,7 @@ export async function getMileageRecord(
 ): Promise<MileageRecord | null> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
 
     return records.find(r => r.vanId === vanId && r.date === targetDate) || null;
@@ -105,7 +106,7 @@ export async function updateMileage(
 ): Promise<MileageRecord | null> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
     const index = records.findIndex(r => r.vanId === vanId && r.date === targetDate);
 
@@ -133,7 +134,7 @@ export async function recordMileageSegment(
 ): Promise<MileageSegment> {
     await delay(100);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
     const index = records.findIndex(r => r.vanId === vanId && r.date === targetDate);
 
@@ -221,7 +222,7 @@ export async function getFleetMileageStats(
 }> {
     await delay(200);
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || localIsoDate();
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
     const dayRecords = records.filter(r => r.date === targetDate);
 
@@ -375,7 +376,7 @@ export async function getMileageHistory(
 ): Promise<MileageRecord[]> {
     await delay(150);
 
-    const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+    const startDate = localIsoDatePlusDays(-days);
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
 
     return records
@@ -404,7 +405,7 @@ export async function getAverageDailyMileage(
 export async function cleanupOldMileageRecords(daysToKeep: number = 30): Promise<number> {
     await delay(100);
 
-    const cutoffDate = new Date(Date.now() - daysToKeep * 86400000).toISOString().split('T')[0];
+    const cutoffDate = localIsoDatePlusDays(-daysToKeep);
     const records = getStorage<MileageRecord>(STORAGE_KEY_MILEAGE_RECORDS);
     const filtered = records.filter(r => r.date >= cutoffDate);
     const removed = records.length - filtered.length;

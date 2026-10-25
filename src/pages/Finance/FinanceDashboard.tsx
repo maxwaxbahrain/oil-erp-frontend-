@@ -1,8 +1,17 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInvoices, getPayments, type Invoice, type Payment } from '../../services/api';
+import { getGLBalanceSheet, isGLEmpty, todayISO, type GLBalanceSheet } from '../../services/glService';
 import { calculateReceivables } from '../../utils/arMetrics';
+import { isSameLocalMonth } from '../../utils/dates';
 import { livePayments } from '../../utils/paymentVoid';
+import {
+  collectionRateYtd,
+  daysPastDue,
+  formatSignedDollars,
+  sumGlCash,
+  worstOverdueCustomer,
+} from './financeMetrics';
 
 // ─── Shared style tokens ────────────────────────────────────────
 const panel: CSSProperties = {
@@ -99,12 +108,6 @@ function kpiCard(cfg: {
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
-const daysOverdue = (dueDate: string) => {
-  const due = new Date(dueDate).getTime();
-  if (isNaN(due)) return null;
-  return Math.floor((Date.now() - due) / 86400000);
-};
-
 // Gap detection has been removed (it crashed production on invoice numbers
 // like INV-1735689600000 that parsed to 13-digit "sequence" numbers).
 // `seqOf` and the matching gap-set logic are intentionally gone; reintroduce
@@ -114,6 +117,7 @@ export default function FinanceDashboard() {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [balanceSheet, setBalanceSheet] = useState<GLBalanceSheet | null | undefined>(undefined);
 
   // Defensive view of the state — if the backend ever returns a
   // non-array (null, error envelope like `{detail: "..."}`, paginated
@@ -148,15 +152,18 @@ export default function FinanceDashboard() {
     getPayments()
       .then(data => setPayments(Array.isArray(data) ? data : []))
       .catch(() => setPayments([]));
+    getGLBalanceSheet(todayISO())
+      .then((data) => setBalanceSheet(data))
+      .catch(() => setBalanceSheet(null));
   }, []);
 
-  // ───────── Computations (pure JS, no new APIs) ─────────
+  // ───────── Computations ─────────
   const now = new Date();
 
-  // Cash position = sum of payments received. (No payables service
-  // exists, so the "minus payables" half of the formula resolves
-  // to 0. Sub-text still reads "Bank minus payables" per spec.)
-  const cashPosition = safePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const glCash =
+    balanceSheet != null && !isGLEmpty(balanceSheet)
+      ? sumGlCash(balanceSheet.assets ?? [])
+      : null;
 
   const receivables = calculateReceivables(safeInvoices, safePayments, now);
   const arOutstanding = receivables.total;
@@ -185,50 +192,13 @@ export default function FinanceDashboard() {
   const arTotal = bucketRows.reduce((s, b) => s + b.total, 0);
   const maxBucket = Math.max(1, ...bucketRows.map((b) => b.total));
 
-  // Collection Health row 1 — single worst overdue invoice (real data).
-  const worstReceivable = [...receivables.invoices]
-    .filter((row) => row.bucket === 'days60' || row.bucket === 'days90')
-    .sort((a, b) => b.balance - a.balance)[0];
-  const worstInvoice = worstReceivable?.invoice as Invoice | undefined;
-  // Cast to any so the fallback chain can probe alternate field
-  // shapes (`customer.name`, `companyName`, `clientName`, `billTo.name`)
-  // that some payloads use even though Invoice type only declares
-  // `customerName`. Also handles empty-string case.
-  const _wi = worstInvoice as any;
-  const worstName =
-    (_wi?.customerName && String(_wi.customerName).trim()) ||
-    _wi?.customer?.name ||
-    _wi?.customer?.companyName ||
-    _wi?.companyName ||
-    _wi?.clientName ||
-    _wi?.billTo?.name ||
-    'Overdue account';
-  const worstAmount = worstReceivable?.balance ?? 0;
-  const worstDays = worstInvoice ? daysOverdue(worstInvoice.dueDate) : null;
+  const worst = worstOverdueCustomer(receivables.invoices, now);
 
   const mtdCollected = safePayments
-    .filter(p => {
-      const d = new Date(p.payment_date);
-      return !Number.isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    })
+    .filter((p) => isSameLocalMonth(p.payment_date, now))
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const totalInvoiced = safeInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
-  const totalCollected = safePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const collectionRate = totalInvoiced > 0 ? Math.min(100, (totalCollected / totalInvoiced) * 100) : null;
-  const linkedPaymentDays = safePayments
-    .map(p => {
-      if (!p.invoice_id) return null;
-      const inv = safeInvoices.find(i => String(i.id) === String(p.invoice_id));
-      if (!inv) return null;
-      const invoiceDate = new Date(inv.invoiceDate).getTime();
-      const paymentDate = new Date(p.payment_date).getTime();
-      if (!Number.isFinite(invoiceDate) || !Number.isFinite(paymentDate)) return null;
-      return Math.max(0, Math.round((paymentDate - invoiceDate) / 86400000));
-    })
-    .filter((n): n is number => n !== null);
-  const avgDaysToPay = linkedPaymentDays.length
-    ? Math.round(linkedPaymentDays.reduce((s, n) => s + n, 0) / linkedPaymentDays.length)
-    : null;
+  const collectionRate = collectionRateYtd(safeInvoices, safePayments, now);
+  // Avg days to pay needs an allocation list (payment date and invoice date); GET /payments does not return one.
 
   // Sequential invoice-number gap detection has been removed.
   // The previous implementation could crash with "RangeError: Set
@@ -291,9 +261,9 @@ export default function FinanceDashboard() {
           label: 'Cash Position',
           badge: 'Today',
           badgeBg: 'rgba(34,197,94,.18)', badgeColor: '#22C55E',
-          value: `$${fmt(cashPosition)}`,
+          value: glCash == null ? '—' : formatSignedDollars(glCash, 0),
           valueColor: 'var(--color-brand-green)',
-          sub: 'Bank minus payables',
+          sub: glCash == null ? 'No GL data' : 'Cash + bank (GL)',
         })}
         {kpiCard({
           stripe: 'linear-gradient(90deg,#EF4444,#FCA5A5)',
@@ -387,21 +357,16 @@ export default function FinanceDashboard() {
             fontSize: '9px', color: 'var(--color-redwood-text-muted)',
             textAlign: 'center', marginBottom: '8px',
           }}>
-            {collectionRate == null ? 'No collection data' : 'Collected vs invoiced'}
+            Collected vs invoiced · YTD
           </div>
 
-          <div style={rowStyle}>
-            <span style={{ color: 'var(--color-brand-red)' }}>
-              ⚠ {worstInvoice ? worstName : 'No overdue accounts'}
-            </span>
-            <span style={{ color: 'var(--color-brand-red)', fontWeight: 600 }}>
-              {worstInvoice ? `$${worstAmount.toLocaleString()} · ${worstDays ?? '—'}d` : '—'}
-            </span>
-          </div>
-          <div style={rowStyle}>
-            <span style={{ color: 'var(--color-redwood-text-muted)' }}>Avg days to pay</span>
-            <span style={{ color: 'var(--color-redwood-text-main)', fontWeight: 600 }}>{avgDaysToPay == null ? '—' : `${avgDaysToPay} days`}</span>
-          </div>
+          {worst && (
+            <div style={rowStyle}>
+              <span style={{ color: 'var(--color-brand-red)' }}>
+                ⚠ {worst.customer} {formatSignedDollars(worst.balance, 2)} · {worst.days}d overdue
+              </span>
+            </div>
+          )}
           <div style={rowStyle}>
             <span style={{ color: 'var(--color-redwood-text-muted)' }}>This month collected</span>
             <span style={{ color: 'var(--color-brand-green)', fontWeight: 600 }}>${fmt(mtdCollected)}</span>
@@ -471,7 +436,7 @@ export default function FinanceDashboard() {
               </thead>
               <tbody>
                 {safeInvoices.slice(0, 8).map((inv) => {
-                  const overdueDays = daysOverdue(inv.dueDate);
+                  const overdueDays = daysPastDue(inv.dueDate, now);
                   const isOverdue = inv.status === 'Overdue' || (overdueDays != null && overdueDays > 0);
                   const statusBadge = inv.status === 'Paid'
                     ? { label: 'Paid',    bg: 'rgba(34,197,94,.18)',  color: '#22C55E' }

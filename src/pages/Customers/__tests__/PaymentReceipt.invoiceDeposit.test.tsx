@@ -21,14 +21,14 @@ const { cash, banks, defaultBank } = vi.hoisted(() => {
   return { cash: [cashAccount], banks: [mainBank, bank2, bank3], defaultBank: mainBank };
 });
 
-vi.mock('../../../hooks/useBankingAccounts', () => ({
-  useBankingAccounts: () => ({
+vi.mock('../../../hooks/useCompanyPaymentAccounts', () => ({
+  useCompanyPaymentAccounts: () => ({
+    accounts: [...cash, ...banks],
     cash,
     banks,
     defaultBank,
     loading: false,
     error: null,
-    reload: vi.fn(),
   }),
 }));
 
@@ -126,7 +126,7 @@ describe('PaymentReceipt invoice deposit', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(depositSelect(view.host).value).toBe('1');
+    expect(depositSelect(view.host).value).toBe('');
     await act(async () => {
       invoiceBox(view.host, 'INV-A').click();
     });
@@ -142,7 +142,7 @@ describe('PaymentReceipt invoice deposit', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(depositSelect(view.host).value).toBe('1');
+    expect(depositSelect(view.host).value).toBe('');
     await act(async () => {
       invoiceBox(view.host, 'INV-A').click();
     });

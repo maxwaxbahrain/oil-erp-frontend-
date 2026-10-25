@@ -30,6 +30,7 @@ import { getGRNs, type GRN } from '../../services/grnService';
 import { getAccounts, type Account } from '../Accounts/ChartOfAccounts';
 import { generateStandardPDF } from '../../utils/documentGenerator';
 import { livePayments } from '../../utils/paymentVoid';
+import { formatLocalDate } from '../../utils/dates';
 import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
 import {
     calculateProfitLoss,
@@ -523,7 +524,7 @@ function MiniBarChart({
 
 export default function FinancialStatement() {
     const [period, setPeriod] = useState<PeriodKey>('ytd');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const [dateFrom, setDateFrom] = useState(() => yearStartISO());
     const [dateTo, setDateTo] = useState(() => todayISO());
 
@@ -685,7 +686,7 @@ export default function FinancialStatement() {
     }, [invoices, payments, supplierPayments, expenses, grns, accounts]);
 
     const formatRangeDate = (iso: string) =>
-        new Date(`${iso}T12:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        formatLocalDate(iso, { day: '2-digit', month: 'short', year: 'numeric' }) || iso;
 
     const rangeLabel =
         period === 'custom'

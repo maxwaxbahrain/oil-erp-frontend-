@@ -21,6 +21,7 @@ import {
 } from '../../services/payrollService';
 import ProfileAllowancesEditor from './ProfileAllowancesEditor';
 import { generatePayslipPDF } from '../../utils/payslipPDF';
+import { localMonthEndIso, localMonthStartIso } from '../../utils/localDate';
 
 const C = {
   t: 'var(--t, #EEF2FF)',
@@ -64,10 +65,8 @@ interface PayrollAdminProps {
 function defaultRunDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
   const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  return { periodLabel: label, periodStart: fmt(start), periodEnd: fmt(end) };
+  return { periodLabel: label, periodStart: localMonthStartIso(now), periodEnd: localMonthEndIso(now) };
 }
 
 export default function PayrollAdmin({

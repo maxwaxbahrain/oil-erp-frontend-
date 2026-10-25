@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Users } from 'lucide-react';
 import { type Customer, type ArSummary, type CustomerStats, getCustomers, getArSummary, getCustomerStats, deleteCustomer } from '../../services/customerService';
+import { outstandingTotals } from '../../utils/outstandingTotals';
+import { formatAddedLabel } from '../../utils/dates';
 
 /* Visual tokens only (layout/CSS) — mockup exact */
 const ROW_GRID =
@@ -68,21 +70,6 @@ function avatarColors(id: string | number): { bg: string; color: string } {
   const idx =
     Math.abs(String(id).split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % palette.length;
   return palette[idx];
-}
-
-function formatRelativeDate(d?: string): string {
-  if (!d) return '—';
-  try {
-    const diff = Date.now() - new Date(d).getTime();
-    const days = Math.floor(diff / 86400000);
-    if (days === 0) return 'Today';
-    if (days === 1) return '1 day ago';
-    if (days < 7) return `${days} days ago`;
-    if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`;
-    return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  } catch {
-    return '—';
-  }
 }
 
 function statusBadge(c: Customer, bal: number): { label: string; style: React.CSSProperties } {
@@ -182,7 +169,7 @@ function exportCustomersCsv(rows: Customer[], balanceOf: (c: Customer) => number
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`; // utc-date-ok: export filename
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -415,15 +402,19 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
 
   const stats = useMemo(() => {
     const total = customers.length;
-    // Header total is the authoritative endpoint value when available.
-    const outstandingTotal = arSummary
-      ? arSummary.total_outstanding
+    const headline = outstandingTotals(arSummary);
+    const owed = headline
+      ? headline.owedToUs
       : customers.reduce((sum, c) => sum + Math.max(0, balanceOf(c)), 0);
+    const credits = headline
+      ? headline.customerCredits
+      : customers.reduce((sum, c) => sum + Math.min(0, balanceOf(c)), 0);
+    const net = headline
+      ? headline.netReceivable
+      : customers.reduce((sum, c) => sum + balanceOf(c), 0);
     const owingCount = customers.filter((c) => balanceOf(c) > 0).length;
     const creditCount = customers.filter((c) => balanceOf(c) < 0).length;
-    // "Active" no longer derived here — comes from the backend stats endpoint
-    // (see customerStats.active_customers below).
-    return { total, outstandingTotal, owingCount, creditCount };
+    return { total, outstandingTotal: owed, credits, net, owingCount, creditCount };
   }, [customers, arSummary, balanceOf]);
 
   const q = searchTerm.toLowerCase().trim();
@@ -532,7 +523,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             <p style={STAT_SUB}>in database</p>
           </div>
           <div style={STAT_CARD_STYLE}>
-            <p style={STAT_LABEL}>Outstanding AR</p>
+            <p style={STAT_LABEL}>Owed to us</p>
             <p
               style={{
                 margin: '6px 0 0',
@@ -549,11 +540,14 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
             </p>
           </div>
           <div style={STAT_CARD_STYLE}>
-            <p style={STAT_LABEL}>Credit Balances</p>
+            <p style={STAT_LABEL}>Credits</p>
             <p style={{ margin: '6px 0 0', fontSize: 22, fontWeight: 600, color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>
-              {stats.creditCount}
+              ${Math.abs(stats.credits).toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </p>
-            <p style={STAT_SUB}>overpaid (CR)</p>
+            <p style={STAT_SUB}>
+              net ${stats.net.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {stats.creditCount ? ` · ${stats.creditCount} customer${stats.creditCount === 1 ? '' : 's'}` : ''}
+            </p>
           </div>
           <div style={STAT_CARD_STYLE}>
             <p style={STAT_LABEL}>Active Customers</p>
@@ -865,7 +859,7 @@ export default function CustomerList({ refreshTrigger }: CustomerListProps) {
                             </div>
                           </div>
                           <span style={{ fontSize: 13, color: '#94a3b8' }}>{c.phone ?? '—'}</span>
-                          <span style={{ fontSize: 13, color: '#94a3b8' }}>{formatRelativeDate(c.created_at)}</span>
+                          <span style={{ fontSize: 13, color: '#94a3b8' }}>{formatAddedLabel(c.created_at)}</span>
                           <span style={out.style}>{out.text}</span>
                           <span>
                             <span style={badge.style}>{badge.label}</span>

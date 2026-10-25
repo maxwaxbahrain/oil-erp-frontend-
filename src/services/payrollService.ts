@@ -4,6 +4,7 @@ import { API_BASE_URL } from './api';
 import { authFetch } from '../api/axios';
 import type { CompletePayrollResult } from './payrollCalculationEngine';
 import type { LeaveType, LeaveStatus } from './leaveService';
+import { localIsoDate } from '../utils/localDate';
 
 export interface Employee {
     id: string;
@@ -636,7 +637,7 @@ export async function saveEmployee(employee: Partial<Employee>): Promise<Employe
                 id: `EMP${String(employees.length + 1).padStart(3, '0')}`,
                 employeeId: `EMP${String(employees.length + 1).padStart(3, '0')}`,
                 status: 'Active',
-                joinDate: new Date().toISOString().split('T')[0],
+                joinDate: localIsoDate(),
                 vacationDays: 15,
                 sickDays: 10,
                 personalDays: 5

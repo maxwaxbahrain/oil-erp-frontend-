@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL, getInvoices, type Invoice } from './api';
 import { authFetch } from '../api/axios';
+import { readDocumentEntry } from '../utils/packEntry';
 
 export type ReturnStatus = 'draft' | 'pending' | 'approved' | 'completed' | 'cancelled';
 
@@ -39,6 +40,11 @@ export interface ReturnLineItem {
   unitPrice: number;
   totalAmount: number;
   lineReason?: ReturnReasonCode | '';
+  enteredQty?: number;
+  enteredUom?: 'base' | 'pack';
+  enteredUnitPrice?: number;
+  packQtySnapshot?: number | null;
+  originalEnteredQty?: number;
 }
 
 export interface SalesReturn {
@@ -68,7 +74,11 @@ export interface ReturnStats {
   completedReturns: number;
 }
 
-export const RETURN_POLICY_DAYS = 30;
+/** Info-only age threshold for the form note. Not a submit/approve block. */
+export const RETURN_AGE_NOTE_DAYS = 30;
+
+/** @deprecated Use RETURN_AGE_NOTE_DAYS — there is no return window anymore. */
+export const RETURN_POLICY_DAYS = RETURN_AGE_NOTE_DAYS;
 
 function invoiceClosed(status: string): boolean {
   const value = status.trim().toLowerCase();
@@ -79,12 +89,19 @@ function demoInvoice(invoiceNumber: string): boolean {
   return invoiceNumber.trim().toUpperCase().startsWith('INV-DEMO');
 }
 
-function withinReturnWindow(invoice: Invoice, today: Date): boolean {
+function invoiceAgeDays(invoice: Invoice, today: Date): number {
   const invoiceDate = new Date(
     invoice.invoiceDate.includes('T') ? invoice.invoiceDate : `${invoice.invoiceDate}T12:00:00`,
   );
-  const diffDays = Math.ceil((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
-  return diffDays <= RETURN_POLICY_DAYS;
+  return Math.ceil((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** True when the form should show the older-than-30-days info note. */
+export function invoiceOlderThanReturnNoteDays(
+  invoice: Invoice,
+  today: Date = new Date(),
+): boolean {
+  return invoiceAgeDays(invoice, today) > RETURN_AGE_NOTE_DAYS;
 }
 
 export function returnInvoiceStatusLabel(status: string): string {
@@ -96,28 +113,33 @@ export function returnInvoiceStatusLabel(status: string): string {
 export function invoicesEligibleForReturn(
   invoices: Invoice[],
   customerId: string,
-  today: Date = new Date(),
+  _today: Date = new Date(),
 ): Invoice[] {
-  return invoices.filter((invoice) => {
+  const rows = invoices.filter((invoice) => {
     if (String(invoice.customerId) !== String(customerId)) return false;
     if (invoiceClosed(invoice.status)) return false;
     if (Number(invoice.grandTotal) <= 0.005) return false;
     if (demoInvoice(invoice.invoiceNumber || '')) return false;
-    return withinReturnWindow(invoice, today);
+    return true;
+  });
+  return rows.sort((a, b) => {
+    const da = a.invoiceDate || '';
+    const db = b.invoiceDate || '';
+    if (da !== db) return db.localeCompare(da);
+    return String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
   });
 }
 
 export function eligibleInvoiceEmptyReason(
   invoices: Invoice[],
   customerId: string,
-  today: Date = new Date(),
+  _today: Date = new Date(),
 ): string {
   const mine = invoices.filter((invoice) => String(invoice.customerId) === String(customerId));
   if (mine.length === 0) return 'This customer has no invoices.';
   let closed = 0;
   let zero = 0;
   let demo = 0;
-  let outside = 0;
   for (const invoice of mine) {
     if (invoiceClosed(invoice.status)) {
       closed += 1;
@@ -129,15 +151,12 @@ export function eligibleInvoiceEmptyReason(
     }
     if (demoInvoice(invoice.invoiceNumber || '')) {
       demo += 1;
-      continue;
     }
-    if (!withinReturnWindow(invoice, today)) outside += 1;
   }
   const parts: string[] = [];
   if (closed) parts.push(`${closed} void or cancelled`);
   if (zero) parts.push(`${zero} with a zero total`);
   if (demo) parts.push(`${demo} demo`);
-  if (outside) parts.push(`${outside} outside the ${RETURN_POLICY_DAYS}-day window`);
   if (parts.length === 0) return 'No invoice can be returned.';
   return `No invoice can be returned: ${parts.join(', ')}.`;
 }
@@ -152,18 +171,29 @@ async function parseError(res: Response): Promise<string> {
 
 function mapApiRow(r: Record<string, unknown>): SalesReturn {
   const items = (Array.isArray(r.items) ? r.items : []) as Record<string, unknown>[];
-  const lineItems: ReturnLineItem[] = items.map((it, idx) => ({
+  const lineItems: ReturnLineItem[] = items.map((it, idx) => {
+    const returned = Number(it.quantity_returned ?? it.quantity ?? 0);
+    const rate = Number(it.rate ?? 0);
+    const entry = readDocumentEntry(it, returned, rate);
+    const original = readDocumentEntry(it, Number(it.original_quantity ?? it.quantity ?? 0), rate);
+    return {
     id: `${idx}-${it.product ?? idx}`,
     productId: it.product_id != null ? String(it.product_id) : '',
     productName: String(it.product ?? it.name ?? ''),
     sku: String(it.item_code ?? it.sku ?? ''),
     originalQuantity: Number(it.original_quantity ?? it.quantity ?? 0),
     selected: true,
-    quantityReturned: Number(it.quantity_returned ?? it.quantity ?? 0),
-    unitPrice: Number(it.rate ?? 0),
+    quantityReturned: returned,
+    unitPrice: rate,
     totalAmount: Number(it.amount ?? 0),
     lineReason: (it.line_reason as ReturnReasonCode) || undefined,
-  }));
+    enteredQty: entry.enteredQty,
+    enteredUom: entry.enteredUom,
+    enteredUnitPrice: entry.enteredUnitPrice,
+    packQtySnapshot: entry.packQtySnapshot,
+    originalEnteredQty: original.enteredUom === 'pack' ? original.enteredQty : undefined,
+    };
+  });
 
   const rd = r.return_date as string;
   const returnDate = rd ? (rd.length >= 10 ? rd.slice(0, 10) : rd) : '';
@@ -324,5 +354,6 @@ export default {
   patchSalesReturn,
   cancelSalesReturn,
   RETURN_REASON_OPTIONS,
+  RETURN_AGE_NOTE_DAYS,
   RETURN_POLICY_DAYS,
 };

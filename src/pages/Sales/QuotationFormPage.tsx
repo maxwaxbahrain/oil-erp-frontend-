@@ -8,6 +8,7 @@ import { getSalesmen, type SalesmanPickerOption } from '../../services/employeeS
 import { authFetch } from '../../api/axios';
 import { getOilErpApiBase } from '../../config/apiBase';
 import { formatDateOnly } from '../../utils/formatters';
+import { localIsoDate } from '../../utils/localDate';
 import {
     getQuotation,
     type Quotation,
@@ -123,7 +124,7 @@ export default function QuotationFormPage() {
 
     const [customerId, setCustomerId] = useState('');
     const [salesmanEmployeeId, setSalesmanEmployeeId] = useState('');
-    const [quoteDate, setQuoteDate] = useState(new Date().toISOString().slice(0, 10));
+    const [quoteDate, setQuoteDate] = useState(localIsoDate());
     const [expiryDate, setExpiryDate] = useState('');
     const [status, setStatus] = useState<QuotationStatus>('draft');
     const [notes, setNotes] = useState('');
@@ -336,7 +337,7 @@ export default function QuotationFormPage() {
                             onChange={setCustomerId}
                             placeholder="Select customer…"
                             displayKey="name"
-                            theme="dark"
+                            variant="dark"
                         />
                     </div>
                     <div>
@@ -352,7 +353,7 @@ export default function QuotationFormPage() {
                                 onChange={setSalesmanEmployeeId}
                                 placeholder="Search and select salesman..."
                                 displayKey="name"
-                                theme="dark"
+                                variant="dark"
                             />
                         )}
                     </div>

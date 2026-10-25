@@ -2,7 +2,9 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 // NOTE: no lucide-react — all icons are inline SVG copied verbatim from preview.html
 import { getCustomers, getSalesOrders, getProducts, getInvoices, getPayments } from '../../services/api';
-import { calculateCollectionRate } from '../../utils/salesMetrics';
+import { collectionRateYtd } from '../../utils/collectionMetrics';
+import { parseStoredTimestamp } from '../../utils/dates';
+import { livePayments } from '../../utils/paymentVoid';
 
 function isImportedCustomer(c: { notes?: string }): boolean {
   const notes = String(c.notes || '').toLowerCase();
@@ -108,7 +110,7 @@ export default function SalesDashboard() {
   const now = new Date();
   const newThisMonth = customers.filter((c: any) => {
     if (isImportedCustomer(c)) return false;
-    const created = parseActivityDate(c.createdAt || c.created_at);
+    const created = parseStoredTimestamp(c.createdAt || c.created_at);
     if (!created) return false;
     return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
   }).length;
@@ -134,7 +136,11 @@ export default function SalesDashboard() {
 
   const achieved = ordersTotalValue;
   const targetPct: number | null = null;
-  const collectionRate = calculateCollectionRate(invoices, payments);
+  const collectionRate = collectionRateYtd(
+    invoices,
+    livePayments(Array.isArray(payments) ? payments : []),
+    now,
+  );
 
   // Top customers by MTD revenue (with last-order metadata for sub-label)
   const custRevMap: Record<string, number> = {};
@@ -414,16 +420,16 @@ export default function SalesDashboard() {
           {/* Progress bars (.prog-row) */}
           <div style={{ marginTop: '12px' }}>
             {[
-              { label: 'Monthly sales target', pct: targetPct, color: 'var(--color-brand-blue)', empty: 'No target set' },
-              { label: 'Collection rate', pct: collectionRate === null ? null : Math.round(collectionRate), color: 'var(--color-brand-green)', empty: 'No invoice/payment data' },
+              { label: 'Monthly sales target', pct: targetPct, digits: 0, color: 'var(--color-brand-blue)', empty: 'No target set' },
+              { label: 'Collection rate (YTD)', pct: collectionRate, digits: 1, color: 'var(--color-brand-green)', empty: 'No invoice/payment data' },
             ].map((row, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '7px' }}>
                 <div style={{ fontSize: '10px', color: 'var(--color-redwood-text-muted)', width: '160px', flexShrink: 0 }}>{row.label}</div>
                 <div style={{ flex: 1, height: '5px', background: 'rgba(255,255,255,.07)', borderRadius: '3px', overflow: 'hidden' }}>
                   <div style={{ height: '100%', borderRadius: '3px', width: `${row.pct === null ? 0 : Math.min(row.pct, 100)}%`, background: row.color, transition: 'width .8s ease' }} />
                 </div>
-                <div style={{ fontSize: '10px', fontWeight: 500, width: '32px', textAlign: 'right', color: row.color }}>
-                  {row.pct === null ? '—' : `${row.pct}%`}
+                <div style={{ fontSize: '10px', fontWeight: 500, width: '44px', textAlign: 'right', color: row.color }}>
+                  {row.pct === null ? '—' : `${row.pct.toFixed(row.digits)}%`}
                 </div>
                 {row.pct === null && <div style={{ fontSize: '9px', color: 'var(--color-redwood-text-subtle)', width: '92px' }}>{row.empty}</div>}
               </div>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { customersOpenForNewDocument, mapApiInvoiceToInvoice, type Customer, type Invoice } from '../api';
 import {
   eligibleInvoiceEmptyReason,
+  invoiceOlderThanReturnNoteDays,
   invoicesEligibleForReturn,
 } from '../salesReturnService';
 
@@ -30,10 +31,10 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
 }
 
 describe('invoices eligible for a sales return', () => {
-  it('offers paid and partly paid invoices and refuses closed, zero, and demo invoices', () => {
+  it('offers paid, partly paid, and older invoices; refuses closed, zero, and demo; newest first', () => {
     const rows = [
-      invoice({ id: 'paid', status: 'Paid', invoiceNumber: 'INV-PAID' }),
-      invoice({ id: 'part', status: 'Partial', invoiceNumber: 'INV-PART' }),
+      invoice({ id: 'paid', status: 'Paid', invoiceNumber: 'INV-PAID', invoiceDate: '2026-10-01' }),
+      invoice({ id: 'part', status: 'Partial', invoiceNumber: 'INV-PART', invoiceDate: '2026-09-20' }),
       invoice({ id: 'void', status: 'Void' }),
       invoice({ id: 'cancelled', status: 'Cancelled' }),
       invoice({ id: 'zero', grandTotal: 0, invoiceNumber: 'INV-ZERO' }),
@@ -42,9 +43,26 @@ describe('invoices eligible for a sales return', () => {
       invoice({ id: 'other', customerId: '8', invoiceNumber: 'INV-OTHER' }),
     ];
 
-    expect(invoicesEligibleForReturn(rows, '7', today).map((row) => row.id)).toEqual(['paid', 'part']);
-    expect(eligibleInvoiceEmptyReason([invoice({ status: 'Cancelled' })], '7', today)).toContain('void or cancelled');
+    expect(invoicesEligibleForReturn(rows, '7', today).map((row) => row.id)).toEqual([
+      'paid',
+      'part',
+      'old',
+    ]);
+    expect(eligibleInvoiceEmptyReason([invoice({ status: 'Cancelled' })], '7', today)).toContain(
+      'void or cancelled',
+    );
     expect(eligibleInvoiceEmptyReason([], '7', today)).toBe('This customer has no invoices.');
+    expect(eligibleInvoiceEmptyReason([invoice({ id: 'old', invoiceDate: '2026-08-01' })], '7', today)).not.toContain(
+      '30-day',
+    );
+  });
+
+  it('notes when an invoice is older than 30 days without blocking eligibility', () => {
+    const old = invoice({ id: 'old', invoiceDate: '2026-08-10', invoiceNumber: 'INV-60' });
+    const recent = invoice({ id: 'new', invoiceDate: '2026-10-01' });
+    expect(invoiceOlderThanReturnNoteDays(old, today)).toBe(true);
+    expect(invoiceOlderThanReturnNoteDays(recent, today)).toBe(false);
+    expect(invoicesEligibleForReturn([old, recent], '7', today).map((row) => row.id)).toEqual(['new', 'old']);
   });
 
   it('does not offer an inactive customer', () => {

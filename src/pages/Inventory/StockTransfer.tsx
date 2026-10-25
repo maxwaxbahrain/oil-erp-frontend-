@@ -10,6 +10,7 @@ import {
     CheckCircle,
     Printer
 } from 'lucide-react';
+import { localIsoDate } from '../../utils/localDate';
 
 interface TransferItem {
     productId: string;
@@ -22,7 +23,7 @@ interface TransferItem {
 export default function StockTransfer() {
     const navigate = useNavigate();
     const [transferId] = useState(`TRF-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
-    const [date] = useState(new Date().toISOString().split('T')[0]);
+    const [date] = useState(localIsoDate());
     const [fromLocation, setFromLocation] = useState('Main Warehouse');
     const [toLocation, setToLocation] = useState('Van 101');
     const [items, setItems] = useState<TransferItem[]>([

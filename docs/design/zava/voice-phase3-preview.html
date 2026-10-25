@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Zava Voice Phase 3 · preview</title>
+  <style>
+    body { margin:0; background:#030712; color:#E8EEF9; font-family:ui-sans-serif,system-ui,sans-serif; padding:24px; }
+    h1 { font-size:16px; letter-spacing:.12em; color:#7C8DB5; font-weight:800; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .panel {
+      width:320px; padding:14px; border-radius:16px;
+      background:rgba(8,12,28,.88); border:1px solid rgba(148,163,184,.18);
+    }
+    .status { font-size:11px; font-weight:800; letter-spacing:.16em; color:#5EEAD4; margin-bottom:10px; }
+    .who { font-size:10px; font-weight:800; letter-spacing:.12em; color:#A78BFA; }
+    .you { color:#60A5FA; }
+    .chip {
+      display:inline-block; margin:4px 4px 0 0; padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(94,234,212,.35); color:#5EEAD4; font-size:11px; font-weight:700;
+    }
+    .note { font-size:12px; color:#94A3B8; margin-top:12px; max-width:680px; line-height:1.45; }
+  </style>
+</head>
+<body>
+  <h1>ZAVA · PHASE 3 VOICE LINK</h1>
+  <div class="row">
+    <div class="panel">
+      <div class="status">LISTENING</div>
+      <p><span class="who">ZAVA</span> Welcome back, Zohaib. I have 3 updates. 2 need you.</p>
+      <p><span class="who you">YOU</span> —</p>
+      <p style="font-size:11px;color:#64748B;margin-top:10px">Tap the center orb to talk · push-to-talk only</p>
+    </div>
+    <div class="panel">
+      <div class="status">SPEAKING</div>
+      <p><span class="who">ZAVA</span> 2 vans moving, 1 stopped, 0 offline.</p>
+      <p><span class="who you">YOU</span> what are the vans doing</p>
+    </div>
+    <div class="panel">
+      <div class="status">IDLE</div>
+      <p><span class="who">ZAVA</span> I didn't catch that.</p>
+      <p><span class="who you">YOU</span> approve that expense</p>
+      <div>
+        <span class="chip">What are the updates?</span>
+        <span class="chip">What are the vans doing?</span>
+        <span class="chip">Open Collections</span>
+        <span class="chip">Go back</span>
+      </div>
+    </div>
+  </div>
+  <p class="note">
+    Deterministic intents only. Unknown → suggestion chips (never LLM).
+    Customer balances from ar-summary. Van counts = Ops Map moving/stopped/offline.
+  </p>
+</body>
+</html>

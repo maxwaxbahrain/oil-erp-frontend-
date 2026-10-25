@@ -2,6 +2,7 @@ import { ACCESS_TOKEN_KEY, authFetch } from '../api/axios';
 import { handlePaymentRequiredStatus } from '../api/paymentRequired';
 import { getOilErpApiBase } from '../config/apiBase';
 import { livePayments } from '../utils/paymentVoid';
+import { localIsoDate, localIsoDatePlusDays } from '../utils/localDate';
 
 export const API_BASE_URL = getOilErpApiBase();
 const USE_MOCK = false;
@@ -197,6 +198,11 @@ export interface Invoice {
     rate: number;
     amount: number;
     productId?: string;
+    /** Echoed pack entry. Absent on legacy lines. */
+    entered_qty?: number;
+    entered_uom?: string;
+    entered_unit_price?: number;
+    pack_qty_snapshot?: number | null;
   }>;
   subtotal: number;
   taxRate: number;
@@ -687,7 +693,17 @@ export const getSupplierLedger = (id: string, startDate?: string, endDate?: stri
 export const getOverdueCustomers = (): Promise<Customer[]> => apiRequest<Customer[]>('/customers/overdue');
 
 // Payment APIs
-export const getPayments = (): Promise<Payment[]> => apiRequest<Payment[]>('/payments');
+/** Optional start_date/end_date — backend already filters Transaction.date. */
+export const getPayments = (opts?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<Payment[]> => {
+  const qs = new URLSearchParams();
+  if (opts?.start_date) qs.set('start_date', opts.start_date);
+  if (opts?.end_date) qs.set('end_date', opts.end_date);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return apiRequest<Payment[]>(`/payments${suffix}`);
+};
 
 /** True for customer receipt rows from GET /api/payments (excludes expense-type transactions). */
 export function isCustomerPayment(p: Payment): boolean {
@@ -819,23 +835,33 @@ function normalizeApiProductRow(raw: Record<string, unknown>): Product {
 }
 
 // Product APIs
-export async function getProducts(): Promise<Product[]> {
+async function fetchProductsOrThrow(): Promise<Product[]> {
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const response = await fetch(`${API_BASE_URL}/products/`, {
+    cache: 'no-store',
+    headers,
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const raw = await response.json().catch(() => []);
+  const list = Array.isArray(raw) ? raw : [];
+  return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+}
+
+/** Soft load — returns [] on failure (original behavior for forms / lists). */
+export async function getProducts(): Promise<Product[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/products/`, {
-      cache: 'no-store',
-      headers,
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const raw = await response.json().catch(() => []);
-    const list = Array.isArray(raw) ? raw : [];
-    return list.map((row) => normalizeApiProductRow(row as Record<string, unknown>));
+    return await fetchProductsOrThrow();
   } catch {
     return [];
   }
+}
+
+/** Strict load — same request as getProducts, but throws on HTTP/network failure. */
+export async function getProductsStrict(): Promise<Product[]> {
+  return fetchProductsOrThrow();
 }
 
 export async function getProduct(id: string): Promise<Product> {
@@ -911,7 +937,7 @@ export async function createInvoice(
     invoiceNumber: invoice.invoiceNumber || `INV-${Date.now()}`,
     customerId: String(invoice.customerId),
     customerName: invoice.customerName || '',
-    invoiceDate: invoice.invoiceDate || new Date().toISOString().split('T')[0],
+    invoiceDate: invoice.invoiceDate || localIsoDate(),
     dueDate: invoice.dueDate || null,
     lineItems: (invoice.lineItems || []).map((item: any) => {
       const rawPid = item.productId ?? item.product_id;
@@ -1050,6 +1076,30 @@ function sliceDatePart(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
+function invoiceLineEntry(it: Record<string, unknown>): {
+  entered_qty?: number;
+  entered_uom?: string;
+  entered_unit_price?: number;
+  pack_qty_snapshot?: number | null;
+} {
+  const uom = it.entered_uom ?? it.enteredUom;
+  const qty = it.entered_qty ?? it.enteredQty;
+  const price = it.entered_unit_price ?? it.enteredUnitPrice;
+  const snapshot = it.pack_qty_snapshot ?? it.packQtySnapshot;
+  if (uom == null && qty == null && price == null && snapshot == null) return {};
+  const out: {
+    entered_qty?: number;
+    entered_uom?: string;
+    entered_unit_price?: number;
+    pack_qty_snapshot?: number | null;
+  } = {};
+  if (qty != null && qty !== '') out.entered_qty = Number(qty);
+  if (uom != null && uom !== '') out.entered_uom = String(uom);
+  if (price != null && price !== '') out.entered_unit_price = Number(price);
+  if (snapshot != null && snapshot !== '') out.pack_qty_snapshot = Number(snapshot);
+  return out;
+}
+
 export function invoiceLineProductId(it: Record<string, unknown>): string {
   const raw = it.product_id ?? it.productId;
   if (raw == null || raw === '') return '';
@@ -1067,6 +1117,7 @@ export function mapApiInvoiceToInvoice(inv: Record<string, unknown>): Invoice {
       rate: Number(it.rate) || 0,
       amount: Number(it.amount) || 0,
       productId: invoiceLineProductId(it),
+      ...invoiceLineEntry(it),
     }));
   }
   const grandTotal = Number(inv.total ?? inv.total_amount ?? inv.grand_total ?? inv.grandTotal ?? 0);
@@ -1146,6 +1197,59 @@ export async function getInvoices(): Promise<Invoice[]> {
   const raw = await apiRequest<unknown>('/invoices/');
   const list = Array.isArray(raw) ? raw : [];
   return list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
+}
+
+/** Backend GET /invoices/ max `limit` (see bettano invoices list_invoices le=10000). */
+export const INVOICES_FETCH_PAGE_LIMIT = 10_000;
+
+export const INVOICES_FETCH_MAX_PAGES = 50;
+
+export type FetchAllInvoicesOptions = {
+  since?: string;
+  /** Page size for skip/limit pagination (default INVOICES_FETCH_PAGE_LIMIT). */
+  pageSize?: number;
+};
+
+export type FetchAllInvoicesResult = {
+  invoices: Invoice[];
+  truncated: boolean;
+};
+
+/** Walk paginated GET /invoices/ until a short page or INVOICES_FETCH_MAX_PAGES. */
+export async function fetchAllInvoices(options: FetchAllInvoicesOptions = {}): Promise<FetchAllInvoicesResult> {
+  const limit = options.pageSize ?? INVOICES_FETCH_PAGE_LIMIT;
+  const all: Invoice[] = [];
+  let truncated = false;
+
+  for (let page = 0; page < INVOICES_FETCH_MAX_PAGES; page++) {
+    const skip = page * limit;
+    const qs = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+    const raw = await apiRequest<unknown>(`/invoices/?${qs.toString()}`);
+    const list = Array.isArray(raw) ? raw : [];
+    const batch = list.map((inv) => mapApiInvoiceToInvoice(inv as Record<string, unknown>));
+    all.push(...batch);
+
+    if (batch.length < limit) {
+      break;
+    }
+    if (page === INVOICES_FETCH_MAX_PAGES - 1) {
+      truncated = true;
+      break;
+    }
+  }
+
+  let invoices = all;
+  if (options.since) {
+    const sinceMs = new Date(options.since).getTime();
+    if (!Number.isNaN(sinceMs)) {
+      invoices = invoices.filter((inv) => {
+        const d = new Date(inv.invoiceDate || inv.createdAt || '');
+        return !Number.isNaN(d.getTime()) && d.getTime() >= sinceMs;
+      });
+    }
+  }
+
+  return { invoices, truncated };
 }
 
 // Get invoices for a specific customer
@@ -1494,7 +1598,7 @@ export const deleteRecurringInvoice = (id: string): void => {
 
 export const runDueRecurringInvoices = async (): Promise<number> => {
     const list = getRecurringInvoices();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localIsoDate();
     let count = 0;
     for (const rec of list) {
         if (!rec.active || rec.nextRunDate > today) continue;
@@ -1504,7 +1608,7 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
                 customerId: rec.customerId,
                 customerName: rec.customerName,
                 invoiceDate: today,
-                dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+                dueDate: localIsoDatePlusDays(30),
                 lineItems: rec.lineItems,
                 subtotal: rec.subtotal,
                 taxRate: rec.taxRate,
@@ -1515,11 +1619,13 @@ export const runDueRecurringInvoices = async (): Promise<number> => {
                 status: 'Unpaid',
             });
             // Advance next run date
-            const next = new Date(rec.nextRunDate);
+            // YYYY-MM-DD is a local calendar day. `new Date('YYYY-MM-DD')` is UTC midnight.
+            const [yy, mm, dd] = rec.nextRunDate.split('-').map(Number);
+            const next = new Date(yy, (mm || 1) - 1, dd || 1);
             if (rec.frequency === 'weekly') next.setDate(next.getDate() + 7);
             else if (rec.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
             else next.setMonth(next.getMonth() + 3);
-            rec.nextRunDate = next.toISOString().slice(0, 10);
+            rec.nextRunDate = localIsoDate(next);
             rec.lastRunDate = today;
             saveRecurringInvoice(rec);
             count++;
@@ -2020,6 +2126,7 @@ export interface CollectionsReport {
   scope?: 'all' | 'late';
   groups: CollectionsGroups;
   total: number;
+  list_note?: string;
   rows: CollectionsRow[];
 }
 
@@ -2087,10 +2194,22 @@ export interface CreditOpeningRow {
   reference?: string | null;
 }
 
+export interface ArResidual {
+  kind: 'manual' | 'no_customer' | 'missing' | string;
+  amount: number;
+  label: string;
+  party?: string;
+  note: string;
+}
+
 export interface ReceivablesCheckPayload {
   imported_credits: ImportedCreditRow[];
   unapplied_payments: UnappliedPaymentRow[];
   credit_openings?: CreditOpeningRow[];
+  net_receivable?: number;
+  trial_balance_ar?: number;
+  difference?: number;
+  residuals?: ArResidual[];
 }
 
 export interface UnappliedAdvance {
@@ -2104,6 +2223,46 @@ export interface UnappliedAdvance {
 /** Read-only. Lists imported credits and payments that are not allocated to an invoice. */
 export const getReceivablesCheck = (): Promise<ReceivablesCheckPayload> =>
   apiRequest<ReceivablesCheckPayload>('/credit/receivables-check');
+
+export interface AgedReceivableLine {
+  kind: 'opening' | 'opening_credit' | 'invoice' | 'credit' | 'debit';
+  label: string;
+  date?: string | null;
+  amount: number;
+  bucket?: string | null;
+  status?: string | null;
+  stored_as?: string | null;
+}
+
+export interface AgedReceivableCustomer {
+  customer_id: string;
+  customer_name: string;
+  current: number;
+  days30: number;
+  days60: number;
+  days90: number;
+  gross: number;
+  credits: number;
+  net: number;
+  ledger_closing: number;
+  lines: AgedReceivableLine[];
+}
+
+export interface AgedReceivableReport {
+  as_of: string;
+  gross: number;
+  credits: number;
+  net: number;
+  customers: AgedReceivableCustomer[];
+}
+
+/** Per-customer net is the ledger closing. Openings are their own rows. */
+export const getAgedReceivable = (asOf?: string): Promise<AgedReceivableReport> => {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  const qs = params.toString();
+  return apiRequest<AgedReceivableReport>(`/credit/aged-receivable${qs ? `?${qs}` : ''}`);
+};
 
 export const getCollectionsReport = (
   asOf?: string,

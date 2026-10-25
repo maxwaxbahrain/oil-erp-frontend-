@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, CheckCircle, RefreshCw, Trash2, Users, Package, FileText, CreditCard, TrendingUp, Zap, AlertTriangle, Database } from 'lucide-react';
 import api from '../../api/axios';
+import {
+    dueDateFrom,
+    invoiceNumberFromNarration,
+    openingAccountName,
+    paymentModeFromDebit,
+    sumLineDiscounts,
+} from './migrationParsers';
 
 /** Clear All hidden — backend only wipes customers, full children-first wipe deferred (Phase C). */
 const SHOW_CLEAR_ALL = false;
@@ -87,7 +94,7 @@ const REQUIRED_SCHEMA: Record<string, readonly string[]> = {
     vouchers: ['v_id', 'v_type', 'amount', 'debit', 'credit', 'date', 'vch_no'],
     bill_receipt_payment: ['r_p_v_id', 'b_v_id', 'amount'],
 };
-const OPTIONAL_SCHEMA_TABLES = ['purchases', 'sales', 'item_measure'] as const;
+const OPTIONAL_SCHEMA_TABLES = ['purchases', 'sales', 'item_measure', 'purchase_return_lines', 'sales_return_lines'] as const;
 
 interface SchemaProbeResult {
     ok: boolean;
@@ -95,6 +102,8 @@ interface SchemaProbeResult {
     missingColumns: Record<string, string[]>;
     rowCounts: Record<string, number>;
     warnings: string[];
+    hasTable: (name: string) => boolean;
+    hasColumn: (table: string, col: string) => boolean;
 }
 
 interface ImportPreview {
@@ -113,6 +122,10 @@ interface ImportPreview {
         purchaseOrders: number;
         supplierPayments: number;
         expenses: number;
+        creditNotes: number;
+        badDebts: number;
+        purchaseReturns: number;
+        openingBalances: number;
     };
     totals: {
         totalAR: number;
@@ -129,6 +142,8 @@ interface ImportPreview {
 }
 
 const ts = () => new Date().toLocaleTimeString();
+
+type MigrationRow = Record<string, unknown>;
 
 /** Parse BETTANO numeric strings; strips comma thousands separators. */
 const parseMigrationNum = (raw: unknown, fallback = 0): number => {
@@ -293,19 +308,25 @@ export default function DataMigration() {
             const missingColumns: Record<string, string[]> = {};
             const rowCounts: Record<string, number> = {};
             const warnings: string[] = [];
+            const columnsByTable = new Map<string, Set<string>>();
 
             const existing = new Set(
                 qStrict(`SELECT name FROM sqlite_master WHERE type='table'`).map((row: { name?: unknown }) => String(row.name)),
             );
+
+            const readColumns = (table: string): Set<string> => {
+                const names = qStrict(`PRAGMA table_info(${table})`).map((row: { name?: unknown }) => String(row.name));
+                const presentCols = new Set<string>(names as string[]);
+                columnsByTable.set(table, presentCols);
+                return presentCols;
+            };
 
             for (const [table, requiredCols] of Object.entries(REQUIRED_SCHEMA)) {
                 if (!existing.has(table)) {
                     missingTables.push(table);
                     continue;
                 }
-                const presentCols = new Set(
-                    qStrict(`PRAGMA table_info(${table})`).map((row: { name?: unknown }) => String(row.name)),
-                );
+                const presentCols = readColumns(table);
                 const missing = requiredCols.filter((col) => !presentCols.has(col));
                 if (missing.length > 0) missingColumns[table] = missing;
 
@@ -321,6 +342,7 @@ export default function DataMigration() {
                     warnings.push(`Optional table '${table}' is missing — related entities will be skipped.`);
                     continue;
                 }
+                readColumns(table);
                 const count = Number(qStrict(`SELECT COUNT(*) AS c FROM ${table}`)[0]?.c ?? 0);
                 rowCounts[table] = count;
                 if (count === 0) {
@@ -334,6 +356,8 @@ export default function DataMigration() {
                 missingColumns,
                 rowCounts,
                 warnings,
+                hasTable: (name: string) => existing.has(name),
+                hasColumn: (table: string, col: string) => columnsByTable.get(table)?.has(col) === true,
             };
         };
 
@@ -374,7 +398,7 @@ export default function DataMigration() {
                 SUM(CASE WHEN debit='${safe}' THEN amount ELSE 0 END)
               - SUM(CASE WHEN credit='${safe}' THEN amount ELSE 0 END), 2) AS bal
               FROM vouchers
-              WHERE v_type IN ('Sales','Receipt','Journal','Sales Return')`);
+              WHERE v_type IN ('Sales','Receipt','Journal','Sales Return','Credit Note','Bad Debt')`);
             balMap[name] = parseMigrationNum(res[0]?.bal);
         }
 
@@ -427,7 +451,7 @@ export default function DataMigration() {
             const name = String(r.aname || '').trim();
             if (!name) continue;
             const safe = name.replace(/'/g, "''");
-            const res = q(`SELECT ROUND(SUM(CASE WHEN v_type='Purchase' AND credit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Payment' AND debit='${safe}' THEN amount ELSE 0 END), 2) as bal FROM vouchers`);
+            const res = q(`SELECT ROUND(SUM(CASE WHEN v_type='Purchase' AND credit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Payment' AND debit='${safe}' THEN amount ELSE 0 END) - SUM(CASE WHEN v_type='Purchase Return' AND debit='${safe}' THEN amount ELSE 0 END), 2) as bal FROM vouchers`);
             suppBalMap[name] = parseMigrationNum(res[0]?.bal);
         }
 
@@ -515,6 +539,7 @@ export default function DataMigration() {
                 const debit = String(r.debit || '').trim();
                 if (!expenseNameSet.has(debit)) return false;
                 if (String(r.v_type || '') === 'Payment' && supplierNameSet.has(debit)) return false;
+                if (debit === 'Bad Debt Expense') return false;
                 return true;
             })
             .map((r: any) => ({
@@ -557,17 +582,27 @@ export default function DataMigration() {
         );
 
         const prodRows = q(`SELECT item, units_name, sku, item_desc, defaultsellingprice, defaultpurchaseprice FROM item_measure WHERE item IS NOT NULL AND TRIM(item) != '' ORDER BY item ASC, units_name ASC`);
-        const stockNetRows = q(`
+        const includeProductStock = (probe.rowCounts.purchases ?? 0) > 0;
+        const stockByItem: Record<string, number> = {};
+        if (includeProductStock) {
+            // Purchase returns are excluded here: post_return deducts those units from purchase_returns[].items.
+            const stockArms = [
+                'SELECT item, units AS u FROM purchases',
+                'SELECT item, -units AS u FROM sales',
+            ];
+            if (probe.hasTable('sales_return_lines')) {
+                stockArms.push('SELECT item, units FROM sales_return_lines');
+            }
+            const stockNetRows = q(`
             SELECT item, SUM(u) AS net FROM (
-                SELECT item, units AS u FROM purchases
-                UNION ALL SELECT item, -units AS u FROM sales
+                ${stockArms.join('\n                UNION ALL ')}
             ) GROUP BY item
         `);
-        const stockByItem: Record<string, number> = {};
-        for (const r of stockNetRows) {
-            const itemName = String(r.item || '').trim();
-            if (!itemName) continue;
-            stockByItem[itemName] = Math.max(0, Math.round(parseMigrationNum(r.net)));
+            for (const r of stockNetRows) {
+                const itemName = String(r.item || '').trim();
+                if (!itemName) continue;
+                stockByItem[itemName] = Math.max(0, Math.round(parseMigrationNum(r.net)));
+            }
         }
         const productByName = new Map<string, Record<string, unknown>>();
         for (const r of prodRows) {
@@ -583,13 +618,14 @@ export default function DataMigration() {
             description: String(r.item_desc || r.units_name || '').slice(0, 300),
             price: parseMigrationNum(r.defaultsellingprice),
             cost: parseMigrationNum(r.defaultpurchaseprice),
-            stock: stockByItem[name] ?? 0,
+            ...(includeProductStock ? { stock: stockByItem[name] ?? 0 } : {}),
             category: 'Imported',
             unit: String(r.units_name || 'unit').slice(0, 50),
         };
         }).filter((p: any) => p.name);
 
-        const invRows = q(`SELECT v_id, date, vch_no, debit as customer_name, amount, narration FROM vouchers WHERE v_type='Sales' ORDER BY date`);
+        const invoiceDueDateSql = probe.hasColumn('vouchers', 'due_date') ? ', due_date' : '';
+        const invRows = q(`SELECT v_id, date, vch_no, debit as customer_name, amount, narration${invoiceDueDateSql} FROM vouchers WHERE v_type='Sales' ORDER BY date`);
         const salesLineRows = q(`SELECT v_id, item, units, sp_per_unit, discount FROM sales`);
         const linesByVoucher: Record<string, any[]> = {};
         for (const it of salesLineRows) {
@@ -626,6 +662,8 @@ export default function DataMigration() {
                 customer_name: String(r.customer_name || '').trim(),
                 date: String(r.date || ''),
                 amount: total,
+                discount: sumLineDiscounts(items),
+                due_date: dueDateFrom(r),
                 paid_amount,
                 notes: String(r.narration || ''),
                 status,
@@ -633,8 +671,18 @@ export default function DataMigration() {
             };
         }).filter((i: any) => i.customer_name && i.amount > 0);
 
-        const payRows = q(`SELECT date, vch_no, credit as customer_name, amount FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
-        const payments = payRows.map((r: any) => ({ reference: String(r.vch_no || '').slice(0, 100), customer_name: String(r.customer_name || '').trim(), date: String(r.date || ''), amount: parseMigrationNum(r.amount) })).filter((p: any) => p.customer_name && p.amount !== 0);
+        const payRows = q(`SELECT date, vch_no, credit as customer_name, amount, debit FROM vouchers WHERE v_type='Receipt' ORDER BY date`);
+        const payments = payRows.map((r: any) => {
+            const debitAccountName = String(r.debit || '').trim();
+            return {
+                reference: String(r.vch_no || '').slice(0, 100),
+                customer_name: String(r.customer_name || '').trim(),
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                mode: paymentModeFromDebit(debitAccountName),
+                debit_account_name: debitAccountName,
+            };
+        }).filter((p: any) => p.customer_name && p.amount !== 0);
 
         const receiptVchByVId: Record<string, string> = {};
         for (const r of q(`SELECT v_id, vch_no FROM vouchers WHERE v_type='Receipt'`)) {
@@ -681,6 +729,70 @@ export default function DataMigration() {
             };
         }).filter((sr: any) => sr.customer_name && sr.amount > 0);
 
+        const cnRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Credit Note' ORDER BY date`) as MigrationRow[];
+        const credit_notes = cnRows.map((r) => {
+            const debit = String(r.debit || '').trim();
+            const credit = String(r.credit || '').trim();
+            const customer_name = debtorNameSet.has(credit) ? credit : debtorNameSet.has(debit) ? debit : '';
+            return {
+                reference: String(r.vch_no || '').slice(0, 100),
+                customer_name,
+                invoice_number: invoiceNumberFromNarration(String(r.narration || ''), 'credit_note'),
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                notes: String(r.narration || ''),
+            };
+        }).filter((cn) => cn.customer_name && cn.amount > 0);
+
+        const bdRows = q(`SELECT date, vch_no, debit, credit, amount, narration FROM vouchers WHERE v_type='Bad Debt' ORDER BY date`) as MigrationRow[];
+        const bad_debts = bdRows.map((r) => {
+            const debit = String(r.debit || '').trim();
+            const credit = String(r.credit || '').trim();
+            const customer_name = debtorNameSet.has(credit) ? credit : debtorNameSet.has(debit) ? debit : '';
+            return {
+                reference: String(r.vch_no || '').slice(0, 100),
+                customer_name,
+                invoice_number: invoiceNumberFromNarration(String(r.narration || ''), 'bad_debt'),
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                notes: String(r.narration || ''),
+            };
+        }).filter((bd) => bd.customer_name && bd.amount > 0);
+
+        const purchaseReturnLinesByVoucher: Record<string, Array<Record<string, unknown>>> = {};
+        if (probe.hasTable('purchase_return_lines')) {
+            for (const it of q(`SELECT v_id, item, units, cost_per_unit FROM purchase_return_lines`) as MigrationRow[]) {
+                const k = String(it.v_id);
+                (purchaseReturnLinesByVoucher[k] = purchaseReturnLinesByVoucher[k] || []).push(it);
+            }
+        }
+        const prRows = q(`SELECT v_id, date, vch_no, debit, amount, narration FROM vouchers WHERE v_type='Purchase Return' ORDER BY date`) as MigrationRow[];
+        const purchase_returns = prRows.map((r) => {
+            const debit = String(r.debit || '').trim();
+            const lineRows = purchaseReturnLinesByVoucher[String(r.v_id)] || [];
+            return {
+                reference: String(r.vch_no || '').slice(0, 100),
+                supplier_name: supplierNameSet.has(debit) ? debit : '',
+                date: String(r.date || ''),
+                amount: parseMigrationNum(r.amount),
+                notes: String(r.narration || ''),
+                items: lineRows.map((it) => ({
+                    product: String(it.item || ''),
+                    quantity: parseMigrationNum(it.units),
+                    unit_cost: parseMigrationNum(it.cost_per_unit),
+                })),
+            };
+        }).filter((pr) => pr.supplier_name && pr.amount > 0);
+
+        const opening_balances = (q(
+            `SELECT aname, a_type, op_bal FROM account_detail WHERE a_type IN ('Bank Accounts','Cash-in-hand','Capital Account') AND op_bal <> 0`,
+        ) as MigrationRow[]).flatMap((r) => {
+            const account_name = openingAccountName(String(r.a_type || '').trim(), String(r.aname || '').trim());
+            const amount = parseMigrationNum(r.op_bal);
+            if (!account_name || amount === 0) return [];
+            return [{ account_name, amount }];
+        });
+
         const dateBounds = q(
             `SELECT MIN(date) AS earliest, MAX(date) AS latest FROM vouchers WHERE date IS NOT NULL AND TRIM(date) != ''`,
         );
@@ -726,6 +838,10 @@ export default function DataMigration() {
                 purchaseOrders: purchase_orders.length,
                 supplierPayments: supplier_payments.length,
                 expenses: expenses.length,
+                creditNotes: credit_notes.length,
+                badDebts: bad_debts.length,
+                purchaseReturns: purchase_returns.length,
+                openingBalances: opening_balances.length,
             },
             totals: {
                 totalAR: Math.round(totalAR * 100) / 100,
@@ -758,6 +874,7 @@ export default function DataMigration() {
         );
         log(`📦 ${products.length} products (${stockedCount} with stock from purchases−sales), ${suppliers.length} suppliers, ${invoices.length} invoices (${paidInvoices} paid / ${partialInvoices} partial / ${unpaidInvoices} unpaid), ${payments.length} payments, ${sales_returns.length} sales returns`, 'info');
         log(`🛒 ${purchase_orders.length} supplier POs, ${supplier_payments.length} supplier payments, ${expenses.length} expenses`, 'info');
+        log(`📝 ${credit_notes.length} credit notes, ${bad_debts.length} bad debts, ${purchase_returns.length} purchase returns, ${opening_balances.length} opening balances`, 'info');
         log(
             `📊 Parsed: ${preview.counts.customers} customers, ${preview.counts.invoices} invoices, AR $${preview.totals.totalAR.toFixed(2)}, allocations $${preview.totals.allocationTotal.toFixed(2)}`,
             'success',
@@ -773,6 +890,10 @@ export default function DataMigration() {
             purchase_orders,
             supplier_payments,
             expenses,
+            credit_notes,
+            bad_debts,
+            purchase_returns,
+            opening_balances,
             __preview: preview,
         };
     };
@@ -812,6 +933,10 @@ export default function DataMigration() {
                 purchaseOrders: 0,
                 supplierPayments: 0,
                 expenses: 0,
+                creditNotes: 0,
+                badDebts: 0,
+                purchaseReturns: 0,
+                openingBalances: 0,
             },
             totals: {
                 totalAR: Math.round(totalAR * 100) / 100,
@@ -1269,6 +1394,10 @@ export default function DataMigration() {
                             <p className="text-gray-700">Supplier pmts <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'supplierPayments')}</strong></p>
                             <p className="text-gray-700">Expenses <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'expenses')}</strong></p>
                             <p className="text-gray-700">Returns <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'salesReturns')}</strong></p>
+                            <p className="text-gray-700">Credit notes <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'creditNotes')}</strong></p>
+                            <p className="text-gray-700">Bad debts <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'badDebts')}</strong></p>
+                            <p className="text-gray-700">Purchase returns <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'purchaseReturns')}</strong></p>
+                            <p className="text-gray-700">Opening balances <strong className="text-gray-900">{previewCountLabel(pendingImport.preview, 'openingBalances')}</strong></p>
                         </div>
                         <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
                             <p className="text-xs font-black text-gray-500 uppercase tracking-widest">Financial summary</p>
@@ -1292,6 +1421,20 @@ export default function DataMigration() {
                                 <span className="text-sm font-bold text-orange-700">Allocations total</span>
                                 <span className="text-2xl font-black text-orange-600 tabular-nums">{previewMoneyLabel(pendingImport.preview, 'allocationTotal')}</span>
                             </div>
+                            {Array.isArray(pendingImport.data.opening_balances)
+                                ? pendingImport.data.opening_balances.map((row, idx) => {
+                                    if (!row || typeof row !== 'object') return null;
+                                    const entry = row as { account_name?: unknown; amount?: unknown };
+                                    const accountName = String(entry.account_name ?? '').trim();
+                                    if (!accountName) return null;
+                                    return (
+                                        <div key={`${accountName}-${idx}`} className="flex items-baseline justify-between gap-3">
+                                            <span className="text-sm font-bold text-gray-700">{accountName}</span>
+                                            <span className="text-lg font-black text-gray-900 tabular-nums">${formatMigrationMoney(parseMigrationNum(entry.amount))}</span>
+                                        </div>
+                                    );
+                                })
+                                : null}
                         </div>
                         {pendingImport.preview.sourceFormat === 'sqlite' ? (
                             pendingImport.preview.matchedProfileId ? (

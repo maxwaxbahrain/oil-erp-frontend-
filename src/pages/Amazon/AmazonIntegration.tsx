@@ -156,8 +156,8 @@ function generateMockOrders(): AmazonOrder[] {
         buyer: ['John D.','Auto Shop LLC','Fleet Mgmt Co.','Mechanic Pro','Quick Lube Inc'][i%5],
         status: statuses[i%7],
         fulfillment: i%3===0 ? 'FBA' : 'FBM',
-        order_date: new Date(Date.now() - i * 86400000 * 2).toISOString().slice(0,10),
-        ship_date: statuses[i%7] !== 'pending' ? new Date(Date.now() - i * 86400000).toISOString().slice(0,10) : undefined,
+        order_date: new Date(Date.now() - i * 86400000 * 2).toISOString().slice(0,10), // utc-date-ok: mock orders
+        ship_date: statuses[i%7] !== 'pending' ? new Date(Date.now() - i * 86400000).toISOString().slice(0,10) : undefined, // utc-date-ok: mock orders
         synced_to_erp: i % 3 === 0,
         erp_invoice_id: i % 3 === 0 ? `INV-${1000+i}` : undefined,
     }));

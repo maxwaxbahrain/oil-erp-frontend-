@@ -7,15 +7,19 @@ import {
   createSalesReturnApi,
   eligibleInvoiceEmptyReason,
   getSalesReturn,
+  invoiceOlderThanReturnNoteDays,
   invoicesEligibleForReturn,
   patchSalesReturn,
   RETURN_REASON_OPTIONS,
   returnInvoiceStatusLabel,
   type ReturnLineItem,
   type ReturnReasonCode,
-  RETURN_POLICY_DAYS,
 } from '../../services/salesReturnService';
 import SearchableSelect from '../../components/common/SearchableSelect';
+import { localIsoDate } from '../../utils/localDate';
+import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
+import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
+import { planBarcodeScan, readDocumentEntry, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 
 const THEME = '#800020';
 
@@ -33,9 +37,33 @@ function buildPayloadItems(lines: ReturnLineItem[]): Record<string, unknown>[] {
       description: '',
       original_quantity: l.originalQuantity,
       quantity_returned: l.quantityReturned,
-      quantity: l.quantityReturned,
-      rate: l.unitPrice,
-      amount: l.totalAmount,
+      quantity: l.enteredUom === 'pack'
+        ? Number(toLinePayload({
+          enteredQty: Number(l.enteredQty) || 0,
+          enteredUom: 'pack',
+          enteredUnitPrice: Number(l.enteredUnitPrice) || 0,
+          packQtySnapshot: l.packQtySnapshot,
+        }).quantity)
+        : l.quantityReturned,
+      rate: l.enteredUom === 'pack'
+        ? Number(toLinePayload({
+          enteredQty: Number(l.enteredQty) || 0,
+          enteredUom: 'pack',
+          enteredUnitPrice: Number(l.enteredUnitPrice) || 0,
+          packQtySnapshot: l.packQtySnapshot,
+        }).rate)
+        : l.unitPrice,
+      amount: l.enteredUom === 'pack'
+        ? Number(toLinePayload({
+          enteredQty: Number(l.enteredQty) || 0,
+          enteredUom: 'pack',
+          enteredUnitPrice: Number(l.enteredUnitPrice) || 0,
+          packQtySnapshot: l.packQtySnapshot,
+        }).amount)
+        : l.totalAmount,
+      entered_qty: l.enteredUom === 'pack' ? Number(l.enteredQty) || 0 : l.quantityReturned,
+      entered_uom: l.enteredUom === 'pack' ? 'pack' : 'base',
+      entered_unit_price: l.enteredUom === 'pack' ? Number(l.enteredUnitPrice) || 0 : l.unitPrice,
       line_reason: l.lineReason || null,
     }));
 }
@@ -53,10 +81,11 @@ export default function SalesReturnFormPage() {
 
   const [customerId, setCustomerId] = useState('');
   const [invoiceId, setInvoiceId] = useState('');
-  const [returnDate, setReturnDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [returnDate, setReturnDate] = useState(() => localIsoDate());
   const [headerReason, setHeaderReason] = useState<ReturnReasonCode>('other');
   const [notes, setNotes] = useState('');
   const [lineItems, setLineItems] = useState<ReturnLineItem[]>([]);
+  const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
   const [serverId, setServerId] = useState<string | null>(null);
   const [invoiceReason, setInvoiceReason] = useState('');
   const [notice, setNotice] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null);
@@ -104,6 +133,22 @@ export default function SalesReturnFormPage() {
       setLoading(true);
       try {
         await loadCustomers();
+        try {
+          const catalog = await getCatalogProducts();
+          const packs = new Map<string, PackProduct>();
+          for (const row of catalog) {
+            packs.set(String(row.id), {
+              id: row.id,
+              packQty: row.packQty,
+              packUnit: row.packUnit,
+              baseUnit: row.baseUnit || row.uom,
+              unit: row.uom,
+            });
+          }
+          setCatalogPacks(packs);
+        } catch {
+          setCatalogPacks(new Map());
+        }
         if (editId) await loadEdit();
       } catch (e) {
         console.error(e);
@@ -156,7 +201,9 @@ export default function SalesReturnFormPage() {
     if (!inv) return;
     setSelectedInvoice(inv);
     setLineItems(
-      inv.lineItems.map((item, index) => ({
+      inv.lineItems.map((item, index) => {
+        const entry = readDocumentEntry(item as unknown as Record<string, unknown>, item.quantity, item.rate);
+        return {
         id: `ln-${index}-${Date.now()}`,
         productId: item.productId || '',
         productName: item.product,
@@ -167,7 +214,13 @@ export default function SalesReturnFormPage() {
         unitPrice: item.rate,
         totalAmount: 0,
         lineReason: '',
-      }))
+        enteredUom: entry.enteredUom,
+        enteredQty: 0,
+        enteredUnitPrice: entry.enteredUom === 'pack' ? entry.enteredUnitPrice : item.rate,
+        packQtySnapshot: entry.packQtySnapshot,
+        originalEnteredQty: entry.enteredUom === 'pack' ? entry.enteredQty : undefined,
+        };
+      })
     );
   };
 
@@ -175,30 +228,127 @@ export default function SalesReturnFormPage() {
     setLineItems((rows) =>
       rows.map((r) => {
         if (r.id !== id) return r;
-        const qty = checked ? Math.min(1, r.originalQuantity) : 0;
+        const qty = checked
+          ? (r.enteredUom === 'pack' ? Math.min(1, r.originalEnteredQty || r.originalQuantity) : Math.min(1, r.originalQuantity))
+          : 0;
+        const priced = r.enteredUom === 'pack'
+          ? toLinePayload({
+            enteredQty: qty,
+            enteredUom: 'pack',
+            enteredUnitPrice: Number(r.enteredUnitPrice) || 0,
+            packQtySnapshot: r.packQtySnapshot,
+          })
+          : null;
         return {
           ...r,
           selected: checked,
-          quantityReturned: qty,
-          totalAmount: qty * r.unitPrice,
+          enteredQty: qty,
+          quantityReturned: priced ? Number(priced.quantity) : qty,
+          totalAmount: priced ? Number(priced.amount) : qty * r.unitPrice,
         };
       })
     );
   };
 
-  const setQty = (id: string, q: number) => {
+  const onReturnEntry = (id: string, value: PackEntryValue) => {
     setLineItems((rows) =>
       rows.map((r) => {
         if (r.id !== id) return r;
-        const qty = Math.max(0, Math.min(q, r.originalQuantity));
+        const product = catalogPacks.get(String(r.productId));
+        const snapshot = value.enteredUom === 'pack'
+          ? (r.packQtySnapshot != null && Number(r.packQtySnapshot) > 0 ? Number(r.packQtySnapshot) : product?.packQty ?? null)
+          : null;
+        const maxEntered = value.enteredUom === 'pack'
+          ? (r.originalEnteredQty && r.originalEnteredQty > 0
+            ? r.originalEnteredQty
+            : (snapshot ? r.originalQuantity / Number(snapshot) : r.originalQuantity))
+          : r.originalQuantity;
+        const enteredQty = Math.max(0, Math.min(value.enteredQty, maxEntered || value.enteredQty));
+        const priced = toLinePayload({
+          enteredQty,
+          enteredUom: value.enteredUom,
+          enteredUnitPrice: value.enteredUnitPrice,
+          packQty: product?.packQty,
+          packQtySnapshot: snapshot,
+        });
         return {
           ...r,
-          quantityReturned: qty,
-          totalAmount: qty * r.unitPrice,
-          selected: qty > 0,
+          enteredUom: value.enteredUom,
+          enteredQty,
+          enteredUnitPrice: value.enteredUnitPrice,
+          packQtySnapshot: snapshot,
+          quantityReturned: Number(priced.quantity) || 0,
+          unitPrice: value.enteredUom === 'pack' ? Number(priced.rate) : value.enteredUnitPrice,
+          totalAmount: Number(priced.amount) || 0,
+          selected: enteredQty > 0,
         };
-      })
+      }),
     );
+  };
+
+  const handleBarcodeScan = async (code: string) => {
+    try {
+      const found = await lookupProductByBarcode(code);
+      const product = found.product;
+      setCatalogPacks((prev) => {
+        const next = new Map(prev);
+        next.set(String(product.id), {
+          id: product.id,
+          packQty: product.packQty,
+          packUnit: product.packUnit,
+          baseUnit: product.baseUnit || product.uom,
+          unit: product.uom,
+        });
+        return next;
+      });
+      setLineItems((prev) => {
+        const plan = planBarcodeScan(
+          prev.map((line) => ({
+            productId: line.productId,
+            enteredUom: line.enteredUom,
+            enteredQty: line.enteredQty,
+            quantity: line.quantityReturned,
+            enteredUnitPrice: line.enteredUnitPrice ?? line.unitPrice,
+          })),
+          {
+            id: String(product.id),
+            packQty: product.packQty,
+            packUnit: product.packUnit,
+            baseUnit: product.baseUnit || product.uom,
+            unit: product.uom,
+          },
+          found.matchedPackQty,
+          Number(product.pricing?.sellingPrice) || 0,
+        );
+        const index = plan.index >= 0
+          ? plan.index
+          : prev.findIndex((line) => String(line.productId) === String(product.id));
+        if (index < 0) return prev;
+        return prev.map((line, i) => {
+          if (i !== index) return line;
+          const enteredQty = plan.mode === 'pack' ? plan.enteredQty : plan.quantity;
+          const priced = toLinePayload({
+            enteredQty,
+            enteredUom: plan.mode,
+            enteredUnitPrice: plan.mode === 'pack' ? (Number(line.enteredUnitPrice) || plan.enteredUnitPrice) : line.unitPrice,
+            packQty: product.packQty,
+            packQtySnapshot: plan.mode === 'pack' ? (line.packQtySnapshot ?? plan.packQtySnapshot) : null,
+          });
+          return {
+            ...line,
+            enteredUom: plan.mode,
+            enteredQty,
+            enteredUnitPrice: Number(priced.entered_unit_price) || line.unitPrice,
+            packQtySnapshot: plan.mode === 'pack' ? (line.packQtySnapshot ?? plan.packQtySnapshot) : null,
+            quantityReturned: Number(priced.quantity) || 0,
+            totalAmount: Number(priced.amount) || 0,
+            selected: enteredQty > 0,
+          };
+        });
+      });
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Barcode lookup failed' });
+    }
   };
 
   const setLineReason = (id: string, code: ReturnReasonCode | '') => {
@@ -320,21 +470,15 @@ export default function SalesReturnFormPage() {
     }
   };
 
-  const daysUntilExpiry = selectedInvoice
-    ? Math.max(
-        0,
-        RETURN_POLICY_DAYS -
-          Math.ceil(
-            (new Date().getTime() -
-              new Date(
-                selectedInvoice.invoiceDate.includes('T')
-                  ? selectedInvoice.invoiceDate
-                  : `${selectedInvoice.invoiceDate}T12:00:00`
-              ).getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-      )
-    : 0;
+  const invoiceOptions = useMemo(
+    () =>
+      eligibleInvoices.map((inv) => ({
+        id: inv.id,
+        name: `${inv.invoiceNumber} · ${inv.invoiceDate} · $${formatMoney(inv.grandTotal)} · ${returnInvoiceStatusLabel(inv.status)}`,
+        code: inv.invoiceNumber,
+      })),
+    [eligibleInvoices],
+  );
 
   if (loading) {
     return (
@@ -368,7 +512,7 @@ export default function SalesReturnFormPage() {
                   {editId || serverId ? 'Edit return' : 'New sales return'}
                 </h1>
                 <p className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
-                  Customer returns & credits · {RETURN_POLICY_DAYS}-day policy
+                  Customer returns & credits
                 </p>
               </div>
             </div>
@@ -406,32 +550,29 @@ export default function SalesReturnFormPage() {
               </div>
               <div>
                 <label className="block text-[10px] font-black text-gray-500 uppercase mb-2">Invoice</label>
-                <select
+                <SearchableSelect
+                  options={invoiceOptions}
                   value={invoiceId}
-                  onChange={(e) => handleInvoiceSelect(e.target.value)}
-                  disabled={!customerId || eligibleInvoices.length === 0}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#800020]/25 disabled:bg-gray-50"
-                >
-                  <option value="">
-                    {!customerId
+                  onChange={handleInvoiceSelect}
+                  placeholder={
+                    !customerId
                       ? '— Select customer —'
                       : eligibleInvoices.length === 0
                         ? '— No eligible invoices —'
-                        : '— Select invoice —'}
-                  </option>
-                  {eligibleInvoices.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.invoiceNumber} · {inv.invoiceDate} · ${formatMoney(inv.grandTotal)} · {returnInvoiceStatusLabel(inv.status)}
-                    </option>
-                  ))}
-                </select>
+                        : 'Search invoice number…'
+                  }
+                  displayKey="name"
+                  disabled={!customerId || eligibleInvoices.length === 0}
+                />
                 {customerId && eligibleInvoices.length === 0 && invoiceReason && (
                   <p role="status" className="text-xs font-semibold text-gray-600 mt-2">
                     {invoiceReason}
                   </p>
                 )}
-                {selectedInvoice && (
-                  <p className="text-xs text-gray-500 mt-2 font-semibold">Policy window: {daysUntilExpiry} days left</p>
+                {selectedInvoice && invoiceOlderThanReturnNoteDays(selectedInvoice) && (
+                  <p role="status" className="text-xs font-semibold text-gray-600 mt-2">
+                    This invoice is older than 30 days.
+                  </p>
                 )}
               </div>
             </div>
@@ -441,6 +582,9 @@ export default function SalesReturnFormPage() {
             <section>
               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-4">
                 2 · Return items
+                <div className="mt-3">
+                  <BarcodeScanField onScan={handleBarcodeScan} />
+                </div>
               </h2>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 <table className="w-full text-sm min-w-[640px]">
@@ -469,15 +613,17 @@ export default function SalesReturnFormPage() {
                         <td className="px-3 py-2 font-bold text-gray-900">{line.productName}</td>
                         <td className="px-3 py-2 text-center font-mono">{line.originalQuantity}</td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={line.originalQuantity}
-                            step="0.01"
-                            value={line.quantityReturned || ''}
-                            onChange={(e) => setQty(line.id, parseFloat(e.target.value) || 0)}
-                            disabled={!line.selected}
-                            className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-center font-mono disabled:bg-gray-100"
+                          <PackQtyInput
+                            product={catalogPacks.get(String(line.productId)) || null}
+                            value={{
+                              enteredQty: line.enteredUom === 'pack' ? Number(line.enteredQty) || 0 : line.quantityReturned,
+                              enteredUom: line.enteredUom === 'pack' ? 'pack' : 'base',
+                              enteredUnitPrice: line.enteredUom === 'pack' ? Number(line.enteredUnitPrice) || 0 : line.unitPrice,
+                            }}
+                            basePrice={line.unitPrice}
+                            packQtySnapshot={line.packQtySnapshot}
+                            disabled={!line.selected && line.enteredUom !== 'pack'}
+                            onChange={(value) => onReturnEntry(line.id, value)}
                           />
                         </td>
                         <td className="px-3 py-2 text-right font-mono">${formatMoney(line.unitPrice)}</td>
@@ -528,7 +674,7 @@ export default function SalesReturnFormPage() {
                 <input
                   type="date"
                   value={returnDate}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={localIsoDate()}
                   onChange={(e) => setReturnDate(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold"
                 />
