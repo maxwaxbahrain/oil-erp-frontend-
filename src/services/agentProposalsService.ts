@@ -51,6 +51,9 @@ export interface AgentProposal {
   error: string | null;
 }
 
+/** What POST /api/agent/chat returns in "proposals" for the run that made them. */
+export type ProposalSummary = Pick<AgentProposal, 'id' | 'kind' | 'summary' | 'status'>;
+
 async function readJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(url, init);
   if (!res.ok) throw new Error(await parseError(res));

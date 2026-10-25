@@ -8,6 +8,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
 import { AnswerBody } from './formatAnswer';
 import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
+import ZavaProposals from './zavaProposals';
+import type { ProposalSummary } from '../../services/agentProposalsService';
 import {
     CREDIT_DETAIL,
     attentionLabel,
@@ -19,6 +21,7 @@ import {
 import {
     ERRORS,
     INVALID_EMAIL,
+    INVENTORY_PILLS,
     MAILBOX_WARNING,
     SUGGESTIONS,
     VIOLET,
@@ -45,6 +48,8 @@ type Turn = {
     blocks?: SpatialBlock[];
     followUps?: string[];
     steps?: Step[];
+    /** Proposals this answer created (pending rows; a person approves them). */
+    proposals?: ProposalSummary[];
     at?: Date;
     error?: boolean;
 };
@@ -395,6 +400,7 @@ export default function AgentPage() {
                 blocks?: SpatialBlock[];
                 follow_ups?: string[];
                 steps: Step[];
+                proposals?: ProposalSummary[];
             }>(
                 '/api/agent/chat',
                 source === 'voice' ? { message: question, kind: 'voice' } : { message: question },
@@ -412,6 +418,7 @@ export default function AgentPage() {
                 blocks: failed ? [] : blocks,
                 followUps: failed ? [] : (response.data.follow_ups || []).slice(0, 3),
                 steps: response.data.steps || [],
+                proposals: failed || !Array.isArray(response.data.proposals) ? [] : response.data.proposals,
                 at: new Date(),
                 error: failed,
             }]);
@@ -880,6 +887,9 @@ export default function AgentPage() {
                                 );
                             })}
                         </div>
+                        <div className="relative z-[1] w-full" data-testid="zava-inventory-pills">
+                            <FollowUps questions={[...INVENTORY_PILLS]} onAsk={(question) => void ask(question)} />
+                        </div>
                     </div>
                     </div>
                 )}
@@ -976,6 +986,7 @@ export default function AgentPage() {
                                         )}
                                     </>
                                 )}
+                                {!turn.error && turn.proposals && turn.proposals.length > 0 && <ZavaProposals items={turn.proposals} />}
                             </div>
                         </article>
                     )

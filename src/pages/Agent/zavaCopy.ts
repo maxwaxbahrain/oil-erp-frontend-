@@ -7,6 +7,16 @@ export const SUGGESTIONS = [
     { id: 'customers', question: 'Who are my top 5 customers this month?' },
 ] as const;
 
+/** Inventory questions shown as pills on the empty state. Each is sent as a normal message. */
+export const INVENTORY_PILLS = [
+    'What should I reorder this week?',
+    'Any open pick shortages?',
+    "What stock hasn't moved in 90 days?",
+] as const;
+
+/** One line above the proposal cards under a Zava answer. */
+export const PROPOSALS_NOTE = 'Proposals wait for a person to approve. Nothing happens until then.';
+
 export const ERRORS = {
     off: 'Zava is not available right now. Contact SOLTOL support if this continues.',
     limit: "This company's monthly Zava limit is reached. Zava will answer again next month.",
