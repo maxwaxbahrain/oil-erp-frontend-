@@ -46,9 +46,10 @@ export function homeSummaryCacheKey(tenantId: string | number | null | undefined
   return `${CACHE_PREFIX}${tenantId ?? 't'}:${userId ?? 'u'}`;
 }
 
+/** Tab-session only — business numbers must not persist on a shared computer. */
 export function readHomeSummaryCache(key: string): HomeSummary | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as HomeSummary;
     if (!parsed?.generated_at) return null;
@@ -60,7 +61,7 @@ export function readHomeSummaryCache(key: string): HomeSummary | null {
 
 export function writeHomeSummaryCache(key: string, summary: HomeSummary): void {
   try {
-    localStorage.setItem(key, JSON.stringify(summary));
+    sessionStorage.setItem(key, JSON.stringify(summary));
   } catch {
     /* ignore quota */
   }
@@ -69,15 +70,15 @@ export function writeHomeSummaryCache(key: string, summary: HomeSummary): void {
 export function clearHomeSummaryCache(key?: string): void {
   try {
     if (key) {
-      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
       return;
     }
     const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const k = sessionStorage.key(i);
       if (k && k.startsWith(CACHE_PREFIX)) keys.push(k);
     }
-    keys.forEach((k) => localStorage.removeItem(k));
+    keys.forEach((k) => sessionStorage.removeItem(k));
   } catch {
     /* ignore */
   }

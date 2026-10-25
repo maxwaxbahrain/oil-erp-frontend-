@@ -5,11 +5,39 @@ import { openGlobalCommandBar, type HomeSummary } from './homeSummaryApi';
 const BLUE = '#4F8EF7';
 const GREEN = '#22c55e';
 
-function timeGreeting(d = new Date()): string {
+export function timeGreeting(d = new Date()): string {
   const h = d.getHours();
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+/** Title + subline pieces — keep UI and first-mic speech identical. */
+export function heroLineParts(
+  firstName: string,
+  summary: HomeSummary | null,
+  now = new Date(),
+): { greeting: string; needsLine: string; needs: number; biggest: string } {
+  const needs = summary?.needs_you_count ?? 0;
+  const greeting = `${timeGreeting(now)}, ${firstName}.`;
+  const needsLine =
+    needs > 0
+      ? `${needs} thing${needs === 1 ? '' : 's'} need you.`
+      : summary
+        ? 'Nothing needs you right now.'
+        : 'Loading…';
+  return { greeting, needsLine, needs, biggest: summary?.biggest_line?.trim() || '' };
+}
+
+/** Same words as the hero title + biggest line (spoken on first mic tap). */
+export function formatHeroSpeakLine(
+  firstName: string,
+  summary: HomeSummary | null,
+  now = new Date(),
+): string {
+  const { greeting, needsLine, biggest } = heroLineParts(firstName, summary, now);
+  if (biggest) return `${greeting} ${needsLine} ${biggest}`;
+  return `${greeting} ${needsLine}`;
 }
 
 function formatClock(d: Date): string {
@@ -37,14 +65,7 @@ export default function NexusHero({
   onMicTap,
   micActive,
 }: Props) {
-  const needs = summary?.needs_you_count ?? 0;
-  const greeting = `${timeGreeting(now)}, ${firstName}.`;
-  const needsLine =
-    needs > 0
-      ? `${needs} thing${needs === 1 ? '' : 's'} need you.`
-      : summary
-        ? 'Nothing needs you right now.'
-        : 'Loading…';
+  const { greeting, needsLine, needs, biggest } = heroLineParts(firstName, summary, now);
 
   return (
     <header style={wrap}>
@@ -57,7 +78,7 @@ export default function NexusHero({
               <span style={{ color: needs > 0 ? '#F87171' : GREEN, fontWeight: 800 }}>{needsLine}</span>
             </div>
             <div style={subRow}>
-              <span>{summary?.biggest_line || '…'}</span>
+              <span>{biggest || '…'}</span>
               {updatedLabel ? <span style={ago}>{updatedLabel}</span> : null}
             </div>
           </div>

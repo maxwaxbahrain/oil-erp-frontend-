@@ -48,7 +48,7 @@ import {
   type TimelineLaneId,
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
-import NexusHero from './NexusHero';
+import NexusHero, { formatHeroSpeakLine } from './NexusHero';
 import NexusTopMetrics from './NexusTopMetrics';
 import {
   clearHomeSummaryCache,
@@ -359,6 +359,11 @@ export default function NexusPage() {
   const activeIndex = activeCard ? speakable.findIndex((c) => c.id === activeCard.id) + 1 : 0;
   const speakModule = String(activeCard?.module || 'Update').toUpperCase();
 
+  const heroSpeakLine = useMemo(
+    () => formatHeroSpeakLine(name, homeSummary, now),
+    [name, homeSummary, now],
+  );
+
   const voice = useNexusVoice({
     firstName: name,
     cards,
@@ -369,6 +374,7 @@ export default function NexusPage() {
     setActiveCardId,
     setActivePlanetId,
     navigate,
+    heroLine: heroSpeakLine,
   });
 
   const updatedLabel = homeSummary?.generated_at

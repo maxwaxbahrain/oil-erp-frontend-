@@ -98,12 +98,19 @@ describe('home summary cache', () => {
 
   beforeEach(() => {
     clearHomeSummaryCache(key);
+    localStorage.removeItem(key);
   });
   afterEach(() => {
     clearHomeSummaryCache(key);
+    localStorage.removeItem(key);
   });
 
-  it('shows cached summary instantly', () => {
+  it('key is per tenant + user', () => {
+    expect(homeSummaryCacheKey('t1', 'u1')).toBe('soltol:nexus:home-summary:v1:t1:u1');
+    expect(homeSummaryCacheKey('t2', 'u1')).not.toBe(homeSummaryCacheKey('t1', 'u1'));
+  });
+
+  it('stores in sessionStorage (not localStorage)', () => {
     const summary = homeSummaryFromShell({
       shell: shell({
         arLoad: 'ok',
@@ -113,11 +120,24 @@ describe('home summary cache', () => {
       generatedAt: '2026-10-25T12:00:00.000Z',
     });
     writeHomeSummaryCache(key, summary);
+    expect(sessionStorage.getItem(key)).toBeTruthy();
+    expect(localStorage.getItem(key)).toBeNull();
     const cached = readHomeSummaryCache(key);
     expect(cached?.owed_to_us.value).toBe(50);
     expect(cached?.generated_at).toBe('2026-10-25T12:00:00.000Z');
     expect(formatUpdatedAgo('2026-10-25T12:00:00.000Z', new Date('2026-10-25T12:05:00.000Z'))).toBe(
       'Updated 5 min ago',
     );
+  });
+
+  it('clear removes session cache (logout)', () => {
+    const summary = homeSummaryFromShell({
+      shell: shell({ arLoad: 'ok', arSummary: { owed_to_us: 1 } as any }),
+      pendingExpenses: { state: 'ok', count: 0 },
+    });
+    writeHomeSummaryCache(key, summary);
+    clearHomeSummaryCache();
+    expect(readHomeSummaryCache(key)).toBeNull();
+    expect(sessionStorage.getItem(key)).toBeNull();
   });
 });
