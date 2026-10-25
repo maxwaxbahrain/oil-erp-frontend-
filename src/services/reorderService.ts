@@ -117,7 +117,8 @@ export interface SuggestionsQuery {
   include_snoozed?: boolean;
 }
 
-async function parseError(res: Response): Promise<string> {
+/** Backend error text: string detail, or FastAPI 422 list as "field: msg". Shared by the agent services. */
+export async function parseError(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
   const detail = (body as { detail?: unknown }).detail;
   if (typeof detail === 'string') return detail;

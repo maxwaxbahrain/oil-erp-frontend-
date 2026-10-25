@@ -4,6 +4,7 @@ import { formatLocalDate } from '../../utils/dates';
 import { formatCurrency } from '../../services/settingsService';
 import { getOnHand, type OnHandPage } from '../../services/inventoryLedgerService';
 import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '../../services/stockLocationService';
+import InventoryAgentPanel from './InventoryAgentPanel';
 
 const PAGE_SIZE = 50;
 
@@ -281,6 +282,8 @@ export default function StockOnHand() {
           <button type="button" style={chip(false)} disabled={!data || (page + 1) * PAGE_SIZE >= data.total} onClick={() => goPage(page + 1)}>Next</button>
         </span>
       </div>
+
+      <InventoryAgentPanel />
     </div>
   );
 }

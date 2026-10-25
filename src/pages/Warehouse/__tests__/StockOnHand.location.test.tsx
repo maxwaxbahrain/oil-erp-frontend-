@@ -16,6 +16,9 @@ vi.mock('../../../services/stockLocationService', () => ({
   isStockHoldingKind: (kind: string) => kind === 'bin' || kind === 'warehouse' || kind === 'van',
 }));
 
+// The inventory agent panel has its own tests (InventoryAgentPanel.test.tsx).
+vi.mock('../InventoryAgentPanel', () => ({ default: () => null }));
+
 vi.mock('../../../services/settingsService', () => ({
   formatCurrency: (n: number) => `$${n}`,
 }));
