@@ -140,12 +140,20 @@ describe('Counts board', () => {
     expect(container.querySelector('[data-testid="count-variance-1"]')!.textContent).toBe('—');
     const second = container.querySelector('[data-testid="count-row-2"]')!;
     expect(second.textContent).toContain('2 products');
-    expect(container.querySelector('[data-testid="count-variance-2"]')!.textContent).toBe('2 · $-4');
+    expect(container.querySelector('[data-testid="count-variance-2"]')!.textContent).toBe('2 to post · est. $-4');
     expect(container.textContent).not.toMatch(/undefined|NaN/);
 
     await act(async () => button('review').click());
     expect(countService.listCounts).toHaveBeenLastCalledWith('review');
     expect(button('review').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('approved rows show the posted amount', async () => {
+    vi.mocked(countService.listCounts).mockResolvedValue([
+      { ...rows[1], id: 3, count_number: 'CC-000003', status: 'approved', posted_value: 6 },
+    ]);
+    await render();
+    expect(container.querySelector('[data-testid="count-variance-3"]')!.textContent).toBe('posted $6');
   });
 
   it('opens the review chip from the URL', async () => {

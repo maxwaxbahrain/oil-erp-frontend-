@@ -7,7 +7,7 @@ import { authFetch } from '../api/axios';
 import { ledgerQuery } from './inventoryLedgerService';
 import { parseError } from './reorderService';
 
-export type ProposalKind = 'draft_po' | 'snooze' | 'bin_transfer';
+export type ProposalKind = 'draft_po' | 'snooze' | 'bin_transfer' | 'cycle_count';
 export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'expired';
 
 export const PROPOSAL_STATUSES: ProposalStatus[] = ['pending', 'approved', 'rejected', 'failed', 'expired'];
@@ -31,6 +31,12 @@ export interface BinTransferProposalResult {
   quantity: number;
 }
 
+export interface CycleCountProposalResult {
+  count_id: number;
+  count_number: string;
+  lines_total: number;
+}
+
 /** proposal_dict in app/agents/inventory/proposals.py. Timestamps are ISO with offset. */
 export interface AgentProposal {
   id: number;
@@ -38,7 +44,7 @@ export interface AgentProposal {
   status: ProposalStatus;
   summary: string;
   rationale: string | null;
-  /** draft_po: {supplier_id, lines}; snooze: {product_id, days, reason}; bin_transfer: {product_id, from_location_id, to_location_id, quantity}. */
+  /** draft_po: {supplier_id, lines}; snooze: {product_id, days, reason}; bin_transfer: {product_id, from_location_id, to_location_id, quantity}; cycle_count: {scope_type, scope_path_prefix, scope_product_ids, blind, note}. */
   payload: Record<string, unknown>;
   run_id: string | null;
   proposed_by_user_id: number | null;
@@ -47,7 +53,7 @@ export interface AgentProposal {
   decided_by_user_id: number | null;
   decided_at: string | null;
   reject_reason: string | null;
-  result: DraftPoProposalResult | SnoozeProposalResult | BinTransferProposalResult | null;
+  result: DraftPoProposalResult | SnoozeProposalResult | BinTransferProposalResult | CycleCountProposalResult | null;
   error: string | null;
 }
 
