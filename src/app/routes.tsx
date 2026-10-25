@@ -29,6 +29,7 @@ import FinanceDashboard from '../pages/Finance/FinanceDashboard';
 import SalesDashboard from '../pages/Sales/SalesDashboard';
 import WarehouseDashboard from '../pages/Warehouse/WarehouseDashboard';
 import StockOnHand from '../pages/Warehouse/StockOnHand';
+import InventoryValuation from '../pages/Warehouse/InventoryValuation';
 import LocationsPage from '../pages/Warehouse/Locations';
 import PickingPage from '../pages/Warehouse/Picking';
 import PickListPage from '../pages/Warehouse/PickList';
@@ -347,6 +348,7 @@ export const AppRoutes = () => {
             <Route element={<ProtectedRoute roles={INTERNAL_WEB_ROLES} />}>
             <Route path="/sales/dashboard" element={<SalesDashboard />} />
             <Route path="/warehouse/dashboard" element={<WarehouseDashboard />} />
+            <Route path="/warehouse/valuation" element={<InventoryValuation />} />
             <Route path="/products/new" element={<ProductForm />} />
             <Route path="/products/edit/:id" element={<ProductForm />} />
             <Route path="/products/import" element={<InvoiceImport />} />

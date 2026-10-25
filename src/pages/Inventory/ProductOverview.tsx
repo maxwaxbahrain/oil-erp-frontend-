@@ -34,8 +34,10 @@ import { getLocationsFlat, isStockHoldingKind, type StockLocationNode } from '..
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/AuthContext';
 import { INTERNAL_WEB_ROLES } from '../../utils/rbac';
-import { formatLocalDate } from '../../utils/dates';
+import { formatLocalDate, formatStoredDateTime } from '../../utils/dates';
 import { formatMovementLabel } from '../../utils/movementLabel';
+import { listRevaluations, type CostRevaluation } from '../../services/inventoryValuationService';
+import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
 
 type TabType = 'Performance' | 'Inventory' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
 
@@ -92,6 +94,9 @@ export default function ProductOverview() {
     const [onHandTotal, setOnHandTotal] = useState<number | null>(null);
     const [onHandLocations, setOnHandLocations] = useState<ProductLocationOnHand[] | null>(null);
     const [onHandFailed, setOnHandFailed] = useState(false);
+    // Newest cost revaluation, for the Stock card; null until loaded or when there is none.
+    const [lastRevaluation, setLastRevaluation] = useState<CostRevaluation | null>(null);
+    const [showCostHistory, setShowCostHistory] = useState(false);
 
     useEffect(() => {
         if (id) {
@@ -119,6 +124,22 @@ export default function ProductOverview() {
             cancelled = true;
         };
     }, [product?.preferredSupplierId]);
+
+    useEffect(() => {
+        if (!product?.id) return;
+        let cancelled = false;
+        setLastRevaluation(null);
+        listRevaluations(Number(product.id), 1)
+            .then((rows) => {
+                if (!cancelled) setLastRevaluation(rows[0] ?? null);
+            })
+            .catch(() => {
+                if (!cancelled) setLastRevaluation(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [product?.id]);
 
     useEffect(() => {
         if (!product?.id) return;
@@ -469,6 +490,18 @@ export default function ProductOverview() {
                             <p className="text-3xl font-black text-gray-900 tracking-tighter mt-6" data-testid="stock-on-hand">
                                 {onHandFailed || onHandTotal == null ? '—' : onHandTotal}
                             </p>
+                            {lastRevaluation && (
+                                <p className="text-[11px] font-bold text-gray-500 mt-2" data-testid="cost-last-revalued">
+                                    Cost {formatCurrency(n(product.pricing?.purchasePriceExWorks))} · last revalued {formatStoredDateTime(lastRevaluation.created_at)}
+                                    {' · '}
+                                    <button type="button" className="text-gray-900 underline" onClick={() => setShowCostHistory(true)}>
+                                        Cost history
+                                    </button>
+                                </p>
+                            )}
+                            {showCostHistory && (
+                                <CostHistoryPanel productId={Number(product.id)} onClose={() => setShowCostHistory(false)} />
+                            )}
                             <div className="mt-6 overflow-x-auto border border-gray-100 rounded-2xl">
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50">
