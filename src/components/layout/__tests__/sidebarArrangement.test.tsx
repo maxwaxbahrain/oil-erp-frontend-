@@ -42,6 +42,7 @@ const ALLOWED_ADDED_ROUTES = new Set<string>([
   '/warehouse/valuation',
   '/warehouse/counts',
   '/warehouse/counts/:id',
+  '/warehouse/expiry',
 ]);
 
 /** Routes intentionally removed when replaced by ALLOWED_ADDED_ROUTES. */
@@ -288,17 +289,18 @@ describe('sidebar arrangement completeness', () => {
     }
   });
 
-  it('gives warehouse exactly the four warehouse pages', async () => {
+  it('gives warehouse exactly the five warehouse pages', async () => {
     for (const staging of [false, true]) {
       const entries = await inventoryFor('warehouse', staging);
       const routes = routesOf(entries);
-      expect(routes).toEqual(['/warehouse/stock', '/warehouse/locations', '/warehouse/picking', '/warehouse/counts']);
+      expect(routes).toEqual(['/warehouse/stock', '/warehouse/locations', '/warehouse/picking', '/warehouse/counts', '/warehouse/expiry']);
       expect(routes.some((route) => route.startsWith('/sales') || route.startsWith('/reports'))).toBe(false);
       expect(entries.filter((entry) => entry.kind === 'item').map((entry) => entry.label)).toEqual([
         'Stock on hand',
         'Locations',
         'Picking',
         'Counts',
+        'Expiring stock',
       ]);
     }
   });

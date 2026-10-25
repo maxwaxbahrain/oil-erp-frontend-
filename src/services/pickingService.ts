@@ -45,6 +45,16 @@ export interface PickLine {
   pickedLocationId: number | null;
   status: PickLineStatus;
   note: string | null;
+  /** Lot-tracked: the FEFO split an issue of qtyRequired would take at this bin now. */
+  lots: PickLineLot[];
+  lotsPicked: { lotId: number; lotNumber: string | null; qty: number }[] | null;
+}
+
+export interface PickLineLot {
+  lotId: number | null;
+  lotNumber: string;
+  expiryDate: string | null;
+  qty: number;
 }
 
 export interface PickShortage {
@@ -120,6 +130,8 @@ export interface RecordPickInput {
   qty: number;
   pickedLocationId?: number | null;
   note?: string;
+  /** Lot-tracked: what the picker took, for the record. */
+  lotsPicked?: { lotId: number; qty: number }[];
 }
 
 export interface DispatchPickListInput {
@@ -201,6 +213,21 @@ function mapLine(raw: Record<string, unknown>): PickLine {
     pickedLocationId: optNum(raw.picked_location_id ?? raw.pickedLocationId),
     status: (status === 'picked' || status === 'short' || status === 'skipped' ? status : 'open'),
     note: optStr(raw.note),
+    lots: Array.isArray(raw.lots)
+      ? (raw.lots as Record<string, unknown>[]).map((lot) => ({
+        lotId: optNum(lot.lot_id),
+        lotNumber: String(lot.lot_number ?? ''),
+        expiryDate: optStr(lot.expiry_date),
+        qty: num(lot.qty),
+      }))
+      : [],
+    lotsPicked: Array.isArray(raw.lots_picked)
+      ? (raw.lots_picked as Record<string, unknown>[]).map((lot) => ({
+        lotId: num(lot.lot_id),
+        lotNumber: optStr(lot.lot_number),
+        qty: num(lot.qty),
+      }))
+      : null,
   };
 }
 
@@ -347,6 +374,9 @@ export async function recordPick(listId: number, lineId: number, input: RecordPi
   const body: Record<string, unknown> = { qty: input.qty };
   if (input.pickedLocationId != null) body.picked_location_id = input.pickedLocationId;
   if (input.note) body.note = input.note;
+  if (input.lotsPicked && input.lotsPicked.length > 0) {
+    body.lots_picked = input.lotsPicked.map((lot) => ({ lot_id: lot.lotId, qty: lot.qty }));
+  }
   await request(`/pick-lists/${listId}/lines/${lineId}/pick`, {
     method: 'POST',
     body: JSON.stringify(body),

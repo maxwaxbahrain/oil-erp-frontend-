@@ -31,6 +31,7 @@ import { getLocationsFlat, isStockHoldingKind, suggestPutaway, type StockLocatio
 import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
 import { type PurchaseOrder } from '../../services/purchasesService';
 import { getCurrentUser } from '../../store/authStore';
+import { formatLocalDate } from '../../utils/dates';
 
 const C = {
     bg: '#060f1c',
@@ -181,6 +182,12 @@ function SectionHeader({ num, title }: { num: number; title: string }) {
     );
 }
 
+interface LotRule {
+    sku: string;
+    expiryTracked: boolean;
+    shelfLifeDays: number | null;
+}
+
 export default function GoodsReceivedForm() {
     const navigate = useNavigate();
     const { id } = useParams();
@@ -196,6 +203,10 @@ export default function GoodsReceivedForm() {
     const [holdingLocations, setHoldingLocations] = useState<StockLocationNode[]>([]);
     const [mainLocationId, setMainLocationId] = useState<number | null>(null);
     const [catalogDefaults, setCatalogDefaults] = useState<Map<string, number | null>>(new Map());
+    // Lot/expiry tracking per product, from the product record.
+    const [catalogLots, setCatalogLots] = useState<Map<string, LotRule>>(new Map());
+    const [lotNotice, setLotNotice] = useState<string | null>(null);
+    const [postError, setPostError] = useState<string | null>(null);
     const [warehouse, setWarehouse] = useState('Main Warehouse');
     const [freightCost, setFreightCost] = useState(0);
     const [notes, setNotes] = useState('');
@@ -236,7 +247,15 @@ export default function GoodsReceivedForm() {
                 const catalog = await getCatalogProducts();
                 const packs = new Map<string, PackProduct>();
                 const defaults = new Map<string, number | null>();
+                const lotRules = new Map<string, LotRule>();
                 for (const row of catalog) {
+                    if (row.lotTracked || row.expiryTracked) {
+                        lotRules.set(String(row.id), {
+                            sku: row.sku,
+                            expiryTracked: !!row.expiryTracked,
+                            shelfLifeDays: row.shelfLifeDays ?? null,
+                        });
+                    }
                     packs.set(String(row.id), {
                         id: row.id,
                         packQty: row.packQty,
@@ -248,6 +267,7 @@ export default function GoodsReceivedForm() {
                 }
                 setCatalogPacks(packs);
                 setCatalogDefaults(defaults);
+                setCatalogLots(lotRules);
                 try {
                     const flatLocs = await getLocationsFlat();
                     setHoldingLocations(flatLocs.filter((loc) => loc.isActive && isStockHoldingKind(loc.kind)));
@@ -260,6 +280,7 @@ export default function GoodsReceivedForm() {
             } catch {
                 setCatalogPacks(new Map());
                 setCatalogDefaults(new Map());
+                setCatalogLots(new Map());
             }
             if (id && id !== 'new') {
                 const grnData = await getGRNById(id);
@@ -379,6 +400,13 @@ export default function GoodsReceivedForm() {
             if (!window.confirm(buildUnlinkedWarning(unlinked))) return;
         }
 
+        if ((po?.items ?? []).some((it) => catalogLots.has(String(it.productId)))) {
+            // Lot-tracked lines need a lot number before anything is posted.
+            await handleCreateFromPO();
+            setLotNotice('Enter the lot details for lot-tracked lines, then confirm.');
+            return;
+        }
+
         setPosting(true);
         let draft: GRN | null = null;
         try {
@@ -417,6 +445,10 @@ export default function GoodsReceivedForm() {
             totalCost: item.orderedQty * item.unitCost
         }));
         setItems(updated);
+    };
+
+    const onLineLot = (index: number, patch: { lotNumber?: string; expiryDate?: string }) => {
+        setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
     };
 
     const onLineLocation = (index: number, locationId: number | null) => {
@@ -591,6 +623,7 @@ export default function GoodsReceivedForm() {
         if (!confirmed) return;
 
         setPosting(true);
+        setPostError(null);
         try {
             await saveDraftForPost(grn, items);
             const result = await postGRN(grn.id);
@@ -598,6 +631,7 @@ export default function GoodsReceivedForm() {
             navigate('/receiving');
         } catch (error: any) {
             console.error('Error posting GRN:', error);
+            setPostError(error.message || 'Error posting GRN');
             alert(error.message || 'Error posting GRN');
         } finally {
             setPosting(false);
@@ -658,7 +692,7 @@ export default function GoodsReceivedForm() {
         return selectedPO;
     }, [grn, pendingPOs, selectedPO, landedCost]);
 
-    const previewItems = useMemo(() => {
+    const previewItems = useMemo<GRNItem[]>(() => {
         if (items.length > 0) return items;
         if (!selectedPO) return [];
         return selectedPO.items.map((item) => ({
@@ -684,6 +718,20 @@ export default function GoodsReceivedForm() {
     const hasMismatch = previewItems.some((i) => i.receivedQty !== i.orderedQty);
     const poSelected = Boolean(grn || selectedPOId);
     const isPosted = grn?.status === 'Posted';
+
+    const lotProblem = (() => {
+        if (!grn || isPosted) return null;
+        for (const item of items) {
+            const rule = catalogLots.get(String(item.productId));
+            if (!rule || !(item.acceptedQty > 0)) continue;
+            const sku = rule.sku || item.sku || item.productName;
+            if (!(item.lotNumber || '').trim()) return `Lot number required for ${sku}`;
+            if (rule.expiryTracked && !(rule.shelfLifeDays && rule.shelfLifeDays > 0) && !item.expiryDate) {
+                return `Expiry date required for ${sku}`;
+            }
+        }
+        return null;
+    })();
 
     const handlePrimaryConfirm = async () => {
         if (showPOSelector && !grn) {
@@ -984,6 +1032,39 @@ export default function GoodsReceivedForm() {
                                                         <td style={tdStyle}>
                                                             <div style={{ fontWeight: 600 }}>{item.productName}</div>
                                                             <div style={{ fontSize: 9, color: C.dim, marginTop: 2 }}>{item.sku}</div>
+                                                            {(() => {
+                                                                const rule = catalogLots.get(String(item.productId));
+                                                                if (!rule) return null;
+                                                                const shelf = rule.shelfLifeDays && rule.shelfLifeDays > 0 ? rule.shelfLifeDays : null;
+                                                                if (!editable) {
+                                                                    return (
+                                                                        <div style={{ fontSize: 9, color: C.dim, marginTop: 4 }}>
+                                                                            Lot {item.lotNumber || '—'}{item.expiryDate ? ` · exp ${formatLocalDate(item.expiryDate)}` : ''}
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
+                                                                        <input
+                                                                            aria-label={`Lot number line ${index + 1}`}
+                                                                            placeholder="Lot number (required)"
+                                                                            value={item.lotNumber ?? ''}
+                                                                            onChange={(e) => onLineLot(index, { lotNumber: e.target.value })}
+                                                                            style={{ fontSize: 10, maxWidth: 160 }}
+                                                                        />
+                                                                        <input
+                                                                            aria-label={`Expiry line ${index + 1}`}
+                                                                            type="date"
+                                                                            value={item.expiryDate ?? ''}
+                                                                            onChange={(e) => onLineLot(index, { expiryDate: e.target.value })}
+                                                                            style={{ fontSize: 10, maxWidth: 160 }}
+                                                                        />
+                                                                        {shelf != null && (
+                                                                            <span style={{ fontSize: 9, color: C.dim }}>{`blank = received + ${shelf} days shelf life`}</span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td style={{ ...tdStyle, textAlign: 'center', fontFamily: 'monospace' }}>{item.orderedQty}</td>
                                                         <td style={{ ...tdStyle, textAlign: 'center' }}>
@@ -1291,7 +1372,7 @@ export default function GoodsReceivedForm() {
                             <button
                                 type="button"
                                 onClick={handlePrimaryConfirm}
-                                disabled={posting || (!showPOSelector && !grn) || (showPOSelector && !selectedPOId)}
+                                disabled={posting || (!showPOSelector && !grn) || (showPOSelector && !selectedPOId) || lotProblem != null}
                                 style={{
                                     ...primaryBtn,
                                     opacity: posting || (showPOSelector && !selectedPOId) ? 0.55 : 1,
@@ -1300,6 +1381,15 @@ export default function GoodsReceivedForm() {
                             >
                                 {posting ? 'Confirming...' : 'Confirm goods received'}
                             </button>
+                        )}
+                        {postError && (
+                            <p role="alert" data-testid="grn-post-error" style={{ fontSize: 10, color: C.red, marginTop: 6 }}>{postError}</p>
+                        )}
+                        {lotProblem && (
+                            <p role="alert" data-testid="grn-lot-required" style={{ fontSize: 10, color: C.amber, marginTop: 6 }}>{lotProblem}</p>
+                        )}
+                        {!lotProblem && lotNotice && !isPosted && (
+                            <p data-testid="grn-lot-notice" style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{lotNotice}</p>
                         )}
                         {showPOSelector && !grn && selectedPOId && !isPosted && (
                             <button

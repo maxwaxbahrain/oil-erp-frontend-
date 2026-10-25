@@ -38,12 +38,14 @@ import { formatLocalDate, formatStoredDateTime } from '../../utils/dates';
 import { formatMovementLabel } from '../../utils/movementLabel';
 import { listRevaluations, type CostRevaluation } from '../../services/inventoryValuationService';
 import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
+import ProductLotsPanel from '../../components/Inventory/ProductLotsPanel';
 
-type TabType = 'Performance' | 'Inventory' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
+type TabType = 'Performance' | 'Inventory' | 'Lots' | 'History' | 'Velocity' | 'Customers' | 'Pricing' | 'Suppliers' | 'Losses' | 'Forecast' | 'Action' | 'Documents';
 
 const PROFESSIONAL_TAB_LABELS: Record<TabType, string> = {
     Performance: 'Performance Overview',
     Inventory: 'Inventory Status',
+    Lots: 'Lots & Expiry',
     History: 'Movement History',
     Velocity: 'Sales Velocity',
     Customers: 'Customer Insights',
@@ -326,6 +328,7 @@ export default function ProductOverview() {
         );
     }
 
+    const isLotTracked = !!(product.lotTracked || product.expiryTracked);
     const totalStock = (product.locations || []).reduce((sum, l) => sum + n(l.currentStock), 0);
     const avgDailySales = Math.max(1, n(product.avgDailySales, Math.round(n(product.salesVelocity) / 30) || 1));
     const daysStockRemaining = Math.floor(totalStock / avgDailySales);
@@ -458,7 +461,7 @@ export default function ProductOverview() {
             {/* 3. Professional Tab Navigation */}
             <div className="bg-white p-1 rounded-2xl border border-gray-100 shadow-sm overflow-x-auto no-scrollbar">
                 <div className="flex items-center min-w-max gap-1">
-                    {(['Performance', 'Inventory', 'History', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
+                    {(['Performance', 'Inventory', ...(isLotTracked ? ['Lots'] : []), 'History', 'Velocity', 'Customers', 'Pricing', 'Suppliers', 'Losses', 'Forecast', 'Action', 'Documents'] as TabType[]).map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -490,6 +493,13 @@ export default function ProductOverview() {
                             <p className="text-3xl font-black text-gray-900 tracking-tighter mt-6" data-testid="stock-on-hand">
                                 {onHandFailed || onHandTotal == null ? '—' : onHandTotal}
                             </p>
+                            {isLotTracked && product.lotsSummary && (
+                                <p className="text-[11px] font-bold text-gray-500 mt-2" data-testid="lots-summary">
+                                    {`${product.lotsSummary.lots} lot${product.lotsSummary.lots === 1 ? '' : 's'}`}
+                                    {product.lotsSummary.nearestExpiry ? ` · nearest expiry ${formatLocalDate(product.lotsSummary.nearestExpiry)}` : ''}
+                                    {product.lotsSummary.expiredQty > 0 ? ` · ${product.lotsSummary.expiredQty} expired` : ''}
+                                </p>
+                            )}
                             {lastRevaluation && (
                                 <p className="text-[11px] font-bold text-gray-500 mt-2" data-testid="cost-last-revalued">
                                     Cost {formatCurrency(n(product.pricing?.purchasePriceExWorks))} · last revalued {formatStoredDateTime(lastRevaluation.created_at)}
@@ -1258,6 +1268,10 @@ export default function ProductOverview() {
                     </div>
                 )}
 
+                {activeTab === 'Lots' && isLotTracked && (
+                    <ProductLotsPanel productId={Number(product.id)} canEdit={hasRole('admin', 'manager')} />
+                )}
+
                 {activeTab === 'History' && (
                     <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm animate-in fade-in duration-500">
                         <div className="flex items-center justify-between mb-6">
@@ -1347,7 +1361,14 @@ export default function ProductOverview() {
                                                             {formatMovementLabel(m)}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">{m.reference || m.source_id || '—'}</td>
+                                                    <td className="px-4 py-3 font-mono text-xs font-bold text-gray-900">
+                                                        {m.reference || m.source_id || '—'}
+                                                        {m.lots && m.lots.length > 0 && (
+                                                            <div data-testid={`movement-lots-${m.id}`} className="font-normal text-[10px] text-gray-500 mt-1">
+                                                                {m.lots.map((lot) => `${lot.lot_number} ${lot.qty > 0 ? '+' : ''}${lot.qty}`).join(' · ')}
+                                                            </div>
+                                                        )}
+                                                    </td>
                                                     <td
                                                         className="px-4 py-3 font-mono text-xs text-gray-700"
                                                         title={m.location_path || undefined}

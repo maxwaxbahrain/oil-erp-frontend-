@@ -261,6 +261,11 @@ export default function StockOnHand() {
                           {breakdown.map((loc, i) => (
                             <li key={`${loc.location_id ?? i}-${loc.code ?? ''}`}>
                               {loc.path || loc.code || '—'} · {qty(loc.on_hand)}
+                              {loc.lots && loc.lots.length > 0 && (
+                                <div data-testid={`by-location-lots-${row.product_id}-${loc.location_id ?? 'none'}`} style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                                  {loc.lots.map((lot) => `${lot.lot_number} ${qty(lot.qty)}${lot.expiry_date ? ` (exp ${formatLocalDate(lot.expiry_date) || lot.expiry_date})` : ''}`).join(' · ')}
+                                </div>
+                              )}
                             </li>
                           ))}
                         </ul>

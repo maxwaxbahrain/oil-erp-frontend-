@@ -73,6 +73,8 @@ export interface Product {
     lotTracked?: boolean;
     shelfLifeDays?: number | null;
     expiryTracked?: boolean;
+    /** GET /products/{id} only, lot-tracked products. */
+    lotsSummary?: { lots: number; nearestExpiry: string | null; expiredQty: number } | null;
     hazmatClass?: string | null;
     weightKg?: number | null;
     volumeL?: number | null;
@@ -335,6 +337,7 @@ function mapApiProductToProduct(raw: Record<string, unknown>): Product {
         lotTracked: optBool(raw.lot_tracked),
         shelfLifeDays: optInt(raw.shelf_life_days),
         expiryTracked: optBool(raw.expiry_tracked),
+        lotsSummary: mapLotsSummary(raw.lots_summary),
         hazmatClass: optText(raw.hazmat_class),
         weightKg: optFloat(raw.weight_kg),
         volumeL: optFloat(raw.volume_l),
@@ -434,6 +437,16 @@ export function saveImportedProduct(product: Product): void {
         existing.unshift(product);
     }
     localStorage.setItem(IMPORTED_PRODUCTS_KEY, JSON.stringify(existing));
+}
+
+function mapLotsSummary(raw: unknown): Product['lotsSummary'] {
+    if (!raw || typeof raw !== 'object') return null;
+    const row = raw as Record<string, unknown>;
+    return {
+        lots: Number(row.lots) || 0,
+        nearestExpiry: row.nearest_expiry != null ? String(row.nearest_expiry) : null,
+        expiredQty: Number(row.expired_qty) || 0,
+    };
 }
 
 export async function getProducts(): Promise<Product[]> {

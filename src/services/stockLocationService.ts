@@ -32,6 +32,8 @@ export interface LocationOnHandRow {
   sku: string | null;
   name: string | null;
   onHand: number;
+  /** Lot-tracked products: lot balances here. Empty otherwise. */
+  lots?: { lot_number: string; expiry_date: string | null; qty: number }[];
 }
 
 export interface LocationTransferRecord {
@@ -194,6 +196,7 @@ export async function getLocationOnHand(id: number): Promise<LocationOnHandRow[]
     sku: row.sku != null ? String(row.sku) : null,
     name: row.name != null ? String(row.name) : null,
     onHand: Number(row.on_hand) || 0,
+    lots: Array.isArray(row.lots) ? (row.lots as LocationOnHandRow['lots']) : [],
   }));
 }
 

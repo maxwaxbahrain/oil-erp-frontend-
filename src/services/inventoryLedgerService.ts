@@ -41,6 +41,8 @@ export interface OnHandLocationBreakdown {
   kind: string | null;
   path: string | null;
   on_hand: number;
+  /** Lot-tracked products: lot balances at this location, FEFO order. Empty otherwise. */
+  lots?: { lot_number: string; expiry_date: string | null; qty: number }[];
 }
 
 export interface OnHandRow {
@@ -100,6 +102,8 @@ export interface InventoryMovement {
   location_id: number | null;
   location_code: string | null;
   location_path: string | null;
+  /** The movement's lot split. Empty when the product is not lot-tracked. */
+  lots?: { lot_number: string; qty: number }[];
 }
 
 export interface MovementsPage {

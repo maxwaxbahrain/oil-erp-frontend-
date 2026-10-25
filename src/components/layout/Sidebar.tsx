@@ -285,6 +285,7 @@ export default function Sidebar({
                 <NavItem to="/warehouse/locations" icon={Package} label="Locations" />
                 <NavItem to="/warehouse/picking" icon={Package} label="Picking" />
                 <NavItem to="/warehouse/counts" icon={Package} label="Counts" />
+                <NavItem to="/warehouse/expiry" icon={Package} label="Expiring stock" />
                 {canSeeManagement && showNav('/warehouse/valuation') && (
                     <NavItem to="/warehouse/valuation" icon={Package} label="Inventory valuation" />
                 )}

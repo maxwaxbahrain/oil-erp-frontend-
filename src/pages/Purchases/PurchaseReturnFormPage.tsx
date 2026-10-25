@@ -15,6 +15,8 @@ import {
 import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
 import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
 import { planBarcodeScan, readDocumentEntry, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
+import { getLotBalances, type LotBalance } from '../../services/stockLotService';
+import { formatLocalDate } from '../../utils/dates';
 
 const POST_CONFIRM = 'Post this return? Stock will go down and the supplier balance will be reduced.';
 const ESTIMATE_LABEL = 'Estimated — final cost is set when posted';
@@ -26,6 +28,8 @@ interface DraftLine {
   reason: string;
   enteredUom?: 'base' | 'pack';
   packQtySnapshot?: number | null;
+  /** Lot-tracked products: the lot to return from. Blank = FEFO. */
+  lot_id?: string;
 }
 
 function todayIsoLocal(): string {
@@ -61,6 +65,8 @@ export default function PurchaseReturnFormPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [catalogPacks, setCatalogPacks] = useState<Map<string, PackProduct>>(new Map());
+  const [trackedIds, setTrackedIds] = useState<Set<string>>(new Set());
+  const [lotsByProduct, setLotsByProduct] = useState<Record<string, LotBalance[]>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +94,9 @@ export default function PurchaseReturnFormPage() {
         try {
           const catalog = await getCatalogProducts();
           const packs = new Map<string, PackProduct>();
+          const tracked = new Set<string>();
           for (const row of catalog) {
+            if (row.lotTracked || row.expiryTracked) tracked.add(String(row.id));
             packs.set(String(row.id), {
               id: row.id,
               packQty: row.packQty,
@@ -98,8 +106,10 @@ export default function PurchaseReturnFormPage() {
             });
           }
           setCatalogPacks(packs);
+          setTrackedIds(tracked);
         } catch {
           setCatalogPacks(new Map());
+          setTrackedIds(new Set());
         }
         if (!editId) return;
         const row = await get(editId);
@@ -127,6 +137,7 @@ export default function PurchaseReturnFormPage() {
                 reason: line.reason || '',
                 enteredUom: entry.enteredUom,
                 packQtySnapshot: entry.packQtySnapshot,
+                lot_id: line.lot_id != null ? String(line.lot_id) : '',
                 };
               })
             : [blankLine()],
@@ -141,6 +152,25 @@ export default function PurchaseReturnFormPage() {
       cancelled = true;
     };
   }, [editId, navigate]);
+
+  useEffect(() => {
+    const wanted = Array.from(new Set(lines.map((line) => line.product_id)))
+      .filter((pid) => pid && trackedIds.has(pid) && !(pid in lotsByProduct));
+    if (wanted.length === 0) return;
+    let cancelled = false;
+    Promise.all(wanted.map((pid) => getLotBalances(Number(pid)).then((rows) => [pid, rows] as const).catch(() => [pid, []] as const)))
+      .then((entries) => {
+        if (cancelled) return;
+        setLotsByProduct((prev) => {
+          const next = { ...prev };
+          for (const [pid, rows] of entries) next[pid] = [...rows];
+          return next;
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lines, trackedIds, lotsByProduct]);
 
   const productById = useMemo(() => {
     const map = new Map<string, Product>();
@@ -296,6 +326,7 @@ export default function PurchaseReturnFormPage() {
         entered_qty: Number(priced.entered_qty),
         entered_uom: String(priced.entered_uom),
         entered_unit_price: Number(priced.entered_unit_price),
+        ...(trackedIds.has(line.product_id) && line.lot_id ? { lot_id: Number(line.lot_id) } : {}),
       });
     }
     if (refundMode === 'bank' && !refundAccountId) {
@@ -491,6 +522,24 @@ export default function PurchaseReturnFormPage() {
                   <Trash2 size={16} />
                 </button>
               </div>
+              {trackedIds.has(line.product_id) && (
+                <label className="sm:col-span-12 text-xs font-bold text-gray-600">
+                  Lot
+                  <select
+                    aria-label="Lot"
+                    value={line.lot_id ?? ''}
+                    onChange={(e) => updateLine(line.key, { lot_id: e.target.value })}
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Earliest expiry first (FEFO)</option>
+                    {(lotsByProduct[line.product_id] ?? []).map((lot) => (
+                      <option key={`${lot.lot_id}-${lot.location_id ?? 'none'}`} value={String(lot.lot_id)}>
+                        {`${lot.lot_number} · ${lot.expiry_date ? formatLocalDate(lot.expiry_date) : 'no expiry'} · ${lot.qty}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {overStock && (
                 <p data-testid="stock-warning" className="sm:col-span-12 text-xs font-semibold text-amber-800">
                   Quantity exceeds stock ({stock}).

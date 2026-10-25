@@ -506,7 +506,14 @@ export default function LocationsPage() {
                       <tbody>
                         {onHand.map((row) => (
                           <tr key={row.productId}>
-                            <td style={{ padding: 4 }}>{row.name || row.sku || row.productId}</td>
+                            <td style={{ padding: 4 }}>
+                              {row.name || row.sku || row.productId}
+                              {row.lots && row.lots.length > 0 && (
+                                <div data-testid={`location-lots-${row.productId}`} style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>
+                                  {row.lots.map((lot) => `${lot.lot_number} ${lot.qty}`).join(' · ')}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ padding: 4, textAlign: 'right' }}>{row.onHand}</td>
                             <td style={{ padding: 4, textAlign: 'right' }}>
                               <button type="button" style={btn} aria-label={`Move ${row.productId}`} onClick={() => setTransferOpen(row)}>
