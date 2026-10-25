@@ -35,6 +35,7 @@ import PickingPage from '../pages/Warehouse/Picking';
 import PickListPage from '../pages/Warehouse/PickList';
 import CountsPage from '../pages/Warehouse/Counts';
 import CountSheetPage from '../pages/Warehouse/CountSheet';
+import ExpiringStockPage from '../pages/Warehouse/ExpiringStock';
 import CustomerList from '../pages/Customers/CustomerList';
 import CustomerOverview from '../pages/Customers/CustomerOverview';
 import CustomerFormPage from '../pages/Customers/CustomerFormPage';
@@ -346,6 +347,7 @@ export const AppRoutes = () => {
             <Route path="/warehouse/picking/:id" element={<PickListPage />} />
             <Route path="/warehouse/counts" element={<CountsPage />} />
             <Route path="/warehouse/counts/:id" element={<CountSheetPage />} />
+            <Route path="/warehouse/expiry" element={<ExpiringStockPage />} />
             </Route>
 
             {/* Internal web staff — full ERP modules */}

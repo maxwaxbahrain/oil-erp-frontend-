@@ -25,6 +25,7 @@ import { getSystemSettings, formatCurrency } from '../../services/settingsServic
 import { getSuggestSettings, type SuggestSettings } from '../../services/reorderService';
 import { ImageUpload } from '../../components/Inventory/ImageUpload';
 import CostHistoryPanel from '../../components/Inventory/CostHistoryPanel';
+import { setLotTracking } from '../../services/stockLotService';
 
 export default function ProductForm() {
     const { id } = useParams();
@@ -34,6 +35,9 @@ export default function ProductForm() {
 
     const [loading, setLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
+    const [trackingError, setTrackingError] = useState<string | null>(null);
+    const [trackingBusy, setTrackingBusy] = useState(false);
     const [categories, setCategories] = useState<ProductCategory[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [stockLocations, setStockLocations] = useState<StockLocationNode[]>([]);
@@ -179,6 +183,8 @@ export default function ProductForm() {
                     ...formData,
                     baseUnit: (formData.baseUnit || '').trim() || formData.uom,
                     costMethod: formData.costMethod || 'average',
+                    // Edit mode: tracking was already saved by its own endpoint.
+                    ...(isEdit ? { lotTracked: undefined, expiryTracked: undefined } : {}),
                 },
                 costChangeReason ? { costChangeReason } : undefined,
             );
@@ -190,6 +196,41 @@ export default function ProductForm() {
             setFormError(message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    /** Edit mode: tracking goes through its own endpoint (it seeds UNASSIGNED lots), not the product PUT. */
+    const changeTracking = async (next: { lotTracked: boolean; expiryTracked: boolean }) => {
+        if (!isEdit || !id) {
+            setFormData({
+                ...formData,
+                lotTracked: next.lotTracked,
+                expiryTracked: next.expiryTracked,
+                shelfLifeDays: next.expiryTracked ? formData.shelfLifeDays : undefined,
+            });
+            return;
+        }
+        setTrackingBusy(true);
+        setTrackingError(null);
+        setTrackingMessage(null);
+        try {
+            const result = await setLotTracking(Number(id), { lot_tracked: next.lotTracked, expiry_tracked: next.expiryTracked });
+            setFormData((prev) => ({
+                ...prev,
+                lotTracked: result.lot_tracked,
+                expiryTracked: result.expiry_tracked,
+                shelfLifeDays: result.expiry_tracked ? prev.shelfLifeDays : undefined,
+            }));
+            if (result.seeded.length > 0) {
+                const units = result.seeded.reduce((sum, row) => sum + row.qty, 0);
+                setTrackingMessage(`Seeded ${units} units into UNASSIGNED at ${result.seeded.length} location(s)`);
+            } else {
+                setTrackingMessage(result.lot_tracked || result.expiry_tracked ? 'Tracking is on.' : 'Tracking is off.');
+            }
+        } catch (error) {
+            setTrackingError(error instanceof Error ? error.message : 'Could not change tracking.');
+        } finally {
+            setTrackingBusy(false);
         }
     };
 
@@ -750,7 +791,13 @@ export default function ProductForm() {
                             <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-4">Tracking</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <label className="flex items-center gap-3 text-sm font-bold text-gray-700">
-                                    <input type="checkbox" aria-label="Lot tracked" checked={!!formData.lotTracked} onChange={(e) => setFormData({ ...formData, lotTracked: e.target.checked })} />
+                                    <input
+                                        type="checkbox"
+                                        aria-label="Lot tracked"
+                                        checked={!!formData.lotTracked}
+                                        disabled={trackingBusy}
+                                        onChange={(e) => void changeTracking({ lotTracked: e.target.checked, expiryTracked: !!formData.expiryTracked })}
+                                    />
                                     Lot tracked
                                 </label>
                                 <label className="flex items-center gap-3 text-sm font-bold text-gray-700">
@@ -758,11 +805,8 @@ export default function ProductForm() {
                                         type="checkbox"
                                         aria-label="Expiry tracked"
                                         checked={!!formData.expiryTracked}
-                                        onChange={(e) => setFormData({
-                                            ...formData,
-                                            expiryTracked: e.target.checked,
-                                            shelfLifeDays: e.target.checked ? formData.shelfLifeDays : undefined,
-                                        })}
+                                        disabled={trackingBusy}
+                                        onChange={(e) => void changeTracking({ lotTracked: !!formData.lotTracked, expiryTracked: e.target.checked })}
                                     />
                                     Expiry tracked
                                 </label>
@@ -777,6 +821,8 @@ export default function ProductForm() {
                                 />
                                 <input aria-label="Hazmat class" className={fieldClass} placeholder="Hazmat class" value={formData.hazmatClass ?? ''} onChange={(e) => setFormData({ ...formData, hazmatClass: e.target.value })} />
                             </div>
+                            {trackingMessage && <p data-testid="tracking-message" className="mt-2 text-xs font-bold text-gray-600">{trackingMessage}</p>}
+                            {trackingError && <p role="alert" data-testid="tracking-error" className="mt-2 text-xs font-bold text-rose-700">{trackingError}</p>}
                         </div>
 
                         <div>

@@ -19,6 +19,7 @@ export interface PurchaseReturnLine {
   entered_uom?: string | null;
   entered_unit_price?: number | null;
   pack_qty_snapshot?: number | null;
+  lot_id?: number | null;
 }
 
 export interface PurchaseReturn {
@@ -46,6 +47,8 @@ export interface PurchaseReturnLineInput {
   product_id: number;
   quantity: number;
   reason: string;
+  /** Lot-tracked products: return from this lot. Omitted means FEFO. */
+  lot_id?: number | null;
   entered_qty?: number;
   entered_uom?: string;
   entered_unit_price?: number;
@@ -94,6 +97,7 @@ function mapLine(raw: Record<string, unknown>): PurchaseReturnLine {
     entered_uom: entry.enteredUom,
     entered_unit_price: entry.enteredUnitPrice,
     pack_qty_snapshot: entry.packQtySnapshot,
+    lot_id: numOrNull(raw.lot_id),
   };
 }
 

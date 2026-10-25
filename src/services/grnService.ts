@@ -31,6 +31,10 @@ export interface GRNItem {
     enteredUnitPrice?: number;
     packQtySnapshot?: number | null;
     locationId?: number | null;
+    /** Lot-tracked products: required on receipt. */
+    lotNumber?: string;
+    /** YYYY-MM-DD. Blank lets the backend use received date + shelf life. */
+    expiryDate?: string;
 }
 
 export interface GRN {
@@ -227,7 +231,7 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
     const skipped: PostGRNResult['skipped'] = [];
 
     // Batch goods receipt — one backend call updates stock/cost and posts GL once.
-    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number; locationId?: number | null }> = [];
+    const receiptLines: Array<{ productId: number; productName?: string; quantity: number; unitCost: number; locationId?: number | null; lotNumber?: string; expiryDate?: string }> = [];
 
     for (const item of grn.items) {
         if (item.acceptedQty <= 0) {
@@ -258,6 +262,8 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
             quantity: item.acceptedQty,
             unitCost,
             locationId: item.locationId ?? null,
+            lotNumber: item.lotNumber?.trim() || undefined,
+            expiryDate: item.expiryDate || undefined,
         });
     }
 
@@ -297,6 +303,8 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
                     entered_uom: 'base',
                     entered_unit_price: line.unitCost,
                     ...(line.locationId != null ? { location_id: line.locationId } : {}),
+                    ...(line.lotNumber ? { lotNumber: line.lotNumber } : {}),
+                    ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
                 })),
             }),
         });
@@ -328,9 +336,11 @@ export const postGRN = async (grnId: string): Promise<PostGRNResult> => {
         const failSummary = failures.length
             ? failures.map((f) => f.productName || f.productId).join(', ')
             : skipped.filter((s) => s.reason === 'no-productId').map((s) => s.productName || 'unnamed line').join(', ');
+        // The backend detail (e.g. a missing lot number) says why; keep it in the message.
+        const reasons = Array.from(new Set(failures.map((f) => f.reason).filter(Boolean)));
         throw new Error(
             failures.length
-                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}`
+                ? `No stock was updated — all ${failures.length} item(s) failed: ${failSummary}${reasons.length ? ` (${reasons.join('; ')})` : ''}`
                 : `No stock was updated — no line items had a linked product. Link products on the PO before receiving.`,
         );
     }

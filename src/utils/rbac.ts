@@ -92,6 +92,7 @@ export const WAREHOUSE_SIDEBAR_PATHS: ReadonlySet<string> = new Set([
     '/warehouse/picking',
     '/warehouse/counts',
     '/warehouse/counts/:id',
+    '/warehouse/expiry',
 ]);
 
 export function isSpodFieldRole(role: AuthRole | undefined): boolean {

@@ -40,6 +40,12 @@ interface AssignableUser {
   role: string;
 }
 
+/** "14 Nov" — formatting only. */
+function shortDate(iso: string): string {
+  const parsed = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'Request failed';
 }
@@ -74,6 +80,8 @@ export default function PickListPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [qtyByLine, setQtyByLine] = useState<Record<number, string>>({});
+  // Lot-tracked lines: picked qty per preview lot, prefilled from the FEFO preview.
+  const [lotQtyByLine, setLotQtyByLine] = useState<Record<number, Record<number, string>>>({});
   const [shortFor, setShortFor] = useState<number | null>(null);
   const [shortNote, setShortNote] = useState('');
   const [skipNote, setSkipNote] = useState<Record<number, string>>({});
@@ -167,7 +175,27 @@ export default function PickListPage() {
     }
   }
 
+  function lotPlan(line: PickLine) {
+    return line.lots.map((lot, index) => {
+      const raw = lotQtyByLine[line.id]?.[index];
+      const parsed = raw == null || raw === '' ? lot.qty : Number(raw);
+      return { ...lot, qty: Number.isFinite(parsed) ? parsed : 0 };
+    });
+  }
+
   async function submit(line: PickLine, qty: number, extra?: { note?: string; pickedLocationId?: number }) {
+    let lotsPicked: { lotId: number; qty: number }[] | undefined;
+    if (line.lots.length > 0 && qty > 0) {
+      const plan = lotPlan(line);
+      const total = plan.reduce((sum, lot) => sum + lot.qty, 0);
+      if (Math.abs(total - qty) > 1e-9) {
+        setLineError((prev) => ({ ...prev, [line.id]: `Lot quantities must add up to ${qty}` }));
+        return;
+      }
+      lotsPicked = plan
+        .filter((lot) => lot.lotId != null && lot.qty > 0)
+        .map((lot) => ({ lotId: lot.lotId as number, qty: lot.qty }));
+    }
     setBusy(true);
     setLineError((prev) => ({ ...prev, [line.id]: '' }));
     try {
@@ -175,6 +203,7 @@ export default function PickListPage() {
         qty,
         note: extra?.note,
         pickedLocationId: extra?.pickedLocationId,
+        lotsPicked,
       });
       await refresh();
       setEditing((prev) => ({ ...prev, [line.id]: false }));
@@ -276,6 +305,11 @@ export default function PickListPage() {
           <article key={line.id} data-testid={`pick-line-${line.id}`} style={cardStyle(line.status, highlightId === line.id)}>
             <div style={{ fontSize: 22, fontWeight: 700 }}>{line.locationPath || line.locationCode || '—'}</div>
             <div style={{ fontSize: 14 }}>{line.productName} · {line.sku}</div>
+            {line.lots.length > 0 && (
+              <div data-testid={`pick-lots-${line.id}`} style={{ fontSize: 13, fontWeight: 600 }}>
+                {`Take: ${line.lots.map((lot) => `${lot.lotNumber} ×${lot.qty}${lot.expiryDate ? ` (exp ${shortDate(lot.expiryDate)})` : ''}`).join(', ')}`}
+              </div>
+            )}
             <div style={{ fontSize: 13 }}>Need {line.qtyRequired}</div>
             {!showInputs ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -284,6 +318,26 @@ export default function PickListPage() {
               </div>
             ) : (
               <>
+                {line.lots.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 12 }}>
+                    {line.lots.map((lot, index) => (
+                      <label key={`${lot.lotNumber}-${index}`} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        {lot.lotNumber}
+                        <input
+                          aria-label={`Lot ${lot.lotNumber} qty for line ${line.id}`}
+                          type="number"
+                          min={0}
+                          style={{ width: 64 }}
+                          value={lotQtyByLine[line.id]?.[index] ?? String(lot.qty)}
+                          onChange={(event) => setLotQtyByLine((prev) => ({
+                            ...prev,
+                            [line.id]: { ...(prev[line.id] ?? {}), [index]: event.target.value },
+                          }))}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <input
                   id={`pick-qty-${line.id}`}
                   aria-label={`Qty for line ${line.id}`}
