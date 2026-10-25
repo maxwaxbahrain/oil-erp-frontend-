@@ -23,6 +23,15 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'Request failed';
 }
 
+/** Review: lines to post and the estimate at frozen cost. Approved: the amount actually posted. */
+function varianceSummary(row: CycleCount): string {
+  if (row.status === 'approved' && row.posted_value != null) return `posted ${formatCurrency(row.posted_value)}`;
+  if (row.variance_lines == null) return '—';
+  const value = row.variance_value != null ? ` · est. ${formatCurrency(row.variance_value)}` : '';
+  if (row.status === 'review') return `${row.variance_lines} to post${value}`;
+  return `${row.variance_lines}${value}`;
+}
+
 function when(value: string | null): string {
   return value ? value.slice(0, 16).replace('T', ' ') : '—';
 }
@@ -123,11 +132,7 @@ export default function CountsPage() {
                 </td>
                 <td style={td}><span style={pill(countStatusColor(row.status))}>{row.status}</span></td>
                 <td style={td}>{`${row.lines_counted} / ${row.lines_total}`}</td>
-                <td style={td} data-testid={`count-variance-${row.id}`}>
-                  {row.variance_lines != null
-                    ? `${row.variance_lines}${row.variance_value != null ? ` · ${formatCurrency(row.variance_value)}` : ''}`
-                    : '—'}
-                </td>
+                <td style={td} data-testid={`count-variance-${row.id}`}>{varianceSummary(row)}</td>
                 <td style={td}>{when(row.created_at)}</td>
                 <td style={td}>{when(row.started_at)}</td>
                 <td style={td}>

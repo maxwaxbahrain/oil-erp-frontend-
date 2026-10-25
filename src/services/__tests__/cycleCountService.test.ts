@@ -7,6 +7,7 @@ vi.mock('../api', () => ({ API_BASE_URL: 'https://api.test/api' }));
 
 import {
   addFoundLine,
+  approveCount,
   cancelCount,
   completeCount,
   createCount,
@@ -15,6 +16,7 @@ import {
   listCounts,
   recordLine,
   recountLine,
+  rejectLine,
   skipLine,
   startCount,
 } from '../cycleCountService';
@@ -49,6 +51,9 @@ describe('cycleCountService URLs and bodies match app/api/cycle_counts.py', () =
     await completeCount(7);
     await cancelCount(7);
     await getVariances(7);
+    await rejectLine(7, 3, ' wrong bin ');
+    await rejectLine(7, 4);
+    await approveCount(7);
 
     expect(calls()).toEqual([
       ['https://api.test/api/counts', 'GET', undefined],
@@ -64,6 +69,9 @@ describe('cycleCountService URLs and bodies match app/api/cycle_counts.py', () =
       ['https://api.test/api/counts/7/complete', 'POST', {}],
       ['https://api.test/api/counts/7/cancel', 'POST', {}],
       ['https://api.test/api/counts/7/variances', 'GET', undefined],
+      ['https://api.test/api/counts/7/lines/3/reject', 'POST', { note: 'wrong bin' }],
+      ['https://api.test/api/counts/7/lines/4/reject', 'POST', { note: null }],
+      ['https://api.test/api/counts/7/approve', 'POST', {}],
     ]);
   });
 
@@ -72,5 +80,9 @@ describe('cycleCountService URLs and bodies match app/api/cycle_counts.py', () =
       Promise.resolve(new Response(JSON.stringify({ detail: '2 line(s) still need a count or a skip' }), { status: 400 })),
     );
     await expect(completeCount(7)).rejects.toThrow('2 line(s) still need a count or a skip');
+    authFetch.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ detail: 'variances are shown after the count is completed' }), { status: 403 })),
+    );
+    await expect(getVariances(7)).rejects.toMatchObject({ status: 403, message: 'variances are shown after the count is completed' });
   });
 });

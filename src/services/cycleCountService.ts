@@ -97,9 +97,20 @@ function url(path: string, params: Record<string, string | undefined> = {}): str
   return `${API_BASE_URL}/counts${path}${qs ? `?${qs}` : ''}`;
 }
 
+/** Error carrying the HTTP status, so a page can treat a 403 quietly. */
+export class CountApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'CountApiError';
+    this.status = status;
+  }
+}
+
 async function readJson<T>(target: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(target, init);
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw new CountApiError(await parseError(res), res.status);
   return res.json() as Promise<T>;
 }
 
@@ -150,6 +161,16 @@ export function completeCount(id: number): Promise<CycleCountDetail> {
 
 export function cancelCount(id: number): Promise<CycleCountDetail> {
   return post<CycleCountDetail>(`/${id}/cancel`);
+}
+
+/** Admin/manager, status review: no adjustment will be posted for this line. */
+export function rejectLine(id: number, lineId: number, note?: string): Promise<CycleCountDetail> {
+  return post<CycleCountDetail>(`/${id}/lines/${lineId}/reject`, { note: note?.trim() || null });
+}
+
+/** Admin/manager, status review: posts each variance line as one inventory adjustment at today's cost. */
+export function approveCount(id: number): Promise<CycleCountDetail> {
+  return post<CycleCountDetail>(`/${id}/approve`);
 }
 
 export function getVariances(id: number): Promise<CountVariances> {

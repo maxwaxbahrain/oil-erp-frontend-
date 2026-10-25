@@ -11,6 +11,7 @@ import {
   rejectProposal,
   type AgentProposal,
   type BinTransferProposalResult,
+  type CycleCountProposalResult,
   type DraftPoProposalResult,
   type ProposalKind,
   type ProposalStatus,
@@ -23,6 +24,7 @@ const KIND_LABELS: Record<ProposalKind, string> = {
   draft_po: 'Draft PO',
   snooze: 'Snooze',
   bin_transfer: 'Bin transfer',
+  cycle_count: 'Cycle count',
 };
 
 /** What approving creates, restated in the confirm dialog. */
@@ -30,6 +32,7 @@ const KIND_EFFECTS: Record<ProposalKind, string> = {
   draft_po: 'This creates a draft purchase order with the supplier. Nothing is sent or received.',
   snooze: 'This hides the product from reorder suggestions until the snooze ends.',
   bin_transfer: 'This moves the stock between the two locations (one transfer out, one transfer in). No journal is posted.',
+  cycle_count: 'This opens a draft count that someone still has to perform. Stock does not change until the count is approved.',
 };
 
 const READ_ONLY_TIP = 'Only admin, manager, or warehouse users can approve or reject proposals.';
@@ -201,6 +204,16 @@ function ProposalResult({ row }: { row: AgentProposal }) {
   if (row.kind === 'snooze') {
     const result = row.result as SnoozeProposalResult;
     return <div style={{ fontSize: '12px', marginTop: '4px' }}>Snoozed until {formatLocalDate(result.until) || result.until}</div>;
+  }
+  if (row.kind === 'cycle_count') {
+    const result = row.result as CycleCountProposalResult;
+    return (
+      <div style={{ fontSize: '12px', marginTop: '4px' }}>
+        <Link to={`/warehouse/counts/${result.count_id}`} style={{ fontWeight: 600, textDecoration: 'underline' }}>
+          {`Count ${result.count_number} created · ${result.lines_total} line${result.lines_total === 1 ? '' : 's'}`}
+        </Link>
+      </div>
+    );
   }
   const result = row.result as BinTransferProposalResult;
   return (

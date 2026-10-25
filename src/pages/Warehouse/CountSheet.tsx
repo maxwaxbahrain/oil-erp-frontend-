@@ -21,6 +21,7 @@ import { getProducts, lookupProductByBarcode, type Product } from '../../service
 import { formatCurrency } from '../../services/settingsService';
 import { getLocationsFlat, type StockLocationNode } from '../../services/stockLocationService';
 import { countStatusColor, scopeLabel } from './countLabels';
+import CountVariances from './CountVariances';
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'Request failed';
@@ -201,6 +202,10 @@ export default function CountSheetPage() {
           {scanError && <p role="alert" data-testid="scan-error" style={{ color: '#ef4444', fontSize: 12 }}>{scanError}</p>}
           <button type="button" style={btn} onClick={() => setFoundOpen(true)}>Found item</button>
         </div>
+      )}
+
+      {(count.status === 'review' || count.status === 'approved') && (
+        <CountVariances count={count} canManage={canManage} onChanged={setCount} />
       )}
 
       {groups.map((group) => (
