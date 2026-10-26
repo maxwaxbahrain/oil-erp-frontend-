@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -7,31 +7,28 @@ import { isStaging } from '../../../config/appEnv';
 import { getPayments, getVanLocations } from '../../../services/api';
 import { getExpenseStats } from '../../../services/expenseService';
 import { listDeliveryNotes } from '../../../services/deliveryService';
-import { getAllLeaveRequests } from '../../../services/leaveService';
 import { deriveVanLiveStatus } from '../../../lib/vanLiveStatus';
 import {
   alertShellReady,
   attentionFactsFromAlerts,
   computeAlertCounts,
-  formatAttentionWelcome,
   shellLoadFailureLines,
 } from '../../../utils/alertCounts';
 import { firstName } from '../zavaCopy';
-import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
-  PLANET_STATUS_COLOR,
   buildTimelineEvents,
-  comingUpCards,
-  needsYouCards,
   type NexusSignalCard,
   type SourceResult,
   type TimelineEvent,
-  type TimelineLaneId,
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
+import NexusAsk from './NexusAsk';
 import NexusHero, { formatHeroSpeakLine } from './NexusHero';
+import NexusLiveStrip from './NexusLiveStrip';
+import NexusNeedsYou from './NexusNeedsYou';
 import NexusOrbit from './NexusOrbit';
 import NexusTopMetrics from './NexusTopMetrics';
+import type { LoadSlot, LoadSlotState } from './liveStripModel';
 import {
   buildHomeModules,
   clearHomeSummaryCache,
@@ -58,12 +55,6 @@ function todayIsoLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
-function laneLabel(lane: TimelineLaneId): string {
-  if (lane === 'money') return 'Money';
-  if (lane === 'goods') return 'Goods';
-  return 'Team';
-}
-
 function okResult<T>(value: T): SourceResult<T> {
   return { state: 'ok', value };
 }
@@ -74,10 +65,11 @@ function unavailableResult<T = number>(): SourceResult<T> {
   return { state: 'unavailable' };
 }
 
-function formatNowLabel(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `NOW ${hh}:${mm}`;
+function shellToSlot(raw: string): LoadSlotState {
+  if (raw === 'ok') return 'ok';
+  if (raw === 'failed') return 'error';
+  if (raw === 'loading') return 'loading';
+  return 'unavailable';
 }
 
 export default function NexusPage() {
@@ -90,7 +82,7 @@ export default function NexusPage() {
   const [cardsLoad, setCardsLoad] = useState<SourceResult<true>>(unavailableResult());
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  const [dismissed] = useState<Set<string>>(() => new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const [now, setNow] = useState(() => new Date());
   const [moduleExtras, setModuleExtras] = useState<ModuleSourceExtras>({});
@@ -99,6 +91,9 @@ export default function NexusPage() {
     count?: number;
   }>({ state: 'unavailable' });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [liveRefreshKey, setLiveRefreshKey] = useState(0);
+  const [paymentsTodayLoad, setPaymentsTodayLoad] = useState<LoadSlotState>('unavailable');
+  const [dnsTodayLoad, setDnsTodayLoad] = useState<LoadSlotState>('unavailable');
   const cacheKey = homeSummaryCacheKey(
     (user as { tenant_id?: number | string } | null)?.tenant_id ?? null,
     user?.id ?? null,
@@ -131,18 +126,6 @@ export default function NexusPage() {
   const shellReady = alertShellReady(shell);
   const loadFailures = useMemo(() => shellLoadFailureLines(alertCounts), [alertCounts]);
   const attentionFacts = useMemo(() => attentionFactsFromAlerts(alertCounts), [alertCounts]);
-  const cardsLoadOk = cardsLoad.state === 'ok';
-  const welcomeLine = useMemo(
-    () =>
-      formatAttentionWelcome({
-        firstName: name,
-        shellReady,
-        facts: attentionFacts,
-        loadFailures,
-      }),
-    [name, shellReady, attentionFacts, loadFailures],
-  );
-
   // Instant cache + background refresh once shell is ready.
   useEffect(() => {
     if (!isStaging || !shellReady) return;
@@ -195,7 +178,7 @@ export default function NexusPage() {
     return () => window.clearInterval(t);
   }, []);
 
-  // Progressive extras: signals, vans, expenses, timeline — settle one-by-one.
+  // Progressive extras: signals, vans, expenses — settle one-by-one.
   useEffect(() => {
     if (!isStaging) return;
     let cancelled = false;
@@ -211,8 +194,6 @@ export default function NexusPage() {
     };
 
     void (async () => {
-      const day = todayIsoLocal();
-
       void run(api.get<{ cards: NexusSignalCard[] }>('/api/agent/signals')).then((signalsSettled) => {
         void run(api.get<HealthBody>('/api/agent/data-health')).then((healthSettled) => {
           if (cancelled) return;
@@ -266,24 +247,6 @@ export default function NexusPage() {
             : { state: 'error' },
         );
       });
-
-      const [paymentsSettled, dnsSettled, leaveSettled] = await Promise.all([
-        run(getPayments({ start_date: day, end_date: day })),
-        run(listDeliveryNotes({ delivery_date: day })),
-        run(getAllLeaveRequests()),
-      ]);
-      if (cancelled) return;
-      const payments = paymentsSettled.status === 'fulfilled' ? paymentsSettled.value : [];
-      const dns = dnsSettled.status === 'fulfilled' ? dnsSettled.value : [];
-      const leave = leaveSettled.status === 'fulfilled' ? leaveSettled.value : [];
-      setTimeline(
-        buildTimelineEvents({
-          now: new Date(),
-          payments,
-          deliveryNotes: dns,
-          leaveRequests: leave,
-        }),
-      );
     })();
 
     return () => {
@@ -291,14 +254,84 @@ export default function NexusPage() {
     };
   }, [reloadKey]);
 
+  // LIVE strip: today's payments + delivery notes (quiet 60s refresh via liveRefreshKey).
+  useEffect(() => {
+    if (!isStaging) return;
+    let cancelled = false;
+    const day = todayIsoLocal();
+    const run = async <T,>(p: Promise<T>): Promise<PromiseSettledResult<T>> => {
+      try {
+        const value = await p;
+        return { status: 'fulfilled', value };
+      } catch (reason) {
+        return { status: 'rejected', reason };
+      }
+    };
+    void (async () => {
+      const [paymentsSettled, dnsSettled] = await Promise.all([
+        run(getPayments({ start_date: day, end_date: day })),
+        run(listDeliveryNotes({ delivery_date: day })),
+      ]);
+      if (cancelled) return;
+      setPaymentsTodayLoad(paymentsSettled.status === 'fulfilled' ? 'ok' : 'error');
+      setDnsTodayLoad(dnsSettled.status === 'fulfilled' ? 'ok' : 'error');
+      const payments = paymentsSettled.status === 'fulfilled' ? paymentsSettled.value : [];
+      const dns = dnsSettled.status === 'fulfilled' ? dnsSettled.value : [];
+      setTimeline(
+        buildTimelineEvents({
+          now: new Date(),
+          payments,
+          deliveryNotes: dns,
+          leaveRequests: [],
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, liveRefreshKey]);
+
   const needs = attentionFacts.length;
-  const signalNeeds = cardsLoadOk ? needsYouCards(cards).filter((c) => !dismissed.has(c.id)) : [];
   const speakable = cards.filter((c) => !dismissed.has(c.id));
   const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
-  const upcoming = comingUpCards(speakable, activeCard?.id);
-  const nowMinute = now.getHours() * 60 + now.getMinutes();
-  const activeIndex = activeCard ? speakable.findIndex((c) => c.id === activeCard.id) + 1 : 0;
-  const speakModule = String(activeCard?.module || 'Update').toUpperCase();
+
+  const loadSlots: LoadSlot[] = useMemo(
+    () => [
+      { id: 'ar', state: shellToSlot(shell.arLoad) },
+      { id: 'invoices', state: shellToSlot(shell.invoicesLoad) },
+      { id: 'payments', state: shellToSlot(shell.paymentsLoad) },
+      { id: 'products', state: shellToSlot(shell.productsLoad) },
+      {
+        id: 'signals',
+        state:
+          cardsLoad.state === 'ok'
+            ? 'ok'
+            : cardsLoad.state === 'error'
+              ? 'error'
+              : cardsLoad.state === 'unavailable'
+                ? 'unavailable'
+                : 'loading',
+      },
+      {
+        id: 'vans',
+        state: (moduleExtras.vans?.state as LoadSlotState | undefined) || 'unavailable',
+      },
+      { id: 'expenses', state: pendingExpensesState.state as LoadSlotState },
+      { id: 'paymentsToday', state: paymentsTodayLoad },
+      { id: 'deliveryNotes', state: dnsTodayLoad },
+    ],
+    [
+      shell.arLoad,
+      shell.invoicesLoad,
+      shell.paymentsLoad,
+      shell.productsLoad,
+      cardsLoad,
+      moduleExtras.vans?.state,
+      pendingExpensesState.state,
+      paymentsTodayLoad,
+      dnsTodayLoad,
+    ],
+  );
 
   const heroSpeakLine = useMemo(
     () => formatHeroSpeakLine(name, homeSummary, now),
@@ -321,13 +354,6 @@ export default function NexusPage() {
   const updatedLabel = homeSummary?.generated_at
     ? formatUpdatedAgo(homeSummary.generated_at, now)
     : null;
-
-  const nextUpdate = () => {
-    if (!activeCard || speakable.length < 2) return;
-    const i = speakable.findIndex((c) => c.id === activeCard.id);
-    const next = speakable[(i + 1) % speakable.length];
-    setActiveCardId(next.id);
-  };
 
   if (!isStaging) {
     return (
@@ -371,166 +397,22 @@ export default function NexusPage() {
       />
 
       <div className="zava-nexus-grid" style={gridStyle}>
-        {/* LEFT */}
-        <aside style={panelStyle}>
-          <SectionTitle>Voice link</SectionTitle>
-          <div style={voicePanelStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: '0.16em',
-                  color: voice.voiceState === 'idle' ? '#34D399' : '#5EEAD4',
-                }}
-              >
-                {voice.statusLabel.toUpperCase()}
-                {voice.countdown != null ? ` · ${voice.countdown}s` : ''}
-              </span>
-              <Waveform />
-            </div>
-            <div style={transcriptStyle}>
-              <p>
-                <span style={whoStyle}>ZAVA</span>
-                {voice.zavaLine
-                  ? ` ${voice.zavaLine}`
-                  : shellReady
-                    ? ` ${welcomeLine}`
-                    : ' Loading your numbers…'}
-              </p>
-              <p style={{ marginTop: 8 }}>
-                <span style={{ ...whoStyle, color: '#60A5FA' }}>YOU</span>
-                {voice.youLine ? ` ${voice.youLine}` : ' —'}
-              </p>
-            </div>
-            {voice.voiceNotice ? (
-              <p style={{ marginTop: 8, fontSize: 11, color: '#FBBF24' }}>{voice.voiceNotice}</p>
-            ) : null}
-            {voice.fallbackChips && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                {voice.fallbackChips.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    style={chipBtn}
-                    onClick={() => void voice.runChip(chip)}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            )}
-            {voice.pendingConfirm && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button type="button" style={chipBtn} onClick={() => void voice.confirmYes()}>
-                  Yes
-                </button>
-                <button type="button" style={chipBtn} onClick={() => void voice.confirmNo()}>
-                  No
-                </button>
-              </div>
-            )}
-            {voice.customerChoices && voice.customerChoices.length > 0 && (
-              <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
-                {voice.customerChoices.map((c) => (
-                  <li key={c.id} style={{ marginBottom: 6 }}>
-                    <button type="button" style={chipBtn} onClick={() => void voice.pickCustomer(c)}>
-                      {c.name}
-                      {c.arLoadedOk && c.balance != null
-                        ? ` · $${Math.round(c.balance).toLocaleString('en-US')}`
-                        : ''}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p style={{ marginTop: 10, fontSize: 11, color: '#64748B' }}>
-              Tap the center orb to talk · push-to-talk only
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
-            <SectionTitle style={{ marginBottom: 0 }}>Needs you</SectionTitle>
-            {shellReady && needs > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#F87171', letterSpacing: '0.08em' }}>
-                {needs} NEED YOU
-              </span>
-            )}
-          </div>
-
-          {!shellReady && <Muted>Loading…</Muted>}
-          {shellReady && loadFailures.length > 0 && (
-            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)', marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                {loadFailures.join(' ')}
-              </div>
-              <button type="button" style={primaryBtn} onClick={() => reloadShell()}>
-                Retry
-              </button>
-            </div>
-          )}
-          {shellReady
-            && loadFailures.length === 0
-            && attentionFacts.length === 0
-            && signalNeeds.length === 0 && (
-            <Muted>Nothing needs you right now.</Muted>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {attentionFacts.map((fact, idx) => (
-              <div
-                key={fact.id}
-                style={{
-                  ...cardStyle,
-                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
-                }}
-              >
-                <strong style={{ fontSize: 13, display: 'block' }}>{fact.label}</strong>
-                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>
-                  Same figure as the top alert bar
-                </p>
-                <button
-                  type="button"
-                  style={primaryBtn}
-                  onClick={() =>
-                    navigate(
-                      fact.id === 'out_of_stock'
-                        ? '/products'
-                        : fact.id === 'owed' || fact.id === 'overdue'
-                          ? '/finance/collections'
-                          : '/dashboard',
-                    )
-                  }
-                >
-                  Open
-                </button>
-              </div>
-            ))}
-            {signalNeeds.map((card, idx) => (
-              <div
-                key={card.id}
-                style={{
-                  ...cardStyle,
-                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
-                }}
-              >
-                <strong style={{ fontSize: 13, display: 'block' }}>{card.title}</strong>
-                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>{signalWhy(card.why)}</p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" style={primaryBtn} onClick={() => navigate(card.href || '/agent')}>
-                    {card.action || 'Open'}
-                  </button>
-                  <button
-                    type="button"
-                    style={ghostBtn}
-                    onClick={() => setDismissed((prev) => new Set(prev).add(card.id))}
-                  >
-                    Later
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
+        {/* LEFT — STEP 4 Needs you */}
+        <NexusNeedsYou
+          alertCounts={alertCounts}
+          attentionFacts={attentionFacts}
+          loadFailures={loadFailures}
+          cards={cards}
+          cardsLoad={cardsLoad}
+          dismissed={dismissed}
+          shellReady={shellReady}
+          onNavigate={(href) => navigate(href)}
+          onRetry={() => {
+            setReloadKey((k) => k + 1);
+            setSummaryRefreshKey((k) => k + 1);
+            reloadShell();
+          }}
+        />
 
         {/* CENTER — STEP 3 orbit */}
         <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
@@ -551,268 +433,34 @@ export default function NexusPage() {
           />
         </section>
 
-        {/* RIGHT */}
-        <aside style={panelStyle}>
-          <SectionTitle>{voice.voiceState === 'speaking' ? 'Zava · speaking' : 'Zava'}</SectionTitle>
-          {!shellReady ? (
-            <Muted>Loading…</Muted>
-          ) : activeCard ? (
-            <div style={{ ...cardStyle, borderColor: 'rgba(94,234,212,0.35)', boxShadow: '0 0 24px rgba(45,212,191,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#5EEAD4' }}>
-                  {speakModule} ({activeIndex} OF {speakable.length || 1})
-                </span>
-                <Waveform compact />
-              </div>
-              <strong style={{ fontSize: 16, display: 'block', lineHeight: 1.3 }}>{activeCard.title}</strong>
-              <div style={{ fontSize: 20, fontWeight: 800, margin: '10px 0 8px', color: '#F8FAFC' }}>
-                {signalFigure(activeCard) || companyAmount(activeCard.money)}
-              </div>
-              <p style={{ fontSize: 12, color: '#94A3B8', margin: '0 0 14px', lineHeight: 1.45 }}>
-                {signalWhy(activeCard.why)}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" style={tealBtn} onClick={() => navigate(activeCard.href || '/agent')}>
-                  {activeCard.action || 'Open'}
-                </button>
-                <button type="button" style={ghostBtn} onClick={nextUpdate} disabled={speakable.length < 2}>
-                  Next update
-                </button>
-              </div>
-            </div>
-          ) : (
-            <Muted>
-              {attentionFacts.length > 0
-                ? welcomeLine
-                : cardsLoad.state === 'error'
-                  ? "Couldn't load signal details."
-                  : 'No extra updates yet.'}
-            </Muted>
-          )}
-
-          <SectionTitle style={{ marginTop: 22 }}>Coming up</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {upcoming.length === 0 && <Muted>{cardsLoad.state === 'unavailable' ? 'Loading…' : 'None right now.'}</Muted>}
-            {upcoming.map((card) => {
-                const color =
-                  String(card.priority).toLowerCase() === 'urgent'
-                    ? PLANET_STATUS_COLOR.needs_you
-                    : String(card.priority).toLowerCase() === 'today'
-                      ? PLANET_STATUS_COLOR.watch
-                      : PLANET_STATUS_COLOR.info;
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => setActiveCardId(card.id)}
-                    style={{
-                      display: 'flex',
-                      gap: 10,
-                      alignItems: 'flex-start',
-                      textAlign: 'left',
-                      background: 'transparent',
-                      border: 'none',
-                      borderBottom: '1px solid rgba(148,163,184,0.1)',
-                      padding: '10px 0',
-                      cursor: 'pointer',
-                      color: '#E2E8F0',
-                      width: '100%',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: color,
-                        boxShadow: `0 0 8px ${color}`,
-                        marginTop: 5,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span>
-                      <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
-                        {card.module ? String(card.module).replace(/^\w/, (c) => c.toUpperCase()) : 'Update'}
-                      </span>
-                      <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
-                        {card.title}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-        </aside>
+        {/* RIGHT — STEP 5 Ask Zava */}
+        <NexusAsk
+          onNavigate={(href) => navigate(href)}
+          onMicTap={voice.onMicTap}
+          micActive={voice.voiceState === 'listening' || voice.voiceState === 'speaking'}
+          voiceYouLine={voice.youLine}
+          voiceZavaLine={voice.zavaLine}
+          voiceThinking={voice.voiceState === 'thinking'}
+          voiceNavHref={activeCard?.href || null}
+          voiceNavLabel={activeCard ? 'Open update' : null}
+        />
       </div>
 
-      {/* Timeline */}
-      <section style={{ ...panelStyle, marginTop: 14, position: 'relative' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <SectionTitle style={{ marginBottom: 0 }}>Today · 6 AM to 6 PM</SectionTitle>
-          {nowMinute >= 360 && nowMinute <= 1080 && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#5EEAD4', fontFamily: 'ui-monospace, monospace' }}>
-              {formatNowLabel(now)}
-            </span>
-          )}
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, 1fr)',
-            fontSize: 10,
-            color: '#64748B',
-            marginLeft: 64,
-            marginBottom: 6,
-            fontFamily: 'ui-monospace, monospace',
-          }}
-        >
-          {['6 AM', '8', '10', '12', '2 PM', '4', '6 PM'].map((t) => (
-            <span key={t}>{t}</span>
-          ))}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 10 }}>
-          {(['money', 'goods', 'team'] as TimelineLaneId[]).map((lane) => {
-            const laneEvents = timeline.filter((e) => e.lane === lane);
-            const timed = laneEvents.filter((e) => e.minuteOfDay != null);
-            const undated = laneEvents.filter((e) => e.timeNotRecorded);
-            const dotColor =
-              lane === 'money' ? '#34D399' : lane === 'goods' ? '#60A5FA' : '#A78BFA';
-            return (
-              <div key={lane} style={{ display: 'contents' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', paddingTop: 10 }}>{laneLabel(lane)}</div>
-                <div style={{ marginBottom: 8 }}>
-                  <div style={trackStyle}>
-                    {nowMinute >= 360 && nowMinute <= 1080 && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: `${((nowMinute - 360) / 720) * 100}%`,
-                          top: -4,
-                          bottom: -4,
-                          width: 2,
-                          background: '#5EEAD4',
-                          boxShadow: '0 0 12px #5EEAD4',
-                          zIndex: 2,
-                        }}
-                      />
-                    )}
-                    {timed.length === 0 && undated.length === 0 && (
-                      <span style={{ position: 'absolute', left: 12, top: 14, fontSize: 12, color: '#64748B' }}>—</span>
-                    )}
-                    {timed.map((ev) => {
-                      const clamped = Math.min(1080, Math.max(360, ev.minuteOfDay as number));
-                      const left = ((clamped - 360) / 720) * 100;
-                      return (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          title={ev.label}
-                          onClick={() => ev.href && navigate(ev.href)}
-                          style={{
-                            position: 'absolute',
-                            left: `${left}%`,
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            border: ev.expected ? '1.5px dashed #94A3B8' : 'none',
-                            background: ev.expected ? 'transparent' : dotColor,
-                            boxShadow: ev.expected ? 'none' : `0 0 10px ${dotColor}`,
-                            cursor: ev.href ? 'pointer' : 'default',
-                            padding: 0,
-                            zIndex: 3,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                  {undated.length > 0 && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: '#94A3B8' }}>
-                      <div style={{ fontWeight: 700, marginBottom: 2 }}>Today (time not recorded)</div>
-                      {undated.map((ev) => (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          onClick={() => ev.href && navigate(ev.href)}
-                          style={{
-                            display: 'block',
-                            background: 'none',
-                            border: 'none',
-                            color: '#CBD5E1',
-                            fontSize: 11,
-                            padding: '2px 0',
-                            cursor: ev.href ? 'pointer' : 'default',
-                            textAlign: 'left',
-                          }}
-                        >
-                          {ev.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      {/* STEP 6 — live strip */}
+      <NexusLiveStrip
+        timeline={timeline}
+        loadSlots={loadSlots}
+        onNavigate={(href) => navigate(href)}
+        onRefresh={() => setLiveRefreshKey((k) => k + 1)}
+      />
 
       <style>{`
         @media (max-width: 1100px) {
           .zava-nexus-grid { grid-template-columns: 1fr !important; }
         }
-        @keyframes zavaWave {
-          0%, 100% { transform: scaleY(0.35); }
-          50% { transform: scaleY(1); }
-        }
       `}</style>
     </div>
   );
-}
-
-function Waveform({ compact }: { compact?: boolean }) {
-  const bars = compact ? 8 : 16;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: compact ? 14 : 18 }} aria-hidden>
-      {Array.from({ length: bars }, (_, i) => (
-        <span
-          key={i}
-          style={{
-            width: 2,
-            height: '100%',
-            borderRadius: 1,
-            background: '#5EEAD4',
-            opacity: 0.55 + (i % 3) * 0.1,
-            transformOrigin: 'center',
-            animation: `zavaWave ${0.7 + (i % 5) * 0.12}s ease-in-out ${i * 0.05}s infinite`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SectionTitle({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        fontWeight: 800,
-        letterSpacing: '0.14em',
-        textTransform: 'uppercase',
-        color: '#7C8DB5',
-        marginBottom: 10,
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Muted({ children }: { children: ReactNode }) {
-  return <div style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>{children}</div>;
 }
 
 const rootStyle: CSSProperties = {
@@ -867,77 +515,4 @@ const panelStyle: CSSProperties = {
   padding: 16,
   backdropFilter: 'blur(14px)',
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-};
-
-const cardStyle: CSSProperties = {
-  background: 'rgba(10,18,34,0.75)',
-  border: '1px solid rgba(148,163,184,0.16)',
-  borderRadius: 14,
-  padding: '12px 12px',
-};
-
-const voicePanelStyle: CSSProperties = {
-  ...cardStyle,
-  borderColor: 'rgba(52,211,153,0.25)',
-};
-
-const transcriptStyle: CSSProperties = {
-  fontSize: 12,
-  color: '#CBD5E1',
-  lineHeight: 1.45,
-};
-
-const whoStyle: CSSProperties = {
-  fontWeight: 800,
-  fontSize: 10,
-  letterSpacing: '0.12em',
-  color: '#5EEAD4',
-  marginRight: 6,
-};
-
-const primaryBtn: CSSProperties = {
-  border: 'none',
-  borderRadius: 10,
-  padding: '8px 12px',
-  background: '#22C55E',
-  color: '#04120a',
-  fontWeight: 800,
-  fontSize: 12,
-  cursor: 'pointer',
-};
-
-const tealBtn: CSSProperties = {
-  ...primaryBtn,
-  background: '#2DD4BF',
-};
-
-const ghostBtn: CSSProperties = {
-  border: '1px solid rgba(148,163,184,0.35)',
-  borderRadius: 10,
-  padding: '8px 12px',
-  background: 'transparent',
-  color: '#CBD5E1',
-  fontWeight: 700,
-  fontSize: 12,
-  cursor: 'pointer',
-};
-
-const chipBtn: CSSProperties = {
-  border: '1px solid rgba(94,234,212,0.35)',
-  borderRadius: 999,
-  padding: '6px 10px',
-  background: 'rgba(8,16,32,0.85)',
-  color: '#5EEAD4',
-  fontWeight: 700,
-  fontSize: 11,
-  cursor: 'pointer',
-  textAlign: 'left',
-};
-
-const trackStyle: CSSProperties = {
-  position: 'relative',
-  height: 40,
-  borderRadius: 10,
-  background: 'rgba(15,23,42,0.65)',
-  border: '1px solid rgba(148,163,184,0.12)',
 };
