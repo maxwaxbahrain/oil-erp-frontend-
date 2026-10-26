@@ -217,7 +217,12 @@ export default function NexusAsk({
       setStatus('thinking');
       setSlowHint(false);
       setAnswer(null);
-      const ctx = askFastContext || { homeSummary: null, needsItems: [] };
+      const ctx = askFastContext || {
+        homeSummary: null,
+        needsItems: [],
+        arSummary: null,
+        arLoadedOk: false,
+      };
       try {
         const { answer, timedOut } = await queryNexusAsk(q, ctx, askZavaChat, () => {
           if (gen === askGen.current) setSlowHint(true);

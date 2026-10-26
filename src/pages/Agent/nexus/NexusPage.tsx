@@ -408,7 +408,12 @@ export default function NexusPage() {
     setActivePlanetId,
     navigate,
     heroLine: heroSpeakLine,
-    getAskContext: () => ({ homeSummary, needsItems }),
+    getAskContext: () => ({
+      homeSummary,
+      needsItems,
+      arSummary: shell.arSummary,
+      arLoadedOk: shell.arLoad === 'ok',
+    }),
     onLiveTranscript: (text) => {
       if (text) setAskLiveLine(text);
       else setAskLiveLine('');
@@ -518,7 +523,12 @@ export default function NexusPage() {
           voiceZavaLine={voice.zavaLine}
           voiceThinking={voice.voiceState === 'thinking'}
           liveTranscript={askLiveLine}
-          askFastContext={{ homeSummary, needsItems }}
+          askFastContext={{
+            homeSummary,
+            needsItems,
+            arSummary: shell.arSummary,
+            arLoadedOk: shell.arLoad === 'ok',
+          }}
           voiceNavFromIntent={voice.voiceNavIntent}
           voiceNavHref={voice.voiceNavHref}
           voiceNavLabel={voice.voiceNavLabel}

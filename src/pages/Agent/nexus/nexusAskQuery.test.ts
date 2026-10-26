@@ -33,6 +33,8 @@ describe('queryNexusAsk', () => {
           },
         },
         needsItems: [],
+        arSummary: null,
+        arLoadedOk: false,
       },
       chat,
     );
@@ -49,7 +51,11 @@ describe('queryNexusAsk', () => {
           setTimeout(() => resolve({ headline: 'late', detail: '', buttons: [] }), 25_000);
         }),
     );
-    const pending = queryNexusAsk('obscure question', { homeSummary: null, needsItems: [] }, chat);
+    const pending = queryNexusAsk(
+      'obscure question',
+      { homeSummary: null, needsItems: [], arSummary: null, arLoadedOk: false },
+      chat,
+    );
     await vi.advanceTimersByTimeAsync(20_001);
     const result = await pending;
     expect(result.timedOut).toBe(true);
