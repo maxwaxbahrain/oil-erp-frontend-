@@ -228,12 +228,41 @@ describe('CustomerForm redesign', () => {
     cleanup();
   });
 
-  it('Esc closes via onCancel', () => {
-    const { cleanup, onCancel } = renderForm();
+  it('Esc on empty form closes immediately', () => {
+    const { host, cleanup, onCancel } = renderForm();
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
-    expect(onCancel).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')).toBeNull();
+    cleanup();
+  });
+
+  it('Esc with unsaved typing asks Discard / Keep editing', () => {
+    const { host, cleanup, onCancel } = renderForm();
+    setValue(host.querySelector('[data-testid="customer-name"]') as HTMLInputElement, 'Draft Co');
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')?.textContent).toContain(
+      'Discard this customer?',
+    );
+
+    act(() => {
+      (host.querySelector('[data-testid="customer-discard-keep"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')).toBeNull();
+    expect((host.querySelector('[data-testid="customer-name"]') as HTMLInputElement).value).toBe('Draft Co');
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    act(() => {
+      (host.querySelector('[data-testid="customer-discard-confirm"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).toHaveBeenCalledTimes(1);
     cleanup();
   });
 
@@ -248,6 +277,35 @@ describe('CustomerForm redesign', () => {
     });
     expect(createCustomer).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('two quick Ctrl+Enter create the customer once', async () => {
+    let resolveCreate!: (value: { id: string; name: string }) => void;
+    createCustomer.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { host, cleanup, onSave } = renderForm();
+    setValue(host.querySelector('[data-testid="customer-name"]') as HTMLInputElement, 'Once Co');
+    const form = host.querySelector('form')!;
+    const ctrlEnter = () =>
+      form.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+
+    await act(async () => {
+      ctrlEnter();
+      ctrlEnter();
+    });
+    expect(createCustomer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCreate({ id: '1', name: 'Once Co' });
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
     cleanup();
   });
 });

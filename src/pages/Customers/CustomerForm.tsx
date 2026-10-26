@@ -88,8 +88,10 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
   const [openingAsOf, setOpeningAsOf] = useState(localIsoDate);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (editingCustomer) {
@@ -108,16 +110,55 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
     growNotes();
   }, [formData.notes, growNotes]);
 
+  const isDirty = useCallback(() => {
+    if (editingCustomer) {
+      const base = editingCustomer;
+      return (
+        (formData.name || '') !== (base.name || '') ||
+        (formData.email || '') !== (base.email || '') ||
+        (formData.phone || '') !== (base.phone || '') ||
+        (formData.address || '') !== (base.address || '') ||
+        (formData.category || 'retail') !== (base.category || 'retail') ||
+        Number(formData.credit_limit ?? 0) !== Number(base.credit_limit ?? 0) ||
+        (formData.notes || '') !== (base.notes || '')
+      );
+    }
+    const hasText =
+      Boolean(formData.name?.trim()) ||
+      Boolean(formData.email?.trim()) ||
+      Boolean(formData.phone?.trim()) ||
+      Boolean(formData.address?.trim()) ||
+      Boolean(formData.notes?.trim());
+    const categoryChanged = (formData.category || 'retail') !== 'retail';
+    const creditSet = formData.credit_limit !== undefined && Number(formData.credit_limit) !== 0;
+    const openingSet =
+      (formData.opening_balance !== undefined && Number(formData.opening_balance) !== 0) ||
+      openingSide !== 'debit';
+    return hasText || categoryChanged || creditSet || openingSet;
+  }, [editingCustomer, formData, openingSide]);
+
+  const requestClose = useCallback(() => {
+    if (discardOpen) {
+      setDiscardOpen(false);
+      return;
+    }
+    if (isDirty()) {
+      setDiscardOpen(true);
+      return;
+    }
+    onCancel();
+  }, [discardOpen, isDirty, onCancel]);
+
   useEffect(() => {
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onCancel();
+        requestClose();
       }
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onCancel]);
+  }, [requestClose]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
@@ -134,6 +175,8 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
 
   async function handleSubmit(e?: FormEvent) {
     e?.preventDefault();
+    // Sync ref covers double Ctrl+Enter before React re-renders `saving`.
+    if (saving || savingRef.current) return;
     setError(null);
 
     if (!formData.name) {
@@ -141,12 +184,12 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
       return;
     }
 
+    savingRef.current = true;
+    setSaving(true);
     try {
-      setSaving(true);
       const typedOpening = Number(formData.opening_balance);
       if (!editingCustomer && Number.isFinite(typedOpening) && typedOpening < 0) {
         setError('Opening balance amount must be greater than zero. Choose Credit if the customer is in credit.');
-        setSaving(false);
         return;
       }
       const openingAmount = Number.isFinite(typedOpening) ? Math.abs(typedOpening) : 0;
@@ -172,6 +215,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
       setError(extractUserManagementError(err, 'Failed to save customer data'));
       console.error(err);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -191,6 +235,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
       data-testid="customer-form"
       className="w-full max-w-[920px] mx-auto overflow-hidden"
       style={{
+        position: 'relative',
         background: C.navy,
         border: `1px solid ${C.borderSoft}`,
         borderRadius: 14,
@@ -695,6 +740,82 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
           </form>
         </div>
       </div>
+
+      {discardOpen && (
+        <div
+          data-testid="customer-discard-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="customer-discard-title"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(6,12,24,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            zIndex: 20,
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 340,
+              background: C.navyPanel,
+              border: `1px solid ${C.border}`,
+              borderRadius: 12,
+              padding: '18px 16px 14px',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.4)',
+            }}
+          >
+            <p
+              id="customer-discard-title"
+              style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: C.text }}
+            >
+              Discard this customer?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                data-testid="customer-discard-keep"
+                onClick={() => setDiscardOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  color: C.muted,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                data-testid="customer-discard-confirm"
+                onClick={onCancel}
+                style={{
+                  background: C.blue,
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
