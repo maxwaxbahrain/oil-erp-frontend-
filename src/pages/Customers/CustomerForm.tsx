@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Save,
   X,
@@ -13,9 +14,16 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import { createCustomer, updateCustomer, type Customer } from '../../services/customerService';
 import { localIsoDate } from '../../utils/localDate';
+import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { extractUserManagementError } from '../Settings/userManagementErrors';
+import TellZavaBox, {
+  type ZavaAutoPatch,
+  type ZavaFillableField,
+  type ZavaFormSnapshot,
+} from './TellZavaBox';
 
 interface CustomerFormProps {
   editingCustomer: Customer | null;
@@ -72,7 +80,26 @@ const iconInField: CSSProperties = {
   flexShrink: 0,
 };
 
+const zavaTagStyle: CSSProperties = {
+  position: 'absolute',
+  top: -6,
+  right: 6,
+  fontSize: 9,
+  fontWeight: 800,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: C.green,
+  background: C.navyPanel,
+  border: `1px solid ${C.green}`,
+  borderRadius: 4,
+  padding: '1px 5px',
+  pointerEvents: 'none',
+};
+
 export default function CustomerForm({ editingCustomer, onSave, onCancel }: CustomerFormProps) {
+  const { hasRole } = useAuth();
+  const navigate = useNavigate();
+  const tellZavaAvailable = hasRole(...MANAGEMENT_ROLES);
   const [formData, setFormData] = useState<Partial<Customer>>({
     name: '',
     email: '',
@@ -89,6 +116,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [zavaTagged, setZavaTagged] = useState<Set<ZavaFillableField>>(() => new Set());
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const savingRef = useRef(false);
@@ -96,6 +124,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
   useEffect(() => {
     if (editingCustomer) {
       setFormData(editingCustomer);
+      setZavaTagged(new Set());
     }
   }, [editingCustomer]);
 
@@ -160,8 +189,29 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [requestClose]);
 
+  function clearZavaTag(name: string) {
+    if (
+      name === 'name' ||
+      name === 'email' ||
+      name === 'phone' ||
+      name === 'address' ||
+      name === 'category' ||
+      name === 'credit_limit' ||
+      name === 'opening_balance' ||
+      name === 'notes'
+    ) {
+      setZavaTagged((prev) => {
+        if (!prev.has(name)) return prev;
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    }
+  }
+
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
+    clearZavaTag(name);
     setFormData((prev) => ({
       ...prev,
       [name]:
@@ -171,6 +221,58 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
             : parseFloat(value)
           : value,
     }));
+  }
+
+  const applyZavaPatch = useCallback((patch: ZavaAutoPatch) => {
+    if (patch.form && Object.keys(patch.form).length > 0) {
+      setFormData((prev) => ({ ...prev, ...patch.form }));
+    }
+    if (patch.openingSide) setOpeningSide(patch.openingSide);
+    if (patch.openingAsOf) setOpeningAsOf(patch.openingAsOf);
+    if (patch.tagged.length > 0) {
+      setZavaTagged((prev) => {
+        const next = new Set(prev);
+        for (const f of patch.tagged) next.add(f);
+        return next;
+      });
+    }
+  }, []);
+
+  const zavaSnapshot: ZavaFormSnapshot = {
+    name: formData.name || '',
+    email: formData.email || '',
+    phone: formData.phone || '',
+    address: formData.address || '',
+    category: formData.category || 'retail',
+    credit_limit: formData.credit_limit,
+    opening_balance: formData.opening_balance,
+    openingSide,
+    openingAsOf,
+    notes: formData.notes || '',
+    isEdit: Boolean(editingCustomer),
+  };
+
+  function fieldStyle(base: CSSProperties, field: ZavaFillableField): CSSProperties {
+    if (!zavaTagged.has(field)) return base;
+    return { ...base, border: `1.5px solid ${C.green}` };
+  }
+
+  function ZavaTag({ field }: { field: ZavaFillableField }) {
+    if (!zavaTagged.has(field)) return null;
+    return (
+      <span data-testid={`zava-tag-${field}`} style={zavaTagStyle}>
+        Zava
+      </span>
+    );
+  }
+
+  function FieldShell({ field, children }: { field: ZavaFillableField; children: ReactNode }) {
+    return (
+      <div style={{ position: 'relative' }}>
+        {children}
+        <ZavaTag field={field} />
+      </div>
+    );
   }
 
   async function handleSubmit(e?: FormEvent) {
@@ -277,9 +379,14 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
           <p style={{ margin: '6px 0 14px', fontSize: 12, color: C.muted, lineHeight: 1.4 }}>
             Customers appear in invoices, collections and Zava straight away.
           </p>
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <ul
+            data-testid="customer-form-guide-tips"
+            style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}
+          >
             {[
-              'Speak or type one sentence — Zava fills the fields',
+              ...(tellZavaAvailable
+                ? ['Speak or type one sentence — Zava fills the fields']
+                : []),
               'Credit limit lets Zava warn you before they owe too much',
               'Opening balance is money they owed before SOLTOL',
             ].map((tip) => (
@@ -303,20 +410,23 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
               </li>
             ))}
           </ul>
-          <div
-            style={{
-              marginTop: 14,
-              padding: '8px 10px',
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              fontSize: 11,
-              color: C.muted,
-              lineHeight: 1.4,
-            }}
-          >
-            Fields filled by Zava are marked <span style={{ color: C.green, fontWeight: 700 }}>Zava</span> and
-            outlined green. You can change anything.
-          </div>
+          {tellZavaAvailable ? (
+            <div
+              data-testid="customer-form-zava-guide-note"
+              style={{
+                marginTop: 14,
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                fontSize: 11,
+                color: C.muted,
+                lineHeight: 1.4,
+              }}
+            >
+              Fields filled by Zava are marked <span style={{ color: C.green, fontWeight: 700 }}>Zava</span> and
+              outlined green. You can change anything.
+            </div>
+          ) : null}
           <p style={{ marginTop: 'auto', paddingTop: 12, fontSize: 11, color: C.dim }}>
             Tip: press{' '}
             <kbd
@@ -381,13 +491,15 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
             className="flex-1 min-h-0 flex flex-col"
             style={{ padding: '10px 16px 12px' }}
           >
-            {/* PR B slot — hidden for now */}
-            <div
-              data-testid="customer-form-zava-slot"
-              hidden
-              aria-hidden="true"
-              style={{ display: 'none' }}
-            />
+            {tellZavaAvailable ? (
+              <TellZavaBox
+                snapshot={zavaSnapshot}
+                onApply={applyZavaPatch}
+                onOpenDuplicate={(id) => navigate(`/customers/${id}`)}
+              />
+            ) : (
+              <div data-testid="customer-form-zava-slot" hidden aria-hidden="true" style={{ display: 'none' }} />
+            )}
 
             {error && (
               <div
@@ -417,114 +529,126 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
                 <label style={labelStyle}>
                   Customer name <span style={{ color: C.red }}>*</span>
                 </label>
-                <div style={fieldWrap}>
-                  <User size={14} style={iconInField} />
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name || ''}
-                    onChange={handleChange}
-                    aria-required="true"
-                    placeholder="e.g. Acme Corp"
-                    data-testid="customer-name"
-                    style={inputBase}
-                  />
-                </div>
+                <FieldShell field="name">
+                  <div style={fieldWrap}>
+                    <User size={14} style={iconInField} />
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name || ''}
+                      onChange={handleChange}
+                      aria-required="true"
+                      placeholder="e.g. Acme Corp"
+                      data-testid="customer-name"
+                      style={fieldStyle(inputBase, 'name')}
+                    />
+                  </div>
+                </FieldShell>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label style={labelStyle}>Email</label>
-                  <div style={fieldWrap}>
-                    <Mail size={14} style={iconInField} />
-                    <input
-                      type="email"
-                      name="email"
-                      value={formData.email || ''}
-                      onChange={handleChange}
-                      placeholder="name@company.com"
-                      data-testid="customer-email"
-                      style={inputBase}
-                    />
-                  </div>
+                  <FieldShell field="email">
+                    <div style={fieldWrap}>
+                      <Mail size={14} style={iconInField} />
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email || ''}
+                        onChange={handleChange}
+                        placeholder="name@company.com"
+                        data-testid="customer-email"
+                        style={fieldStyle(inputBase, 'email')}
+                      />
+                    </div>
+                  </FieldShell>
                 </div>
                 <div>
                   <label style={labelStyle}>Phone</label>
-                  <div style={fieldWrap}>
-                    <Phone size={14} style={iconInField} />
-                    <input
-                      type="text"
-                      name="phone"
-                      value={formData.phone || ''}
-                      onChange={handleChange}
-                      placeholder="(555) 123-4567"
-                      data-testid="customer-phone"
-                      style={inputBase}
-                    />
-                  </div>
+                  <FieldShell field="phone">
+                    <div style={fieldWrap}>
+                      <Phone size={14} style={iconInField} />
+                      <input
+                        type="text"
+                        name="phone"
+                        value={formData.phone || ''}
+                        onChange={handleChange}
+                        placeholder="(555) 123-4567"
+                        data-testid="customer-phone"
+                        style={fieldStyle(inputBase, 'phone')}
+                      />
+                    </div>
+                  </FieldShell>
                 </div>
               </div>
 
               <div>
                 <label style={labelStyle}>Address</label>
-                <div style={fieldWrap}>
-                  <MapPin size={14} style={iconInField} />
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.address || ''}
-                    onChange={handleChange}
-                    placeholder="123 Main St, City, State ZIP"
-                    data-testid="customer-address"
-                    style={inputBase}
-                  />
-                </div>
+                <FieldShell field="address">
+                  <div style={fieldWrap}>
+                    <MapPin size={14} style={iconInField} />
+                    <input
+                      type="text"
+                      name="address"
+                      value={formData.address || ''}
+                      onChange={handleChange}
+                      placeholder="123 Main St, City, State ZIP"
+                      data-testid="customer-address"
+                      style={fieldStyle(inputBase, 'address')}
+                    />
+                  </div>
+                </FieldShell>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label style={labelStyle}>Category</label>
-                  <div style={fieldWrap}>
-                    <Tag size={14} style={iconInField} />
-                    <select
-                      name="category"
-                      value={formData.category || 'retail'}
-                      onChange={handleChange}
-                      data-testid="customer-category"
-                      style={{ ...inputBase, appearance: 'none', cursor: 'pointer' }}
-                    >
-                      <option value="retail">Retail</option>
-                      <option value="wholesale">Wholesale</option>
-                      <option value="partner">Partner</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
+                  <FieldShell field="category">
+                    <div style={fieldWrap}>
+                      <Tag size={14} style={iconInField} />
+                      <select
+                        name="category"
+                        value={formData.category || 'retail'}
+                        onChange={handleChange}
+                        data-testid="customer-category"
+                        style={fieldStyle({ ...inputBase, appearance: 'none', cursor: 'pointer' }, 'category')}
+                      >
+                        <option value="retail">Retail</option>
+                        <option value="wholesale">Wholesale</option>
+                        <option value="partner">Partner</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                  </FieldShell>
                 </div>
                 <div>
                   <label style={labelStyle}>Credit limit</label>
-                  <div style={fieldWrap}>
-                    <Wallet size={14} style={iconInField} />
-                    <span
-                      style={{
-                        position: 'absolute',
-                        left: 30,
-                        color: C.dim,
-                        fontSize: 13,
-                        pointerEvents: 'none',
-                      }}
-                    >
-                      $
-                    </span>
-                    <input
-                      type="number"
-                      name="credit_limit"
-                      value={formData.credit_limit === undefined ? '' : formData.credit_limit}
-                      onChange={handleChange}
-                      placeholder="0.00"
-                      data-testid="customer-credit-limit"
-                      style={{ ...inputBase, paddingLeft: 42 }}
-                    />
-                  </div>
+                  <FieldShell field="credit_limit">
+                    <div style={fieldWrap}>
+                      <Wallet size={14} style={iconInField} />
+                      <span
+                        style={{
+                          position: 'absolute',
+                          left: 30,
+                          color: C.dim,
+                          fontSize: 13,
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        name="credit_limit"
+                        value={formData.credit_limit === undefined ? '' : formData.credit_limit}
+                        onChange={handleChange}
+                        placeholder="0.00"
+                        data-testid="customer-credit-limit"
+                        style={fieldStyle({ ...inputBase, paddingLeft: 42 }, 'credit_limit')}
+                      />
+                    </div>
+                  </FieldShell>
                 </div>
               </div>
 
@@ -561,7 +685,10 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
                       <button
                         type="button"
                         data-testid="opening-side-debit"
-                        onClick={() => setOpeningSide('debit')}
+                        onClick={() => {
+                          clearZavaTag('opening_balance');
+                          setOpeningSide('debit');
+                        }}
                         style={{
                           textAlign: 'left',
                           padding: '8px 10px',
@@ -588,7 +715,10 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
                       <button
                         type="button"
                         data-testid="opening-side-credit"
-                        onClick={() => setOpeningSide('credit')}
+                        onClick={() => {
+                          clearZavaTag('opening_balance');
+                          setOpeningSide('credit');
+                        }}
                         style={{
                           textAlign: 'left',
                           padding: '8px 10px',
@@ -620,30 +750,32 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label style={labelStyle}>Amount</label>
-                        <div style={fieldWrap}>
-                          <span
-                            style={{
-                              position: 'absolute',
-                              left: 12,
-                              color: C.dim,
-                              fontSize: 13,
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            $
-                          </span>
-                          <input
-                            type="number"
-                            name="opening_balance"
-                            min="0"
-                            step="0.01"
-                            value={formData.opening_balance === undefined ? '' : formData.opening_balance}
-                            onChange={handleChange}
-                            placeholder="0.00"
-                            data-testid="customer-opening-amount"
-                            style={{ ...inputBase, paddingLeft: 24 }}
-                          />
-                        </div>
+                        <FieldShell field="opening_balance">
+                          <div style={fieldWrap}>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                left: 12,
+                                color: C.dim,
+                                fontSize: 13,
+                                pointerEvents: 'none',
+                              }}
+                            >
+                              $
+                            </span>
+                            <input
+                              type="number"
+                              name="opening_balance"
+                              min="0"
+                              step="0.01"
+                              value={formData.opening_balance === undefined ? '' : formData.opening_balance}
+                              onChange={handleChange}
+                              placeholder="0.00"
+                              data-testid="customer-opening-amount"
+                              style={fieldStyle({ ...inputBase, paddingLeft: 24 }, 'opening_balance')}
+                            />
+                          </div>
+                        </FieldShell>
                       </div>
                       <div>
                         <label style={labelStyle}>As of</label>
@@ -665,30 +797,35 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
 
               <div>
                 <label style={labelStyle}>Notes</label>
-                <div style={fieldWrap}>
-                  <FileText size={14} style={{ ...iconInField, top: 10 }} />
-                  <textarea
-                    ref={notesRef}
-                    name="notes"
-                    value={formData.notes || ''}
-                    onChange={(e) => {
-                      handleChange(e);
-                      requestAnimationFrame(growNotes);
-                    }}
-                    rows={1}
-                    placeholder="Anything to remember..."
-                    data-testid="customer-notes"
-                    style={{
-                      ...inputBase,
-                      paddingTop: 8,
-                      paddingBottom: 8,
-                      resize: 'none',
-                      overflow: 'hidden',
-                      minHeight: 36,
-                      lineHeight: 1.4,
-                    }}
-                  />
-                </div>
+                <FieldShell field="notes">
+                  <div style={fieldWrap}>
+                    <FileText size={14} style={{ ...iconInField, top: 10 }} />
+                    <textarea
+                      ref={notesRef}
+                      name="notes"
+                      value={formData.notes || ''}
+                      onChange={(e) => {
+                        handleChange(e);
+                        requestAnimationFrame(growNotes);
+                      }}
+                      rows={1}
+                      placeholder="Anything to remember..."
+                      data-testid="customer-notes"
+                      style={fieldStyle(
+                        {
+                          ...inputBase,
+                          paddingTop: 8,
+                          paddingBottom: 8,
+                          resize: 'none',
+                          overflow: 'hidden',
+                          minHeight: 36,
+                          lineHeight: 1.4,
+                        },
+                        'notes',
+                      )}
+                    />
+                  </div>
+                </FieldShell>
               </div>
             </div>
 
