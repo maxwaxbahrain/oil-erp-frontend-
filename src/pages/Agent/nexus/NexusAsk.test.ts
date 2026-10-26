@@ -32,7 +32,7 @@ describe('navButtonsFromBlocks', () => {
 
 describe('Ask Zava panel contract', () => {
   it('has static try-asking chips and no Confirm/Edit/Cancel action cards', () => {
-    expect(ASK_CHIPS.length).toBe(4);
+    expect(ASK_CHIPS.length).toBe(5);
     const src = readFileSync(join(__dirname, 'NexusAsk.tsx'), 'utf8');
     expect(src).toMatch(/Ask Zava/);
     expect(src).toMatch(/Thinking…/);
@@ -40,8 +40,7 @@ describe('Ask Zava panel contract', () => {
     expect(src).toMatch(/\/api\/agent\/chat/);
     expect(src).not.toMatch(/\bConfirm\b/);
     expect(src).not.toMatch(/\bEdit\b/);
-    expect(src).not.toMatch(/\bCancel\b/);
-    // Comment may mention those words — UI must not render action buttons.
+    // Cancel/Confirm live in NexusAskCustomerDraft; NexusAsk uses onDismiss only.
     expect(src).not.toMatch(/>\s*Confirm\s*</);
     expect(src).not.toMatch(/>\s*Edit\s*</);
     expect(src).not.toMatch(/>\s*Cancel\s*</);

@@ -31,6 +31,7 @@ import {
   planetIdForCardModule,
   resolveCustomerMatches,
 } from './voiceIntent';
+import { tryNexusTranscriptHook } from './nexusVoiceIntercept';
 
 export type VoiceLine = { who: 'zava' | 'you'; text: string };
 
@@ -423,6 +424,10 @@ export function useNexusVoice(opts: Opts) {
         }
         setVoiceNotice('');
         setYouLine(transcript);
+        if (await tryNexusTranscriptHook(transcript)) {
+          setVoiceState('idle');
+          return;
+        }
         await runIntent(transcript);
       } catch (error) {
         setVoiceState('idle');
@@ -606,5 +611,6 @@ export function useNexusVoice(opts: Opts) {
     confirmYes,
     confirmNo,
     stopSpeaking,
+    speakText,
   };
 }

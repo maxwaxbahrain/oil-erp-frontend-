@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useHandsFreeOptional } from '../handsFree/HandsFreeProvider';
+import { MANAGEMENT_ROLES } from '../../../utils/rbac';
 import { useErpShell, useErpShellReload } from '../../../contexts/ErpShellContext';
 import { isStaging } from '../../../config/appEnv';
 import { getPayments, getVanLocations } from '../../../services/api';
@@ -75,6 +77,12 @@ function shellToSlot(raw: string): LoadSlotState {
 
 export default function NexusPage() {
   const { user, hasRole } = useAuth();
+  const handsFree = useHandsFreeOptional();
+  const canCreateCustomers = hasRole(...MANAGEMENT_ROLES);
+  const handsFreeActive = Boolean(
+    handsFree?.prefs?.hands_free_zava && !handsFree?.localPaused,
+  );
+  const userDisplayName = user?.full_name || user?.username || '';
   const shell = useErpShell();
   const reloadShell = useErpShellReload();
   const navigate = useNavigate();
@@ -507,6 +515,10 @@ export default function NexusPage() {
           voiceThinking={voice.voiceState === 'thinking'}
           voiceNavHref={activeCard?.href || null}
           voiceNavLabel={activeCard ? 'Open update' : null}
+          canCreateCustomers={canCreateCustomers}
+          userDisplayName={userDisplayName}
+          speakZava={voice.speakText}
+          handsFreeActive={handsFreeActive}
         />
       </div>
 
