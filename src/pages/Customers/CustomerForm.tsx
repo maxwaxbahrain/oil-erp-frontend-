@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { createCustomer, updateCustomer, type Customer } from '../../services/customerService';
 import { localIsoDate } from '../../utils/localDate';
+import { isStaging } from '../../config/appEnv';
 import { MANAGEMENT_ROLES } from '../../utils/rbac';
 import { extractUserManagementError } from '../Settings/userManagementErrors';
 import TellZavaBox, {
@@ -99,7 +100,7 @@ const zavaTagStyle: CSSProperties = {
 export default function CustomerForm({ editingCustomer, onSave, onCancel }: CustomerFormProps) {
   const { hasRole } = useAuth();
   const navigate = useNavigate();
-  const tellZavaAvailable = hasRole(...MANAGEMENT_ROLES);
+  const tellZavaAvailable = isStaging && hasRole(...MANAGEMENT_ROLES);
   const [formData, setFormData] = useState<Partial<Customer>>({
     name: '',
     email: '',
@@ -377,7 +378,9 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
             {guideTitle}
           </h2>
           <p style={{ margin: '6px 0 14px', fontSize: 12, color: C.muted, lineHeight: 1.4 }}>
-            Customers appear in invoices, collections and Zava straight away.
+            {tellZavaAvailable
+              ? 'Customers appear in invoices, collections and Zava straight away.'
+              : 'Customers appear in invoices and collections straight away.'}
           </p>
           <ul
             data-testid="customer-form-guide-tips"
@@ -387,7 +390,9 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
               ...(tellZavaAvailable
                 ? ['Speak or type one sentence — Zava fills the fields']
                 : []),
-              'Credit limit lets Zava warn you before they owe too much',
+              tellZavaAvailable
+                ? 'Credit limit lets Zava warn you before they owe too much'
+                : 'Credit limit warns you before a customer owes too much',
               'Opening balance is money they owed before SOLTOL',
             ].map((tip) => (
               <li key={tip} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: C.text, lineHeight: 1.35 }}>
@@ -469,7 +474,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
             <button
               type="button"
               aria-label="Close"
-              onClick={onCancel}
+              onClick={requestClose}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -524,7 +529,11 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
               </div>
             )}
 
-            <div className="flex-1 min-h-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div
+              data-testid="customer-form-fields"
+              className="flex-1 min-h-0 overflow-y-auto"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
               <div>
                 <label style={labelStyle}>
                   Customer name <span style={{ color: C.red }}>*</span>
@@ -835,7 +844,7 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
             >
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={requestClose}
                 data-testid="customer-cancel"
                 style={{
                   background: 'transparent',
