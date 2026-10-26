@@ -112,45 +112,58 @@ export default function NexusTopMetrics({ summary, onRetry }: Props) {
 
 const row: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-  gap: 10,
-  marginBottom: 18,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+  gap: 8,
+  marginBottom: 8,
+  flexShrink: 0,
+  maxHeight: 90,
+  overflow: 'hidden',
 };
 
 const tile: CSSProperties = {
   background: 'rgba(15,23,42,0.92)',
-  borderRadius: 10,
-  padding: '12px 14px',
+  borderRadius: 8,
+  padding: '8px 10px',
   border: '1px solid rgba(148,163,184,0.12)',
-  minHeight: 108,
+  minHeight: 0,
+  maxHeight: 90,
+  overflow: 'hidden',
 };
 
 const tileHead: CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: 8,
-  marginBottom: 8,
+  gap: 6,
+  marginBottom: 4,
 };
-const tileLabel: CSSProperties = { fontSize: 11, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.04em' };
+const tileLabel: CSSProperties = { fontSize: 10, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.04em' };
 const tagStyle: CSSProperties = {
-  fontSize: 9,
+  fontSize: 8,
   fontWeight: 800,
   letterSpacing: '0.12em',
   border: '1px solid',
   borderRadius: 4,
-  padding: '2px 5px',
+  padding: '1px 4px',
 };
-const tileValue: CSSProperties = { fontSize: 22, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.15 };
-const tileSentence: CSSProperties = { marginTop: 6, fontSize: 12, color: '#94A3B8', lineHeight: 1.35 };
+const tileValue: CSSProperties = { fontSize: 18, fontWeight: 800, color: '#F8FAFC', lineHeight: 1.1 };
+const tileSentence: CSSProperties = {
+  marginTop: 2,
+  fontSize: 10,
+  color: '#94A3B8',
+  lineHeight: 1.25,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
 const retryBtn: CSSProperties = {
-  marginTop: 10,
+  marginTop: 4,
   background: 'transparent',
   border: `1px solid ${BLUE}`,
   color: BLUE,
   borderRadius: 6,
-  padding: '4px 10px',
-  fontSize: 11,
+  padding: '2px 8px',
+  fontSize: 10,
   fontWeight: 700,
   cursor: 'pointer',
 };

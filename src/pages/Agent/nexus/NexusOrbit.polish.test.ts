@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ORBIT_CARD_NAME_STYLE } from './NexusOrbit';
 import { ORBIT_MODULE_DEFS } from './nexusOrbitNav';
+import { ORBIT_DESIGN_H, ORBIT_DESIGN_W, ORBIT_GRID_MAX_WIDTH } from './orbitScale';
 
 describe('orbit module names never truncated', () => {
   it('name style does not ellipsize / nowrap', () => {
@@ -19,9 +20,15 @@ describe('orbit module names never truncated', () => {
     expect(labels.every((l) => !l.includes('…'))).toBe(true);
   });
 
-  it('orbit cards widen and grid kicks in below 640px (1024/1280 centre)', () => {
+  it('orbit uses fixed design size + scale; grid only below 900px page width', () => {
     const src = readFileSync(join(__dirname, 'NexusOrbit.tsx'), 'utf8');
     expect(src).toMatch(/width: layout === 'orbit' \? 148/);
-    expect(src).toMatch(/setUseGrid\(w < 640\)/);
+    expect(src).toContain('orbitFitScale');
+    expect(src).toContain('shouldUseOrbitGrid');
+    expect(src).toContain('translate(-50%, -50%) scale(');
+    expect(ORBIT_DESIGN_W).toBeGreaterThan(400);
+    expect(ORBIT_DESIGN_H).toBeGreaterThan(400);
+    expect(ORBIT_GRID_MAX_WIDTH).toBe(900);
+    expect(src).not.toMatch(/setUseGrid\(w < 640\)/);
   });
 });

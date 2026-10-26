@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -101,6 +101,38 @@ export default function NexusPage() {
   );
   const [homeSummary, setHomeSummary] = useState<HomeSummary | null>(() => readHomeSummaryCache(cacheKey));
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [fitHeight, setFitHeight] = useState<number | null>(null);
+  const [fitMarginBottom, setFitMarginBottom] = useState(0);
+
+  // Fill exactly the visible area below the app header (runtime-measured).
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const top = el.getBoundingClientRect().top;
+      const parent = el.parentElement;
+      const pb = parent ? parseFloat(getComputedStyle(parent).paddingBottom || '0') || 0 : 0;
+      const nextH = Math.max(320, Math.floor(window.innerHeight - top));
+      setFitHeight(nextH);
+      setFitMarginBottom(pb);
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => measure())
+        : null;
+    if (ro && el.parentElement) ro.observe(el.parentElement);
+    const header = document.querySelector('header');
+    if (ro && header) ro.observe(header);
+    return () => {
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, []);
 
   // Clear home-summary cache on logout (user becomes null).
   useEffect(() => {
@@ -390,11 +422,21 @@ export default function NexusPage() {
     : null;
 
   return (
-    <div className="zava-nexus-root" style={rootStyle}>
+    <div
+      ref={rootRef}
+      className="zava-nexus-root"
+      data-testid="nexus-viewport-root"
+      style={{
+        ...rootStyle,
+        height: fitHeight != null ? fitHeight : '100%',
+        maxHeight: fitHeight != null ? fitHeight : undefined,
+        marginBottom: fitMarginBottom ? -fitMarginBottom : 0,
+      }}
+    >
       <div aria-hidden style={starsStyle} />
       <div aria-hidden style={nebulaStyle} />
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0, marginBottom: 2 }}>
         <Link to="/dashboard" style={dashLinkStyle}>
           Go to dashboard
         </Link>
@@ -418,7 +460,7 @@ export default function NexusPage() {
       />
 
       <div className="zava-nexus-grid" style={gridStyle}>
-        {/* LEFT — STEP 4 Needs you */}
+        {/* LEFT — Needs you (scrolls inside panel) */}
         <NexusNeedsYou
           alertCounts={alertCounts}
           attentionFacts={attentionFacts}
@@ -436,8 +478,8 @@ export default function NexusPage() {
           }}
         />
 
-        {/* CENTER — STEP 3 orbit */}
-        <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
+        {/* CENTER — Orbit (scales to box; never page-scroll) */}
+        <section style={{ ...panelStyle, padding: 10, overflow: 'hidden', minHeight: 0 }}>
           <NexusOrbit
             needsYouCount={needs}
             modules={homeSummary?.modules ?? null}
@@ -455,7 +497,7 @@ export default function NexusPage() {
           />
         </section>
 
-        {/* RIGHT — STEP 5 Ask Zava */}
+        {/* RIGHT — Ask Zava (scrolls inside panel) */}
         <NexusAsk
           onNavigate={(href) => navigate(href)}
           onMicTap={voice.onMicTap}
@@ -468,7 +510,7 @@ export default function NexusPage() {
         />
       </div>
 
-      {/* STEP 6 — live strip */}
+      {/* Live strip — one line, stays in viewport */}
       <NexusLiveStrip
         timeline={timeline}
         loadSlots={loadSlots}
@@ -477,7 +519,7 @@ export default function NexusPage() {
       />
 
       <style>{`
-        @media (max-width: 1100px) {
+        @media (max-width: 900px) {
           .zava-nexus-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
@@ -486,13 +528,16 @@ export default function NexusPage() {
 }
 
 const rootStyle: CSSProperties = {
-  minHeight: '100%',
   position: 'relative',
   overflow: 'hidden',
   color: '#E8EEF9',
-  padding: '16px 18px 28px',
+  padding: '8px 12px 8px',
   fontFamily: 'ui-sans-serif, system-ui, Segoe UI, sans-serif',
   background: '#030712',
+  display: 'flex',
+  flexDirection: 'column',
+  boxSizing: 'border-box',
+  minHeight: 0,
 };
 
 const starsStyle: CSSProperties = {
@@ -525,9 +570,12 @@ const dashLinkStyle: CSSProperties = {
 const gridStyle: CSSProperties = {
   position: 'relative',
   display: 'grid',
-  gridTemplateColumns: 'minmax(200px, 0.85fr) minmax(480px, 1.5fr) minmax(200px, 0.85fr)',
-  gap: 14,
+  gridTemplateColumns: 'minmax(180px, 0.85fr) minmax(280px, 1.5fr) minmax(180px, 0.85fr)',
+  gap: 10,
   alignItems: 'stretch',
+  flex: 1,
+  minHeight: 0,
+  overflow: 'hidden',
 };
 
 const panelStyle: CSSProperties = {
@@ -537,4 +585,9 @@ const panelStyle: CSSProperties = {
   padding: 16,
   backdropFilter: 'blur(14px)',
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+  minHeight: 0,
+  height: '100%',
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
 };

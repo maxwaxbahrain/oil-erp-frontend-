@@ -12,6 +12,7 @@ import {
   moreCount,
   nextUpItems,
   rankNeedsYouItems,
+  stripRawMoneyFigures,
   type NeedsYouItem,
 } from './needsYouModel';
 
@@ -179,8 +180,24 @@ describe('buildNeedsYouItems', () => {
     const focus = focusNeedsYouItem(ranked);
     expect(focus?.valueLabel).toBe('Books check');
     expect(focus?.valueLabel).not.toMatch(/-/);
-    expect(focus?.badge).toBe('Books check');
+    // Badge OR title — never both "Books check"
+    expect(focus?.badge).toBeUndefined();
     expect(focus?.sentences[0]).toContain('$203,775');
+  });
+
+  it('focus wording: strip leading punct, one formatted money, no raw signed figure', () => {
+    expect(cleanNeedsCopy('. Inventory mismatch')).toBe('Inventory mismatch');
+    expect(stripRawMoneyFigures('Gap is -203,775.10 vs stock')).toBe('Gap is vs stock');
+    const sentence = booksOrMoneySentence({
+      title: '. Status attention',
+      why: "Inventory doesn't match stock — -203,775.10",
+      money: -203775.1,
+      books: true,
+    });
+    expect(sentence).toMatch(/difference/i);
+    expect(sentence).toContain('$203,775');
+    expect(sentence).not.toMatch(/-203,?775\.10/);
+    expect((sentence.match(/\$203,775/g) || []).length).toBe(1);
   });
 
   it('difference only on real mismatches; other money keeps sign; no direction guess', () => {
