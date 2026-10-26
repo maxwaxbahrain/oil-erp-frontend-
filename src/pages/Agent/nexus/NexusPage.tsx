@@ -13,21 +13,18 @@ import {
   alertShellReady,
   attentionFactsFromAlerts,
   computeAlertCounts,
-  formatAttentionWelcome,
   shellLoadFailureLines,
 } from '../../../utils/alertCounts';
 import { firstName } from '../zavaCopy';
-import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
-  PLANET_STATUS_COLOR,
   buildTimelineEvents,
-  comingUpCards,
   type NexusSignalCard,
   type SourceResult,
   type TimelineEvent,
   type TimelineLaneId,
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
+import NexusAsk from './NexusAsk';
 import NexusHero, { formatHeroSpeakLine } from './NexusHero';
 import NexusNeedsYou from './NexusNeedsYou';
 import NexusOrbit from './NexusOrbit';
@@ -131,18 +128,6 @@ export default function NexusPage() {
   const shellReady = alertShellReady(shell);
   const loadFailures = useMemo(() => shellLoadFailureLines(alertCounts), [alertCounts]);
   const attentionFacts = useMemo(() => attentionFactsFromAlerts(alertCounts), [alertCounts]);
-  const cardsLoadOk = cardsLoad.state === 'ok';
-  const welcomeLine = useMemo(
-    () =>
-      formatAttentionWelcome({
-        firstName: name,
-        shellReady,
-        facts: attentionFacts,
-        loadFailures,
-      }),
-    [name, shellReady, attentionFacts, loadFailures],
-  );
-
   // Instant cache + background refresh once shell is ready.
   useEffect(() => {
     if (!isStaging || !shellReady) return;
@@ -294,10 +279,7 @@ export default function NexusPage() {
   const needs = attentionFacts.length;
   const speakable = cards.filter((c) => !dismissed.has(c.id));
   const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
-  const upcoming = comingUpCards(speakable, activeCard?.id);
   const nowMinute = now.getHours() * 60 + now.getMinutes();
-  const activeIndex = activeCard ? speakable.findIndex((c) => c.id === activeCard.id) + 1 : 0;
-  const speakModule = String(activeCard?.module || 'Update').toUpperCase();
 
   const heroSpeakLine = useMemo(
     () => formatHeroSpeakLine(name, homeSummary, now),
@@ -320,13 +302,6 @@ export default function NexusPage() {
   const updatedLabel = homeSummary?.generated_at
     ? formatUpdatedAgo(homeSummary.generated_at, now)
     : null;
-
-  const nextUpdate = () => {
-    if (!activeCard || speakable.length < 2) return;
-    const i = speakable.findIndex((c) => c.id === activeCard.id);
-    const next = speakable[(i + 1) % speakable.length];
-    setActiveCardId(next.id);
-  };
 
   if (!isStaging) {
     return (
@@ -406,98 +381,17 @@ export default function NexusPage() {
           />
         </section>
 
-        {/* RIGHT */}
-        <aside style={panelStyle}>
-          <SectionTitle>{voice.voiceState === 'speaking' ? 'Zava · speaking' : 'Zava'}</SectionTitle>
-          {!shellReady ? (
-            <Muted>Loading…</Muted>
-          ) : activeCard ? (
-            <div style={{ ...cardStyle, borderColor: 'rgba(94,234,212,0.35)', boxShadow: '0 0 24px rgba(45,212,191,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: '#5EEAD4' }}>
-                  {speakModule} ({activeIndex} OF {speakable.length || 1})
-                </span>
-                <Waveform compact />
-              </div>
-              <strong style={{ fontSize: 16, display: 'block', lineHeight: 1.3 }}>{activeCard.title}</strong>
-              <div style={{ fontSize: 20, fontWeight: 800, margin: '10px 0 8px', color: '#F8FAFC' }}>
-                {signalFigure(activeCard) || companyAmount(activeCard.money)}
-              </div>
-              <p style={{ fontSize: 12, color: '#94A3B8', margin: '0 0 14px', lineHeight: 1.45 }}>
-                {signalWhy(activeCard.why)}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" style={tealBtn} onClick={() => navigate(activeCard.href || '/agent')}>
-                  {activeCard.action || 'Open'}
-                </button>
-                <button type="button" style={ghostBtn} onClick={nextUpdate} disabled={speakable.length < 2}>
-                  Next update
-                </button>
-              </div>
-            </div>
-          ) : (
-            <Muted>
-              {attentionFacts.length > 0
-                ? welcomeLine
-                : cardsLoad.state === 'error'
-                  ? "Couldn't load signal details."
-                  : 'No extra updates yet.'}
-            </Muted>
-          )}
-
-          <SectionTitle style={{ marginTop: 22 }}>Coming up</SectionTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {upcoming.length === 0 && <Muted>{cardsLoad.state === 'unavailable' ? 'Loading…' : 'None right now.'}</Muted>}
-            {upcoming.map((card) => {
-                const color =
-                  String(card.priority).toLowerCase() === 'urgent'
-                    ? PLANET_STATUS_COLOR.needs_you
-                    : String(card.priority).toLowerCase() === 'today'
-                      ? PLANET_STATUS_COLOR.watch
-                      : PLANET_STATUS_COLOR.info;
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => setActiveCardId(card.id)}
-                    style={{
-                      display: 'flex',
-                      gap: 10,
-                      alignItems: 'flex-start',
-                      textAlign: 'left',
-                      background: 'transparent',
-                      border: 'none',
-                      borderBottom: '1px solid rgba(148,163,184,0.1)',
-                      padding: '10px 0',
-                      cursor: 'pointer',
-                      color: '#E2E8F0',
-                      width: '100%',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: color,
-                        boxShadow: `0 0 8px ${color}`,
-                        marginTop: 5,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span>
-                      <span style={{ display: 'block', fontSize: 12, fontWeight: 700 }}>
-                        {card.module ? String(card.module).replace(/^\w/, (c) => c.toUpperCase()) : 'Update'}
-                      </span>
-                      <span style={{ display: 'block', fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
-                        {card.title}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-        </aside>
+        {/* RIGHT — STEP 5 Ask Zava */}
+        <NexusAsk
+          onNavigate={(href) => navigate(href)}
+          onMicTap={voice.onMicTap}
+          micActive={voice.voiceState === 'listening' || voice.voiceState === 'speaking'}
+          voiceYouLine={voice.youLine}
+          voiceZavaLine={voice.zavaLine}
+          voiceThinking={voice.voiceState === 'thinking'}
+          voiceNavHref={activeCard?.href || null}
+          voiceNavLabel={activeCard ? 'Open update' : null}
+        />
       </div>
 
       {/* Timeline */}
