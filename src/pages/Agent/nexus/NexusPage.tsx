@@ -22,7 +22,6 @@ import {
   PLANET_STATUS_COLOR,
   buildTimelineEvents,
   comingUpCards,
-  needsYouCards,
   type NexusSignalCard,
   type SourceResult,
   type TimelineEvent,
@@ -30,6 +29,7 @@ import {
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
 import NexusHero, { formatHeroSpeakLine } from './NexusHero';
+import NexusNeedsYou from './NexusNeedsYou';
 import NexusOrbit from './NexusOrbit';
 import NexusTopMetrics from './NexusTopMetrics';
 import {
@@ -292,7 +292,6 @@ export default function NexusPage() {
   }, [reloadKey]);
 
   const needs = attentionFacts.length;
-  const signalNeeds = cardsLoadOk ? needsYouCards(cards).filter((c) => !dismissed.has(c.id)) : [];
   const speakable = cards.filter((c) => !dismissed.has(c.id));
   const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
   const upcoming = comingUpCards(speakable, activeCard?.id);
@@ -371,166 +370,22 @@ export default function NexusPage() {
       />
 
       <div className="zava-nexus-grid" style={gridStyle}>
-        {/* LEFT */}
-        <aside style={panelStyle}>
-          <SectionTitle>Voice link</SectionTitle>
-          <div style={voicePanelStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: '0.16em',
-                  color: voice.voiceState === 'idle' ? '#34D399' : '#5EEAD4',
-                }}
-              >
-                {voice.statusLabel.toUpperCase()}
-                {voice.countdown != null ? ` · ${voice.countdown}s` : ''}
-              </span>
-              <Waveform />
-            </div>
-            <div style={transcriptStyle}>
-              <p>
-                <span style={whoStyle}>ZAVA</span>
-                {voice.zavaLine
-                  ? ` ${voice.zavaLine}`
-                  : shellReady
-                    ? ` ${welcomeLine}`
-                    : ' Loading your numbers…'}
-              </p>
-              <p style={{ marginTop: 8 }}>
-                <span style={{ ...whoStyle, color: '#60A5FA' }}>YOU</span>
-                {voice.youLine ? ` ${voice.youLine}` : ' —'}
-              </p>
-            </div>
-            {voice.voiceNotice ? (
-              <p style={{ marginTop: 8, fontSize: 11, color: '#FBBF24' }}>{voice.voiceNotice}</p>
-            ) : null}
-            {voice.fallbackChips && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                {voice.fallbackChips.map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    style={chipBtn}
-                    onClick={() => void voice.runChip(chip)}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            )}
-            {voice.pendingConfirm && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button type="button" style={chipBtn} onClick={() => void voice.confirmYes()}>
-                  Yes
-                </button>
-                <button type="button" style={chipBtn} onClick={() => void voice.confirmNo()}>
-                  No
-                </button>
-              </div>
-            )}
-            {voice.customerChoices && voice.customerChoices.length > 0 && (
-              <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
-                {voice.customerChoices.map((c) => (
-                  <li key={c.id} style={{ marginBottom: 6 }}>
-                    <button type="button" style={chipBtn} onClick={() => void voice.pickCustomer(c)}>
-                      {c.name}
-                      {c.arLoadedOk && c.balance != null
-                        ? ` · $${Math.round(c.balance).toLocaleString('en-US')}`
-                        : ''}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p style={{ marginTop: 10, fontSize: 11, color: '#64748B' }}>
-              Tap the center orb to talk · push-to-talk only
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 10 }}>
-            <SectionTitle style={{ marginBottom: 0 }}>Needs you</SectionTitle>
-            {shellReady && needs > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#F87171', letterSpacing: '0.08em' }}>
-                {needs} NEED YOU
-              </span>
-            )}
-          </div>
-
-          {!shellReady && <Muted>Loading…</Muted>}
-          {shellReady && loadFailures.length > 0 && (
-            <div style={{ ...cardStyle, borderColor: 'rgba(248,113,113,0.45)', marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                {loadFailures.join(' ')}
-              </div>
-              <button type="button" style={primaryBtn} onClick={() => reloadShell()}>
-                Retry
-              </button>
-            </div>
-          )}
-          {shellReady
-            && loadFailures.length === 0
-            && attentionFacts.length === 0
-            && signalNeeds.length === 0 && (
-            <Muted>Nothing needs you right now.</Muted>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {attentionFacts.map((fact, idx) => (
-              <div
-                key={fact.id}
-                style={{
-                  ...cardStyle,
-                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
-                }}
-              >
-                <strong style={{ fontSize: 13, display: 'block' }}>{fact.label}</strong>
-                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>
-                  Same figure as the top alert bar
-                </p>
-                <button
-                  type="button"
-                  style={primaryBtn}
-                  onClick={() =>
-                    navigate(
-                      fact.id === 'out_of_stock'
-                        ? '/products'
-                        : fact.id === 'owed' || fact.id === 'overdue'
-                          ? '/finance/collections'
-                          : '/dashboard',
-                    )
-                  }
-                >
-                  Open
-                </button>
-              </div>
-            ))}
-            {signalNeeds.map((card, idx) => (
-              <div
-                key={card.id}
-                style={{
-                  ...cardStyle,
-                  borderColor: idx === 0 ? 'rgba(248,113,113,0.45)' : 'rgba(251,191,36,0.35)',
-                }}
-              >
-                <strong style={{ fontSize: 13, display: 'block' }}>{card.title}</strong>
-                <p style={{ margin: '6px 0 12px', fontSize: 12, color: '#94A3B8' }}>{signalWhy(card.why)}</p>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" style={primaryBtn} onClick={() => navigate(card.href || '/agent')}>
-                    {card.action || 'Open'}
-                  </button>
-                  <button
-                    type="button"
-                    style={ghostBtn}
-                    onClick={() => setDismissed((prev) => new Set(prev).add(card.id))}
-                  >
-                    Later
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
+        {/* LEFT — STEP 4 Needs you */}
+        <NexusNeedsYou
+          alertCounts={alertCounts}
+          attentionFacts={attentionFacts}
+          loadFailures={loadFailures}
+          cards={cards}
+          cardsLoad={cardsLoad}
+          dismissed={dismissed}
+          shellReady={shellReady}
+          onNavigate={(href) => navigate(href)}
+          onRetry={() => {
+            setReloadKey((k) => k + 1);
+            setSummaryRefreshKey((k) => k + 1);
+            reloadShell();
+          }}
+        />
 
         {/* CENTER — STEP 3 orbit */}
         <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
