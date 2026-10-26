@@ -12,20 +12,36 @@ export function timeGreeting(d = new Date()): string {
   return 'Good evening';
 }
 
+export type HeroNeedsCounts = { total: number; urgent: number };
+
 /** Title + subline pieces — keep UI and first-mic speech identical. */
 export function heroLineParts(
   firstName: string,
   summary: HomeSummary | null,
   now = new Date(),
+  needsCounts?: HeroNeedsCounts | null,
 ): { greeting: string; needsLine: string; needs: number; biggest: string } {
-  const needs = summary?.needs_you_count ?? 0;
   const greeting = `${timeGreeting(now)}, ${firstName}.`;
-  const needsLine =
-    needs > 0
-      ? `${needs} thing${needs === 1 ? '' : 's'} need you.`
-      : summary
-        ? 'Nothing needs you right now.'
-        : 'Loading…';
+  let needsLine: string;
+  let needs: number;
+  if (needsCounts) {
+    needs = needsCounts.total;
+    if (needs <= 0) {
+      needsLine = summary ? 'Nothing needs you right now.' : 'Loading…';
+    } else if (needsCounts.urgent > 0 && needsCounts.urgent < needs) {
+      needsLine = `${needsCounts.urgent} urgent · ${needs} total`;
+    } else {
+      needsLine = `${needs} thing${needs === 1 ? '' : 's'} need you.`;
+    }
+  } else {
+    needs = summary?.needs_you_count ?? 0;
+    needsLine =
+      needs > 0
+        ? `${needs} thing${needs === 1 ? '' : 's'} need you.`
+        : summary
+          ? 'Nothing needs you right now.'
+          : 'Loading…';
+  }
   return { greeting, needsLine, needs, biggest: summary?.biggest_line?.trim() || '' };
 }
 
@@ -34,8 +50,9 @@ export function formatHeroSpeakLine(
   firstName: string,
   summary: HomeSummary | null,
   now = new Date(),
+  needsCounts?: HeroNeedsCounts | null,
 ): string {
-  const { greeting, needsLine, biggest } = heroLineParts(firstName, summary, now);
+  const { greeting, needsLine, biggest } = heroLineParts(firstName, summary, now, needsCounts);
   if (biggest) return `${greeting} ${needsLine} ${biggest}`;
   return `${greeting} ${needsLine}`;
 }
@@ -55,6 +72,8 @@ type Props = {
   now?: Date;
   onMicTap: () => void;
   micActive?: boolean;
+  /** Same source as left Needs-you list (required for count parity). */
+  needsCounts?: HeroNeedsCounts | null;
 };
 
 export default function NexusHero({
@@ -64,8 +83,9 @@ export default function NexusHero({
   now = new Date(),
   onMicTap,
   micActive,
+  needsCounts,
 }: Props) {
-  const { greeting, needsLine, needs, biggest } = heroLineParts(firstName, summary, now);
+  const { greeting, needsLine, needs, biggest } = heroLineParts(firstName, summary, now, needsCounts);
 
   return (
     <header style={wrap}>

@@ -148,8 +148,9 @@ export default function NexusOrbit({
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 0;
-      // Ellipse needs ~520px; below that → 2-col grid (covers narrow + tight centre column).
-      setUseGrid(w < 520);
+      // Ellipse needs room for full module names; below ~640 → 2-col grid
+      // (covers 1024px layouts and tight centre columns at 1280).
+      setUseGrid(w < 640);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -313,7 +314,7 @@ function ModuleCard({
       onClick={onOpen}
       style={{
         ...card,
-        width: layout === 'orbit' ? 118 : '100%',
+        width: layout === 'orbit' ? 148 : '100%',
         borderColor: active ? color : `${color}55`,
         boxShadow: active ? `0 0 16px ${color}66` : `0 0 10px ${color}22`,
       }}
@@ -321,10 +322,12 @@ function ModuleCard({
       <span style={{ ...seg, background: color }} aria-hidden />
       <span style={cardInner}>
         <span style={cardTop}>
-          <Icon size={12} color={color} />
-          <span style={cardName}>{def.label}</span>
-          <span style={{ ...tagPill, color, borderColor: `${color}66` }}>{tag}</span>
+          <Icon size={12} color={color} style={{ flexShrink: 0 }} />
+          <span style={cardName} data-testid={`orbit-name-${def.id}`}>
+            {def.label}
+          </span>
         </span>
+        <span style={{ ...tagPill, color, borderColor: `${color}66`, alignSelf: 'flex-start' }}>{tag}</span>
         <span
           style={{
             ...cardValue,
@@ -466,15 +469,21 @@ const cardTop: CSSProperties = {
   minWidth: 0,
 };
 
-const cardName: CSSProperties = {
+/** Full module name — wrap; never ellipsize ("Payroll…"). */
+export const ORBIT_CARD_NAME_STYLE: CSSProperties = {
   flex: 1,
-  fontSize: 10,
+  fontSize: 11,
   fontWeight: 700,
   color: '#CBD5E1',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
+  whiteSpace: 'normal',
+  overflow: 'visible',
+  textOverflow: 'clip',
+  lineHeight: 1.25,
+  wordBreak: 'normal',
+  overflowWrap: 'anywhere',
 };
+
+const cardName: CSSProperties = ORBIT_CARD_NAME_STYLE;
 
 const tagPill: CSSProperties = {
   fontSize: 8,

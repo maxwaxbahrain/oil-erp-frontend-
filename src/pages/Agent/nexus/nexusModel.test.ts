@@ -183,10 +183,13 @@ describe('nexusModel', () => {
     }
   });
 
-  it('hasRealTimestamp rejects date-only and midnight', () => {
+  it('hasRealTimestamp rejects date-only and midnight (incl. UTC Z)', () => {
     expect(hasRealTimestamp('2026-10-19')).toBe(false);
     expect(hasRealTimestamp('2026-10-19T00:00:00')).toBe(false);
+    expect(hasRealTimestamp('2026-10-19T00:00:00.000Z')).toBe(false);
+    expect(hasRealTimestamp('2026-10-19T00:00:00Z')).toBe(false);
     expect(hasRealTimestamp('2026-10-19T09:15:00')).toBe(true);
+    expect(hasRealTimestamp('2026-10-19T18:00:00Z')).toBe(true);
   });
 
   it('timeline: date-only stays off the axis; timed events keep clock position', () => {

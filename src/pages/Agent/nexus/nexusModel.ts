@@ -59,6 +59,10 @@ export type TimelineEvent = {
   href?: string;
   /** Date-only today item — not placed on the time axis. */
   timeNotRecorded?: boolean;
+  /** Payment amount when known (live strip). */
+  amount?: number | null;
+  /** Customer name when known (live strip). */
+  customerName?: string | null;
 };
 
 /** Open PO = not draft / rejected / completed / cancelled / paid. */
@@ -443,15 +447,22 @@ export function owedToUsFromArSummary(summary: {
 
 /**
  * True when the string carries a real clock time (not date-only, not midnight).
- * Date-only and `…T00:00:00` are treated as "time not recorded".
+ * Date-only and `…T00:00:00` / UTC midnight are "time not recorded" — never show a
+ * fake local time (e.g. UTC midnight → 6:00 PM in US timezones).
  */
 export function hasRealTimestamp(iso: string | undefined | null): boolean {
   if (!iso) return false;
   const raw = String(iso).trim();
   if (!raw.includes('T') && !raw.includes(' ')) return false;
+  const clock = /[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+  if (!clock) return false;
+  const hh = Number(clock[1]);
+  const mm = Number(clock[2]);
+  const ss = Number(clock[3] || '0');
+  // Recorded clock is midnight → date-only payload, not a real event time.
+  if (hh === 0 && mm === 0 && ss === 0) return false;
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return false;
-  return !(d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0);
+  return !Number.isNaN(d.getTime());
 }
 
 function parseInstant(iso: string | undefined | null): Date | null {
@@ -533,6 +544,7 @@ export function buildTimelineEvents(input: TimelineInputs): TimelineEvent[] {
         ? p.payment_date || p.date
         : null;
     const instant = timeSrc ? parseInstant(timeSrc) : null;
+    const amount = p.amount != null && Number.isFinite(Number(p.amount)) ? Number(p.amount) : null;
     events.push({
       id: `pay-${p.id}`,
       lane: 'money',
@@ -540,6 +552,8 @@ export function buildTimelineEvents(input: TimelineInputs): TimelineEvent[] {
       minuteOfDay: instant ? minuteOfDay(instant) : null,
       timeNotRecorded: !instant,
       href: '/finance/collections',
+      amount,
+      customerName: p.customer_name || null,
     });
   }
 

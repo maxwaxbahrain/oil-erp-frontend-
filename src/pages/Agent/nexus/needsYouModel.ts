@@ -4,7 +4,7 @@
  */
 
 import type { AttentionFact, AlertCounts } from '../../../utils/alertCounts';
-import { companyAmount, signalWhy } from '../signalCards';
+import { signalWhy } from '../signalCards';
 import type { NexusSignalCard, SourceResult } from './nexusModel';
 import { normalizePriority } from './nexusModel';
 
@@ -15,7 +15,7 @@ export type NeedsYouNav = { label: string; href: string };
 export type NeedsYouItem = {
   id: string;
   kind: NeedsYouKind;
-  /** Large focus value, e.g. "$65,800 owed" or "Couldn't load". */
+  /** Large focus value, e.g. "$65,800 owed" or "Books check" — never "$ -203,775.10". */
   valueLabel: string;
   /** Short row text for NEXT UP. */
   rowText: string;
@@ -29,10 +29,70 @@ export type NeedsYouItem = {
   rowLink: NeedsYouNav;
   /** When true, primary is Retry (caller handles onRetry). */
   retry?: boolean;
+  /** Optional badge under eyebrow (e.g. Books check). */
+  badge?: string;
 };
 
+/** Whole dollars, absolute — never a signed "$ -203,775.10". */
+export function formatNeedsMoney(n: number): string {
+  return `$${Math.round(Math.abs(n)).toLocaleString('en-US')}`;
+}
+
 function moneyLabel(n: number): string {
-  return `$${Math.round(n).toLocaleString('en-US')}`;
+  return formatNeedsMoney(n);
+}
+
+/** Drop generic status fluff from titles/why. */
+export function cleanNeedsCopy(raw: string): string {
+  return String(raw || '')
+    .replace(/\bStatus\s+attention\b/gi, '')
+    .replace(/^\s*[·|]\s*/g, '')
+    .replace(/\s*[·|]\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export function isBooksHealthCard(card: NexusSignalCard): boolean {
+  const blob = `${card.module || ''} ${card.title || ''} ${card.why || ''} ${card.watcher_id || ''}`.toLowerCase();
+  return /books|inventory.*match|stock records|data.?health|doesn't match|do not match|valuation|trial.?balance|\bgl\b|ledger/.test(
+    blob,
+  );
+}
+
+/** Signed amount for sentence meaning (`-$33,075` / `$48,381`). Labels still use formatNeedsMoney. */
+function formatNeedsMoneySigned(n: number): string {
+  const abs = formatNeedsMoney(n);
+  return n < -0.005 ? `-${abs}` : abs;
+}
+
+function isMismatchCopy(text: string): boolean {
+  return /difference|doesn't match|do not match|mismatch/i.test(text);
+}
+
+/** Plain sentence from real title/why. "difference" only for real mismatches — never guess direction. */
+export function booksOrMoneySentence(opts: {
+  title: string;
+  why: string;
+  money: number;
+  books: boolean;
+}): string {
+  void opts.books;
+  const title = cleanNeedsCopy(opts.title);
+  const why = cleanNeedsCopy(opts.why);
+  const core = why || title;
+  const absAmt = formatNeedsMoney(opts.money);
+  const signedAmt = formatNeedsMoneySigned(opts.money);
+  if (!core) {
+    return Math.abs(opts.money) > 0.005 ? signedAmt : '';
+  }
+  const trimmed = core.replace(/[.\s]+$/, '');
+  if (isMismatchCopy(core)) {
+    return /\$[\d,]/.test(core) ? core : `${trimmed} — ${absAmt} difference.`;
+  }
+  if (Math.abs(opts.money) > 0.005) {
+    return `${trimmed} — ${signedAmt}.`;
+  }
+  return core;
 }
 
 /** Pure ranking: money (desc) → errors → watch. */
@@ -168,8 +228,10 @@ export function buildNeedsYouItems(input: {
     for (const card of cards) {
       if (dismissed.has(card.id)) continue;
       const money = Number(card.money) || 0;
-      const why = signalWhy(card.why || '');
+      const title = cleanNeedsCopy(card.title || '');
+      const why = cleanNeedsCopy(signalWhy(card.why || ''));
       const isFail = card.watcher_id === 'check_failed';
+      const books = isBooksHealthCard(card);
       const priority = normalizePriority(card.priority);
       let kind: NeedsYouKind = 'watch';
       if (isFail) kind = 'error';
@@ -183,17 +245,23 @@ export function buildNeedsYouItems(input: {
           : card.action
         : 'Open';
 
+      const sentence = isFail
+        ? why || title || "Couldn't load this check."
+        : booksOrMoneySentence({ title, why, money, books });
+
       items.push({
         id: `card-${card.id}`,
         kind,
         valueLabel: isFail
           ? "Couldn't load"
-          : Math.abs(money) > 0.005
-            ? companyAmount(money)
-            : card.title,
-        rowText: card.title,
-        sentences: [why || card.title].filter(Boolean),
-        amount: isFail ? null : Math.abs(money) > 0.005 ? money : null,
+          : books
+            ? 'Books check'
+            : Math.abs(money) > 0.005
+              ? formatNeedsMoney(money)
+              : title || 'Update',
+        rowText: books ? 'Books check' : title || 'Update',
+        sentences: [sentence].filter(Boolean),
+        amount: isFail ? null : Math.abs(money) > 0.005 ? Math.abs(money) : null,
         moneyScore: isFail ? 0 : Math.abs(money),
         primary: isFail
           ? { label: 'Retry', href: '#' }
@@ -202,11 +270,25 @@ export function buildNeedsYouItems(input: {
           ? { label: 'Retry ›', href: '#' }
           : { label: 'Review ›', href },
         retry: isFail,
+        badge: books ? 'Books check' : undefined,
       });
     }
   }
 
   return rankNeedsYouItems(items);
+}
+
+export function countUrgentNeeds(items: NeedsYouItem[]): number {
+  return items.filter((i) => i.kind === 'money' || i.kind === 'error').length;
+}
+
+/** Hero line counts — same source as the left Needs-you list. */
+export function formatNeedsHeroLine(total: number, urgent: number): string {
+  if (total <= 0) return 'Nothing needs you right now.';
+  if (urgent > 0 && urgent < total) {
+    return `${urgent} urgent · ${total} total`;
+  }
+  return `${total} thing${total === 1 ? '' : 's'} need you.`;
 }
 
 /** Focus card is always the top-ranked item. */

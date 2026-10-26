@@ -80,7 +80,7 @@ export default function NexusLiveStrip({
               onClick={() => ev.href && onNavigate(ev.href)}
               disabled={!ev.href}
             >
-              <span style={time}>{ev.timeLabel}</span>
+              {ev.timeLabel ? <span style={time}>{ev.timeLabel}</span> : null}
               <span style={text}>{ev.text}</span>
             </button>
           ))}
