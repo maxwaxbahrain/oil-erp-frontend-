@@ -3,6 +3,13 @@
 // No external dependencies — pure browser API.
 
 import { useState, useRef, useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
+import {
+  claimMicSession,
+  registerMicConsumer,
+  releaseMicSession,
+} from '../lib/micSessionOwner';
+
+const MIC_OWNER = 'ai-advisor-speech' as const;
 
 export interface UseMicInputReturn {
   isListening: boolean;
@@ -46,6 +53,7 @@ export function useMicInput(
     }
     setIsListening(false);
     setInterimTranscript('');
+    releaseMicSession(MIC_OWNER);
   }, []);
 
   const startListening = useCallback(() => {
@@ -54,6 +62,8 @@ export function useMicInput(
       stopListening();
       return;
     }
+
+    claimMicSession(MIC_OWNER);
 
     const SpeechRecognitionClass =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -114,6 +124,10 @@ export function useMicInput(
       startListening();
     }
   }, [isListening, startListening, stopListening]);
+
+  useEffect(() => {
+    return registerMicConsumer(MIC_OWNER, () => stopListening());
+  }, [stopListening]);
 
   // Cleanup on unmount
   useEffect(() => {

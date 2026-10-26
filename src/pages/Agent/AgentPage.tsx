@@ -6,6 +6,13 @@ import api from '../../api/axios';
 import { isStaging } from '../../config/appEnv';
 import { useAuth } from '../../contexts/AuthContext';
 import { RECORD_LIMIT_SECONDS, permissionDenied, recorderMime, recordingCountdown, type VoiceState } from '../../services/zavaVoice';
+import {
+    claimMicSession,
+    registerMicConsumer,
+    releaseMicSession,
+} from '../../lib/micSessionOwner';
+
+const AGENT_PAGE_MIC_OWNER = 'agent-page-record' as const;
 import { AnswerBody } from './formatAnswer';
 import { FollowUps, SpatialStyles, ZavaPanel, type SpatialBlock } from './spatial';
 import ZavaProposals from './zavaProposals';
@@ -350,6 +357,7 @@ export default function AgentPage() {
         setCountdown(null);
         const recorder = recorderRef.current;
         if (recorder && recorder.state === 'recording') recorder.stop();
+        releaseMicSession(AGENT_PAGE_MIC_OWNER);
     }
 
     function stopSpeaking() {
@@ -499,6 +507,7 @@ export default function AgentPage() {
             return;
         }
         try {
+            claimMicSession(AGENT_PAGE_MIC_OWNER);
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
             const mime = recorderMime();
             const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
@@ -510,6 +519,7 @@ export default function AgentPage() {
                 clearListenTimers();
                 setCountdown(null);
                 stream.getTracks().forEach((track) => track.stop());
+                releaseMicSession(AGENT_PAGE_MIC_OWNER);
                 const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
                 void sendClip(clip);
             };
@@ -525,9 +535,14 @@ export default function AgentPage() {
             setVoiceState('listening');
         } catch (error) {
             setVoiceState('idle');
+            releaseMicSession(AGENT_PAGE_MIC_OWNER);
             setVoiceNotice(permissionDenied(error) ? VOICE.denied : 'This browser cannot record a voice clip.');
         }
     }
+
+    useEffect(() => {
+        return registerMicConsumer(AGENT_PAGE_MIC_OWNER, () => stopRecording());
+    }, []);
 
     function onOrb() {
         if (voiceState === 'speaking') {

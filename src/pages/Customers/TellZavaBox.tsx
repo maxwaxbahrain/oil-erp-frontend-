@@ -7,6 +7,13 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Form
 import { Mic, Sparkles } from 'lucide-react';
 import api from '../../api/axios';
 import {
+  claimMicSession,
+  registerMicConsumer,
+  releaseMicSession,
+} from '../../lib/micSessionOwner';
+
+const TELL_ZAVA_MIC_OWNER = 'tell-zava-form' as const;
+import {
   RECORD_LIMIT_SECONDS,
   permissionDenied,
   recorderMime,
@@ -271,6 +278,7 @@ export default function TellZavaBox({ snapshot, onApply, onOpenDuplicate }: Prop
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     recorderRef.current = null;
+    releaseMicSession(TELL_ZAVA_MIC_OWNER);
   }, []);
 
   useEffect(() => () => clearListen(), [clearListen]);
@@ -280,6 +288,10 @@ export default function TellZavaBox({ snapshot, onApply, onOpenDuplicate }: Prop
     if (rec && rec.state !== 'inactive') rec.stop();
     else clearListen();
   }, [clearListen]);
+
+  useEffect(() => {
+    return registerMicConsumer(TELL_ZAVA_MIC_OWNER, () => stopMic());
+  }, [stopMic]);
 
   const startMic = useCallback(async () => {
     setError(null);
@@ -291,6 +303,7 @@ export default function TellZavaBox({ snapshot, onApply, onOpenDuplicate }: Prop
       return;
     }
     try {
+      claimMicSession(TELL_ZAVA_MIC_OWNER);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
       streamRef.current = stream;
       const mime = recorderMime();

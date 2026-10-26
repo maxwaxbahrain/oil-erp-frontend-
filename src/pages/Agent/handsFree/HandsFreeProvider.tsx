@@ -15,6 +15,15 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../api/axios';
+import {
+  claimMicSession,
+  isMicOwnedByOther,
+  onMicOwnerChange,
+  registerMicConsumer,
+  releaseMicSession,
+} from '../../../lib/micSessionOwner';
+
+const HANDS_FREE_MIC_OWNER = 'hands-free-zava' as const;
 import { useAuth } from '../../../contexts/AuthContext';
 import { isStaging } from '../../../config/appEnv';
 import { permissionDenied, recorderMime } from '../../../services/zavaVoice';
@@ -271,6 +280,7 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     let stream: MediaStream | null = null;
     try {
       if (!(await assertCap())) return;
+      claimMicSession(HANDS_FREE_MIC_OWNER);
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
       const mime = recorderMime();
       const { blob, reason } = await recordUntilSilence(stream, { mimeType: mime || undefined });
@@ -309,6 +319,7 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       if (stream) stream.getTracks().forEach((t) => t.stop());
+      releaseMicSession(HANDS_FREE_MIC_OWNER);
       setHearing(false);
       followupBusyRef.current = false;
     }
@@ -343,7 +354,10 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
   const stopRecognition = useCallback(() => {
     const rec = recognitionRef.current;
     recognitionRef.current = null;
-    if (!rec) return;
+    if (!rec) {
+      releaseMicSession(HANDS_FREE_MIC_OWNER);
+      return;
+    }
     rec.onresult = null;
     rec.onerror = null;
     rec.onend = null;
@@ -356,13 +370,16 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
         /* ignore */
       }
     }
+    releaseMicSession(HANDS_FREE_MIC_OWNER);
   }, []);
 
   const startRecognition = useCallback(() => {
     if (!supported || !wantListenRef.current || pausedRef.current || micBlocked) return;
     if (!isLeader(leaderRef.current)) return;
+    if (isMicOwnedByOther(HANDS_FREE_MIC_OWNER)) return;
     if (blockRestartRef.current && recognitionRef.current) return;
     stopRecognition();
+    claimMicSession(HANDS_FREE_MIC_OWNER);
     blockRestartRef.current = false;
     const rec = makeRecognition();
     if (!rec) return;
@@ -417,6 +434,7 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
     };
     rec.onend = () => {
       if (blockRestartRef.current) return;
+      if (isMicOwnedByOther(HANDS_FREE_MIC_OWNER)) return;
       if (
         wantListenRef.current &&
         !pausedRef.current &&
@@ -441,6 +459,28 @@ export function HandsFreeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     startRecognitionRef.current = startRecognition;
   }, [startRecognition]);
+
+  useEffect(() => {
+    return registerMicConsumer(HANDS_FREE_MIC_OWNER, () => stopRecognition());
+  }, [stopRecognition]);
+
+  useEffect(() => {
+    return onMicOwnerChange((owner) => {
+      if (owner === 'nexus-zava-ptt') {
+        stopRecognition();
+        return;
+      }
+      if (
+        owner == null &&
+        wantListenRef.current &&
+        !pausedRef.current &&
+        !micBlocked &&
+        isLeader(leaderRef.current)
+      ) {
+        startRecognitionRef.current();
+      }
+    });
+  }, [micBlocked, stopRecognition]);
 
   // BroadcastChannel leader
   useEffect(() => {

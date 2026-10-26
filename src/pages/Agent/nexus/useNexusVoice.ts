@@ -38,6 +38,13 @@ import { startWebSpeechListen, webSpeechAvailable } from './nexusLiveSpeech';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
 import { playMicAck } from './nexusMicAck';
 import { logVoiceTiming } from './nexusVoiceTimings';
+import {
+  claimMicSession,
+  registerMicConsumer,
+  releaseMicSession,
+} from '../../../lib/micSessionOwner';
+
+const NEXUS_MIC_OWNER = 'nexus-zava-ptt' as const;
 
 export type VoiceLine = { who: 'zava' | 'you'; text: string };
 
@@ -526,7 +533,12 @@ export function useNexusVoice(opts: Opts) {
     setCountdown(null);
     setLiveTranscript('');
     onLiveTranscript?.('');
+    releaseMicSession(NEXUS_MIC_OWNER);
   }, [clearListenTimers, onLiveTranscript]);
+
+  useEffect(() => {
+    return registerMicConsumer(NEXUS_MIC_OWNER, () => stopRecording());
+  }, [stopRecording]);
 
   const startListening = useCallback(async () => {
     stopSpeaking();
@@ -545,6 +557,8 @@ export function useNexusVoice(opts: Opts) {
       setVoiceState('idle');
       return;
     }
+
+    claimMicSession(NEXUS_MIC_OWNER);
 
     if (webSpeechAvailable()) {
       try {
@@ -567,6 +581,7 @@ export function useNexusVoice(opts: Opts) {
             onEnd: () => {
               webSpeechStopRef.current = null;
               setVoiceState((s) => (s === 'listening' ? 'idle' : s));
+              releaseMicSession(NEXUS_MIC_OWNER);
             },
           },
           { silenceMs: 800 },
@@ -591,6 +606,7 @@ export function useNexusVoice(opts: Opts) {
         clearListenTimers();
         setCountdown(null);
         stream.getTracks().forEach((track) => track.stop());
+        releaseMicSession(NEXUS_MIC_OWNER);
         const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
         void sendClip(clip);
       };
@@ -606,6 +622,7 @@ export function useNexusVoice(opts: Opts) {
       setVoiceState('listening');
     } catch (error) {
       setVoiceState('idle');
+      releaseMicSession(NEXUS_MIC_OWNER);
       setVoiceNotice(permissionDenied(error) ? VOICE.denied : 'This browser cannot record a voice clip.');
     }
   }, [clearListenTimers, onLiveTranscript, processTranscript, sendClip, stopSpeaking]);

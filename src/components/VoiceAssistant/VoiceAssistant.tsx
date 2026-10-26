@@ -118,6 +118,7 @@ export function VoiceAssistant({
         onResult: handleTranscript,
         onError: handleListenError,
         language: voiceLang,
+        micOwnerId: 'voice-assistant-deepgram',
     });
 
     const handleMicClick = useCallback(() => {

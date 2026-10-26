@@ -18,6 +18,12 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { authFetch } from '../../api/axios';
+import {
+    claimMicSession,
+    type MicOwnerId,
+    registerMicConsumer,
+    releaseMicSession,
+} from '../../lib/micSessionOwner';
 
 // Same VITE_API_URL convention as the rest of the project, inlined so
 // this file stays isolated.
@@ -33,6 +39,7 @@ export interface UseDeepgramRecognitionOptions {
     onError: (message: string) => void;
     /** BCP-47-ish code sent as ?language= on POST /ai/transcribe (default en). */
     language?: string;
+    micOwnerId?: MicOwnerId;
 }
 
 export interface UseDeepgramRecognitionApi {
@@ -81,7 +88,11 @@ function filenameForMime(mimeType: string): string {
 export function useDeepgramRecognition(
     options: UseDeepgramRecognitionOptions
 ): UseDeepgramRecognitionApi {
-    const { onResult, onError, language = 'en' } = options;
+    const { onResult, onError, language = 'en', micOwnerId = 'command-bar-deepgram' } = options;
+    const micOwnerRef = useRef(micOwnerId);
+    useEffect(() => {
+        micOwnerRef.current = micOwnerId;
+    }, [micOwnerId]);
 
     // Latest-callback refs so MediaRecorder event handlers always
     // call the freshest closure without re-creating the recorder.
@@ -124,6 +135,7 @@ export function useDeepgramRecognition(
         recorderRef.current = null;
         chunksRef.current = [];
         activeRef.current = false;
+        releaseMicSession(micOwnerRef.current);
     }, []);
 
     // ── Upload assembled blob to backend.  Always fires exactly one
@@ -186,6 +198,7 @@ export function useDeepgramRecognition(
         }
         if (activeRef.current) return;
         activeRef.current = true;
+        claimMicSession(micOwnerRef.current);
 
         void (async () => {
             let stream: MediaStream;
@@ -314,6 +327,13 @@ export function useDeepgramRecognition(
         teardown();
         onResultRef.current('');
     }, [teardown]);
+
+    const stopRef = useRef(stop);
+    stopRef.current = stop;
+
+    useEffect(() => {
+        return registerMicConsumer(micOwnerId, () => stopRef.current());
+    }, [micOwnerId]);
 
     // ── Unmount cleanup — stop in-flight recording and release the
     //    mic so the browser's recording indicator goes away.
