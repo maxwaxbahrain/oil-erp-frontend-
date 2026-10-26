@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { AlertCounts } from '../../../utils/alertCounts';
 import type { NexusSignalCard, SourceResult } from './nexusModel';
 import {
+  booksOrMoneySentence,
   buildNeedsYouItems,
+  cleanNeedsCopy,
+  countUrgentNeeds,
   focusNeedsYouItem,
+  formatNeedsHeroLine,
+  formatNeedsMoney,
   moreCount,
   nextUpItems,
   rankNeedsYouItems,
@@ -139,5 +144,63 @@ describe('buildNeedsYouItems', () => {
       cardsLoad: okLoad,
     });
     expect(ranked[0]?.primary.href).toBe('/products');
+  });
+
+  it('never shows signed money or Status attention; books use Books check', () => {
+    expect(formatNeedsMoney(-203775.1)).toBe('$203,775');
+    expect(cleanNeedsCopy('Status attention · bad')).toBe('bad');
+    const sentence = booksOrMoneySentence({
+      title: 'Inventory mismatch',
+      why: "Inventory in the books doesn't match stock records.",
+      money: -203775.1,
+      books: true,
+    });
+    expect(sentence).toContain('$203,775');
+    expect(sentence).not.toMatch(/\$\s*-/);
+    expect(sentence).toMatch(/difference/i);
+
+    const ranked = buildNeedsYouItems({
+      alertCounts: counts({ unpaidTotal: 0 }),
+      attentionFacts: [],
+      loadFailures: [],
+      cards: [
+        card({
+          id: 'books-1',
+          title: 'Status attention',
+          why: "Inventory in the books doesn't match stock records.",
+          money: -203775.1,
+          module: 'finance',
+          watcher_id: 'inventory_valuation',
+          priority: 'urgent',
+        }),
+      ],
+      cardsLoad: okLoad,
+    });
+    const focus = focusNeedsYouItem(ranked);
+    expect(focus?.valueLabel).toBe('Books check');
+    expect(focus?.valueLabel).not.toMatch(/-/);
+    expect(focus?.badge).toBe('Books check');
+    expect(focus?.sentences[0]).toContain('$203,775');
+  });
+
+  it('hero line matches needs-you list counts', () => {
+    const ranked = buildNeedsYouItems({
+      alertCounts: counts({ unpaidTotal: 50000, overdue: 10, outOfStock: 2 }),
+      attentionFacts: [],
+      loadFailures: ['AR failed'],
+      cards: [
+        card({ id: 'c1', title: 'Near limit', money: 10, priority: 'urgent' }),
+        card({ id: 'c2', title: 'Watch me', money: 0, priority: 'today' }),
+      ],
+      cardsLoad: okLoad,
+    });
+    const urgent = countUrgentNeeds(ranked);
+    const line = formatNeedsHeroLine(ranked.length, urgent);
+    expect(ranked.length).toBeGreaterThan(0);
+    if (urgent > 0 && urgent < ranked.length) {
+      expect(line).toBe(`${urgent} urgent · ${ranked.length} total`);
+    } else {
+      expect(line).toContain(`${ranked.length}`);
+    }
   });
 });

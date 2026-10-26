@@ -20,6 +20,8 @@ type Props = {
   cards: NexusSignalCard[];
   cardsLoad: SourceResult<true>;
   dismissed?: Set<string>;
+  /** Prebuilt list (same source as hero counts). */
+  items?: NeedsYouItem[];
   shellReady: boolean;
   onNavigate: (href: string) => void;
   onRetry: () => void;
@@ -32,6 +34,7 @@ export default function NexusNeedsYou({
   cards,
   cardsLoad,
   dismissed,
+  items: itemsProp,
   shellReady,
   onNavigate,
   onRetry,
@@ -40,6 +43,7 @@ export default function NexusNeedsYou({
 
   const ranked = useMemo(
     () =>
+      itemsProp ||
       buildNeedsYouItems({
         alertCounts,
         attentionFacts,
@@ -48,7 +52,7 @@ export default function NexusNeedsYou({
         cardsLoad,
         dismissed,
       }),
-    [alertCounts, attentionFacts, loadFailures, cards, cardsLoad, dismissed],
+    [itemsProp, alertCounts, attentionFacts, loadFailures, cards, cardsLoad, dismissed],
   );
 
   const focus = focusNeedsYouItem(ranked);
@@ -89,11 +93,12 @@ export default function NexusNeedsYou({
           data-kind={focus.kind}
         >
           <div style={eyebrow}>Most important right now</div>
+          {focus.badge ? <div style={badge}>{focus.badge}</div> : null}
           <div
             style={{
               ...focusValue,
               color: focus.kind === 'error' ? RED : '#F8FAFC',
-              fontSize: focus.kind === 'error' ? 22 : 28,
+              fontSize: focus.kind === 'error' || focus.badge ? 22 : 28,
             }}
           >
             {focus.valueLabel}
@@ -126,7 +131,7 @@ export default function NexusNeedsYou({
               const amountText =
                 item.kind === 'error' || item.amount == null
                   ? '—'
-                  : `$${Math.round(item.amount).toLocaleString('en-US')}`;
+                  : `$${Math.round(Math.abs(item.amount)).toLocaleString('en-US')}`;
               return (
                 <li key={item.id} style={row}>
                   <span style={{ ...dotStyle, background: dot }} aria-hidden />
@@ -198,6 +203,15 @@ const eyebrow: CSSProperties = {
   textTransform: 'uppercase',
   color: RED,
   marginBottom: 8,
+};
+
+const badge: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#93C5FD',
+  marginBottom: 6,
 };
 
 const focusValue: CSSProperties = {

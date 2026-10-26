@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TimelineEvent } from './nexusModel';
 import {
+  formatLivePaymentText,
   formatLoadLine,
   liveEventsFromTimeline,
   summarizeLoadSlots,
@@ -19,6 +20,48 @@ describe('liveEventsFromTimeline', () => {
     expect(live.map((e) => e.id)).toEqual(['dn-1', 'pay-1']);
     expect(live.every((e) => e.href)).toBe(true);
     expect(live.find((e) => e.id === 'leave-1')).toBeUndefined();
+  });
+
+  it('shows amount · customer; no fake time when timeNotRecorded; dedupes', () => {
+    const events: TimelineEvent[] = [
+      {
+        id: 'pay-a',
+        lane: 'money',
+        label: 'Payment · Lone Star Auto',
+        minuteOfDay: 1080,
+        timeNotRecorded: true,
+        amount: 420,
+        customerName: 'Lone Star Auto',
+        href: '/finance/collections',
+      },
+      {
+        id: 'pay-a',
+        lane: 'money',
+        label: 'Payment · Lone Star Auto',
+        minuteOfDay: 1080,
+        timeNotRecorded: true,
+        amount: 420,
+        customerName: 'Lone Star Auto',
+        href: '/finance/collections',
+      },
+      {
+        id: 'pay-b',
+        lane: 'money',
+        label: 'Payment · Acme',
+        minuteOfDay: 600,
+        amount: 100,
+        customerName: 'Acme',
+        href: '/finance/collections',
+      },
+    ];
+    expect(formatLivePaymentText(events[0])).toBe('$420 · Lone Star Auto');
+    const live = liveEventsFromTimeline(events);
+    expect(live).toHaveLength(2);
+    const noTime = live.find((e) => e.id === 'pay-a');
+    expect(noTime?.timeLabel).toBe('');
+    expect(noTime?.text).toBe('$420 · Lone Star Auto');
+    const timed = live.find((e) => e.id === 'pay-b');
+    expect(timed?.timeLabel).toMatch(/AM|PM/);
   });
 });
 

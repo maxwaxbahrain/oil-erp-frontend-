@@ -29,6 +29,7 @@ import NexusNeedsYou from './NexusNeedsYou';
 import NexusOrbit from './NexusOrbit';
 import NexusTopMetrics from './NexusTopMetrics';
 import type { LoadSlot, LoadSlotState } from './liveStripModel';
+import { buildNeedsYouItems, countUrgentNeeds } from './needsYouModel';
 import {
   buildHomeModules,
   clearHomeSummaryCache,
@@ -291,7 +292,26 @@ export default function NexusPage() {
     };
   }, [reloadKey, liveRefreshKey]);
 
-  const needs = attentionFacts.length;
+  const needsItems = useMemo(
+    () =>
+      buildNeedsYouItems({
+        alertCounts,
+        attentionFacts,
+        loadFailures,
+        cards,
+        cardsLoad,
+        dismissed,
+      }),
+    [alertCounts, attentionFacts, loadFailures, cards, cardsLoad, dismissed],
+  );
+  const needsCounts = useMemo(
+    () => ({
+      total: needsItems.length,
+      urgent: countUrgentNeeds(needsItems),
+    }),
+    [needsItems],
+  );
+  const needs = needsCounts.total;
   const speakable = cards.filter((c) => !dismissed.has(c.id));
   const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
 
@@ -334,8 +354,8 @@ export default function NexusPage() {
   );
 
   const heroSpeakLine = useMemo(
-    () => formatHeroSpeakLine(name, homeSummary, now),
-    [name, homeSummary, now],
+    () => formatHeroSpeakLine(name, homeSummary, now, needsCounts),
+    [name, homeSummary, now, needsCounts],
   );
 
   const voice = useNexusVoice({
@@ -387,6 +407,7 @@ export default function NexusPage() {
         now={now}
         onMicTap={voice.onMicTap}
         micActive={voice.voiceState === 'listening' || voice.voiceState === 'speaking'}
+        needsCounts={needsCounts}
       />
       <NexusTopMetrics
         summary={homeSummary}
@@ -405,6 +426,7 @@ export default function NexusPage() {
           cards={cards}
           cardsLoad={cardsLoad}
           dismissed={dismissed}
+          items={needsItems}
           shellReady={shellReady}
           onNavigate={(href) => navigate(href)}
           onRetry={() => {
@@ -417,7 +439,7 @@ export default function NexusPage() {
         {/* CENTER — STEP 3 orbit */}
         <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
           <NexusOrbit
-            needsYouCount={homeSummary?.needs_you_count ?? needs}
+            needsYouCount={needs}
             modules={homeSummary?.modules ?? null}
             role={user?.role}
             hasRole={hasRole}
