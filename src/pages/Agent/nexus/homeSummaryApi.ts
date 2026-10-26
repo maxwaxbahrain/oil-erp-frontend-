@@ -8,6 +8,7 @@ import api from '../../../api/axios';
 import type { ErpShellData } from '../../../contexts/ErpShellContext';
 import { getExpenseStats } from '../../../services/expenseService';
 import {
+  alertShellReady,
   attentionFactsFromAlerts,
   computeAlertCounts,
   shellLoadFailureLines,
@@ -27,6 +28,31 @@ export type HomeMetricBlock = {
   severity?: MetricSeverity;
 };
 
+/** Orbit module status tag (UI). */
+export type ModuleTag = 'OK' | 'WATCH' | 'ACTION' | 'ERROR' | 'IDLE';
+
+export type HomeModuleBlock = {
+  state: BlockState;
+  /** Primary value — never a number when state is error/unavailable. */
+  value?: number | string | null;
+  sub_line?: string;
+  tag?: ModuleTag;
+};
+
+export type HomeModuleId =
+  | 'sales'
+  | 'customers'
+  | 'collections'
+  | 'purchase'
+  | 'inventory'
+  | 'warehouse'
+  | 'delivery'
+  | 'finance'
+  | 'expenses'
+  | 'payroll';
+
+export type HomeModules = Record<HomeModuleId, HomeModuleBlock>;
+
 export type HomeSummary = {
   generated_at: string;
   needs_you_count: number;
@@ -38,9 +64,38 @@ export type HomeSummary = {
   cash_and_bank: HomeMetricBlock;
   sales_today: HomeMetricBlock;
   profit_month: HomeMetricBlock;
+  modules: HomeModules;
 };
 
-const CACHE_PREFIX = 'soltol:nexus:home-summary:v1:';
+const CACHE_PREFIX = 'soltol:nexus:home-summary:v2:';
+
+export const HOME_MODULE_IDS: HomeModuleId[] = [
+  'sales',
+  'customers',
+  'collections',
+  'purchase',
+  'inventory',
+  'warehouse',
+  'delivery',
+  'finance',
+  'expenses',
+  'payroll',
+];
+
+export function emptyHomeModules(): HomeModules {
+  return {
+    sales: { state: 'unavailable' },
+    customers: { state: 'unavailable' },
+    collections: { state: 'unavailable' },
+    purchase: { state: 'unavailable' },
+    inventory: { state: 'unavailable' },
+    warehouse: { state: 'unavailable' },
+    delivery: { state: 'unavailable' },
+    finance: { state: 'unavailable' },
+    expenses: { state: 'unavailable' },
+    payroll: { state: 'unavailable' },
+  };
+}
 
 export function homeSummaryCacheKey(tenantId: string | number | null | undefined, userId: string | number | null | undefined): string {
   return `${CACHE_PREFIX}${tenantId ?? 't'}:${userId ?? 'u'}`;
@@ -52,7 +107,7 @@ export function readHomeSummaryCache(key: string): HomeSummary | null {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as HomeSummary;
-    if (!parsed?.generated_at) return null;
+    if (!parsed?.generated_at || !parsed.modules) return null;
     return parsed;
   } catch {
     return null;
@@ -112,10 +167,222 @@ function tagForExpenses(pending: number): MetricSeverity {
   return 'good';
 }
 
+export type ModuleSourceExtras = {
+  /** Van locations already loaded by Nexus — never invent. */
+  vans?: { state: BlockState; online?: number; total?: number };
+  /** True only when a real trial-balance / books-balanced check ran successfully. */
+  financeBalanced?: { state: BlockState; balanced?: boolean; reviewCount?: number };
+  /** True only when a real payroll API settled. */
+  payroll?: { state: BlockState; value?: string | number; sub_line?: string };
+  /** Warehouse sites/transfers — only when a real warehouse source loaded. */
+  warehouse?: { state: BlockState; value?: string | number; sub_line?: string };
+};
+
+function moduleError(): HomeModuleBlock {
+  return { state: 'error', sub_line: 'Tap to retry', tag: 'ERROR' };
+}
+
+function moduleUnavailable(): HomeModuleBlock {
+  return { state: 'unavailable', sub_line: 'Not set up yet', tag: 'IDLE' };
+}
+
+/** Pure: shell + known Nexus sources → per-module orbit cards. Never invent numbers. */
+export function buildHomeModules(opts: {
+  shell: ErpShellData;
+  pendingExpenses?: { state: BlockState; count?: number };
+  extras?: ModuleSourceExtras;
+}): HomeModules {
+  const { shell, extras } = opts;
+  const counts: AlertCounts = computeAlertCounts({
+    invoices: shell.invoices,
+    payments: shell.payments,
+    products: shell.products,
+    arSummary: shell.arSummary,
+    productsLoad: shell.productsLoad,
+    invoicesLoad: shell.invoicesLoad,
+    paymentsLoad: shell.paymentsLoad,
+    arLoad: shell.arLoad,
+  });
+
+  // Sales today: no date-filtered invoice source → unavailable (do not invent).
+  const sales: HomeModuleBlock = moduleUnavailable();
+
+  // Customers: shell list is loaded with the ERP shell.
+  let customers: HomeModuleBlock;
+  if (!alertShellReady(shell)) {
+    customers = moduleUnavailable();
+  } else {
+    const n = Array.isArray(shell.customers) ? shell.customers.length : 0;
+    customers = {
+      state: 'ok',
+      value: n,
+      sub_line: n === 1 ? '1 customer on file' : `${n} customers on file`,
+      tag: 'OK',
+    };
+  }
+
+  let collections: HomeModuleBlock;
+  if (shell.arLoad === 'loading') {
+    collections = moduleUnavailable();
+  } else if (shell.arLoad === 'failed') {
+    collections = moduleError();
+  } else {
+    const owed = owedToUsFromArSummary(shell.arSummary) ?? 0;
+    const overdue = !counts.invoicesLoadFailed ? counts.overdue : 0;
+    collections = {
+      state: 'ok',
+      value: owed,
+      sub_line:
+        overdue > 0
+          ? `${overdue} overdue`
+          : owed > 0.005
+            ? 'Outstanding receivables'
+            : 'Nothing overdue',
+      tag: overdue > 0 || owed > 0.005 ? 'ACTION' : 'OK',
+    };
+  }
+
+  let purchase: HomeModuleBlock;
+  if (!alertShellReady(shell)) {
+    purchase = moduleUnavailable();
+  } else {
+    const open = countOpenPurchaseOrdersLocal(shell.purchaseOrders as Array<{ status?: string | null }>);
+    purchase = {
+      state: 'ok',
+      value: open,
+      sub_line: open === 1 ? '1 open PO' : `${open} open POs`,
+      tag: open > 0 ? 'WATCH' : 'OK',
+    };
+  }
+
+  let inventory: HomeModuleBlock;
+  if (shell.productsLoad === 'loading') {
+    inventory = moduleUnavailable();
+  } else if (shell.productsLoad === 'failed') {
+    inventory = moduleError();
+  } else {
+    const s = summarizeLowStock(shell.products as any[]);
+    inventory = {
+      state: 'ok',
+      value: s.outOfStock,
+      sub_line:
+        s.outOfStock > 0
+          ? `${s.outOfStock} out · ${s.alertCount} alerts`
+          : s.alertCount > 0
+            ? `${s.alertCount} stock alerts`
+            : 'Stock levels OK',
+      tag: s.outOfStock > 0 || s.alertCount > 0 ? 'WATCH' : 'OK',
+    };
+  }
+
+  let warehouse: HomeModuleBlock;
+  const wh = extras?.warehouse;
+  if (!wh || wh.state === 'unavailable') {
+    warehouse = moduleUnavailable();
+  } else if (wh.state === 'error') {
+    warehouse = moduleError();
+  } else {
+    warehouse = {
+      state: 'ok',
+      value: wh.value ?? null,
+      sub_line: wh.sub_line,
+      tag: 'OK',
+    };
+  }
+
+  let delivery: HomeModuleBlock;
+  const vans = extras?.vans;
+  if (!vans || vans.state === 'unavailable') {
+    delivery = moduleUnavailable();
+  } else if (vans.state === 'error') {
+    delivery = moduleError();
+  } else {
+    const online = vans.online ?? 0;
+    const total = vans.total ?? 0;
+    delivery = {
+      state: 'ok',
+      value: `${online}/${total}`,
+      sub_line: total === 0 ? 'No vans on file' : `${online} of ${total} vans live`,
+      tag: total === 0 ? 'IDLE' : online === 0 ? 'IDLE' : 'OK',
+    };
+  }
+
+  // Finance "Balanced" only from a real check — otherwise unavailable.
+  let finance: HomeModuleBlock;
+  const fin = extras?.financeBalanced;
+  if (!fin || fin.state === 'unavailable') {
+    finance = moduleUnavailable();
+  } else if (fin.state === 'error') {
+    finance = moduleError();
+  } else if (fin.balanced === true) {
+    const review = fin.reviewCount ?? 0;
+    finance = {
+      state: 'ok',
+      value: 'Balanced',
+      sub_line: review > 0 ? `${review} to review` : 'Books balanced',
+      tag: review > 0 ? 'WATCH' : 'OK',
+    };
+  } else {
+    finance = moduleUnavailable();
+  }
+
+  let expenses: HomeModuleBlock;
+  const pe = opts.pendingExpenses;
+  if (!pe || pe.state === 'unavailable') {
+    expenses = moduleUnavailable();
+  } else if (pe.state === 'error') {
+    expenses = moduleError();
+  } else {
+    const n = pe.count ?? 0;
+    expenses = {
+      state: 'ok',
+      value: n,
+      sub_line: n > 0 ? `${n} waiting for approval` : 'Nothing pending',
+      tag: n > 0 ? 'WATCH' : 'OK',
+    };
+  }
+
+  // Payroll: unavailable unless a real payroll source loaded.
+  let payroll: HomeModuleBlock;
+  const pay = extras?.payroll;
+  if (!pay || pay.state === 'unavailable') {
+    payroll = moduleUnavailable();
+  } else if (pay.state === 'error') {
+    payroll = moduleError();
+  } else {
+    payroll = {
+      state: 'ok',
+      value: pay.value ?? null,
+      sub_line: pay.sub_line,
+      tag: 'OK',
+    };
+  }
+
+  return {
+    sales,
+    customers,
+    collections,
+    purchase,
+    inventory,
+    warehouse,
+    delivery,
+    finance,
+    expenses,
+    payroll,
+  };
+}
+
+const CLOSED_PO = new Set(['draft', 'rejected', 'completed', 'cancelled', 'canceled', 'paid']);
+
+function countOpenPurchaseOrdersLocal(orders: Array<{ status?: string | null }>): number {
+  return orders.filter((po) => !CLOSED_PO.has(String(po.status || '').trim().toLowerCase())).length;
+}
+
 /** Pure adapter: shell + optional expense stats → HomeSummary. */
 export function homeSummaryFromShell(opts: {
   shell: ErpShellData;
   pendingExpenses?: { state: BlockState; count?: number };
+  extras?: ModuleSourceExtras;
   generatedAt?: string;
 }): HomeSummary {
   const { shell } = opts;
@@ -223,6 +490,12 @@ export function homeSummaryFromShell(opts: {
         ? facts.map((f) => f.label).join(' · ')
         : 'All clear';
 
+  const modules = buildHomeModules({
+    shell,
+    pendingExpenses: opts.pendingExpenses,
+    extras: opts.extras,
+  });
+
   return {
     generated_at: opts.generatedAt ?? new Date().toISOString(),
     needs_you_count: needs,
@@ -234,6 +507,7 @@ export function homeSummaryFromShell(opts: {
     cash_and_bank,
     sales_today,
     profit_month,
+    modules,
   };
 }
 
@@ -250,10 +524,13 @@ export async function fetchHomeSummaryFromApi(): Promise<HomeSummary | null> {
 }
 
 /** Prefer API; on 404 fall back to shell adapter (+ expenses fetch). */
-export async function loadHomeSummary(shell: ErpShellData): Promise<HomeSummary> {
+export async function loadHomeSummary(
+  shell: ErpShellData,
+  extras?: ModuleSourceExtras,
+): Promise<HomeSummary> {
   try {
     const fromApi = await fetchHomeSummaryFromApi();
-    if (fromApi) return fromApi;
+    if (fromApi?.modules) return fromApi;
   } catch {
     /* fall through to shell */
   }
@@ -269,7 +546,7 @@ export async function loadHomeSummary(shell: ErpShellData): Promise<HomeSummary>
     pendingExpenses = { state: 'error' };
   }
 
-  return homeSummaryFromShell({ shell, pendingExpenses });
+  return homeSummaryFromShell({ shell, pendingExpenses, extras });
 }
 
 /** Open the existing global CommandBar (same as Ctrl+K). */

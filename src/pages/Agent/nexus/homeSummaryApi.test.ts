@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import type { ErpShellData } from '../../../contexts/ErpShellContext';
 import {
+  buildHomeModules,
   clearHomeSummaryCache,
   formatUpdatedAgo,
   homeSummaryCacheKey,
@@ -106,7 +107,7 @@ describe('home summary cache', () => {
   });
 
   it('key is per tenant + user', () => {
-    expect(homeSummaryCacheKey('t1', 'u1')).toBe('soltol:nexus:home-summary:v1:t1:u1');
+    expect(homeSummaryCacheKey('t1', 'u1')).toBe('soltol:nexus:home-summary:v2:t1:u1');
     expect(homeSummaryCacheKey('t2', 'u1')).not.toBe(homeSummaryCacheKey('t1', 'u1'));
   });
 
@@ -139,5 +140,70 @@ describe('home summary cache', () => {
     clearHomeSummaryCache();
     expect(readHomeSummaryCache(key)).toBeNull();
     expect(sessionStorage.getItem(key)).toBeNull();
+  });
+});
+
+describe('buildHomeModules', () => {
+  it('error modules never expose a number; unavailable say Not set up yet', () => {
+    const modules = buildHomeModules({
+      shell: shell({ arLoad: 'failed', productsLoad: 'failed' }),
+      pendingExpenses: { state: 'error' },
+      extras: {
+        vans: { state: 'error' },
+        financeBalanced: { state: 'unavailable' },
+        payroll: { state: 'unavailable' },
+        warehouse: { state: 'unavailable' },
+      },
+    });
+    expect(modules.collections.state).toBe('error');
+    expect(typeof modules.collections.value === 'number').toBe(false);
+    expect(modules.inventory.state).toBe('error');
+    expect(typeof modules.inventory.value === 'number').toBe(false);
+    expect(modules.expenses.state).toBe('error');
+    expect(modules.sales.state).toBe('unavailable');
+    expect(modules.sales.sub_line).toMatch(/Not set up yet/i);
+    expect(modules.finance.state).toBe('unavailable');
+    expect(modules.payroll.state).toBe('unavailable');
+    expect(modules.warehouse.state).toBe('unavailable');
+  });
+
+  it('finance Balanced only when real check says balanced', () => {
+    const no = buildHomeModules({
+      shell: shell({ arLoad: 'ok', arSummary: { owed_to_us: 0 } as any }),
+      pendingExpenses: { state: 'ok', count: 0 },
+    });
+    expect(no.finance.state).toBe('unavailable');
+    expect(no.finance.value).not.toBe('Balanced');
+
+    const yes = buildHomeModules({
+      shell: shell({ arLoad: 'ok', arSummary: { owed_to_us: 0 } as any }),
+      pendingExpenses: { state: 'ok', count: 0 },
+      extras: { financeBalanced: { state: 'ok', balanced: true, reviewCount: 1 } },
+    });
+    expect(yes.finance.state).toBe('ok');
+    expect(yes.finance.value).toBe('Balanced');
+  });
+
+  it('delivery uses van extras; payroll stays unavailable without payroll source', () => {
+    const modules = buildHomeModules({
+      shell: shell({ arLoad: 'ok', arSummary: { owed_to_us: 10 } as any }),
+      pendingExpenses: { state: 'ok', count: 2 },
+      extras: { vans: { state: 'ok', online: 0, total: 2 } },
+    });
+    expect(modules.delivery.state).toBe('ok');
+    expect(modules.delivery.value).toBe('0/2');
+    expect(modules.delivery.tag).toBe('IDLE');
+    expect(modules.payroll.state).toBe('unavailable');
+    expect(modules.expenses.state).toBe('ok');
+    expect(modules.expenses.value).toBe(2);
+  });
+
+  it('homeSummaryFromShell includes modules', () => {
+    const summary = homeSummaryFromShell({
+      shell: shell({ arLoad: 'ok', arSummary: { owed_to_us: 50 } as any }),
+      pendingExpenses: { state: 'ok', count: 0 },
+    });
+    expect(summary.modules).toBeTruthy();
+    expect(summary.modules.collections.state).toBe('ok');
   });
 });

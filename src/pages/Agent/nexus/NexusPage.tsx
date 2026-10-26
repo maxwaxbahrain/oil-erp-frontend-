@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  BarChart3,
-  Boxes,
-  Building2,
-  Crosshair,
-  FileText,
-  MapPin,
-  ShoppingCart,
-  Truck,
-  Users,
-  Wallet,
-} from 'lucide-react';
 import api from '../../../api/axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useErpShell, useErpShellReload } from '../../../contexts/ErpShellContext';
@@ -21,7 +9,6 @@ import { getExpenseStats } from '../../../services/expenseService';
 import { listDeliveryNotes } from '../../../services/deliveryService';
 import { getAllLeaveRequests } from '../../../services/leaveService';
 import { deriveVanLiveStatus } from '../../../lib/vanLiveStatus';
-import { summarizeLowStock } from '../../../utils/lowStock';
 import {
   alertShellReady,
   attentionFactsFromAlerts,
@@ -32,55 +19,35 @@ import {
 import { firstName } from '../zavaCopy';
 import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import {
-  PLANET_RING_ORDER,
   PLANET_STATUS_COLOR,
-  buildPlanets,
   buildTimelineEvents,
   comingUpCards,
-  countOpenPurchaseOrders,
   needsYouCards,
-  owedToUsFromArSummary,
-  type NexusPlanet,
   type NexusSignalCard,
-  type PlanetId,
   type SourceResult,
   type TimelineEvent,
   type TimelineLaneId,
 } from './nexusModel';
 import { useNexusVoice } from './useNexusVoice';
 import NexusHero, { formatHeroSpeakLine } from './NexusHero';
+import NexusOrbit from './NexusOrbit';
 import NexusTopMetrics from './NexusTopMetrics';
 import {
+  buildHomeModules,
   clearHomeSummaryCache,
   formatUpdatedAgo,
   homeSummaryCacheKey,
   loadHomeSummary,
   readHomeSummaryCache,
   writeHomeSummaryCache,
+  type BlockState,
+  type HomeModuleId,
   type HomeSummary,
+  type ModuleSourceExtras,
 } from './homeSummaryApi';
 
 type HealthBody = {
   data_health?: NexusSignalCard[];
-};
-
-/** Reports at 12 o'clock — matches 11_nexus.jpg */
-const RING: Array<{ id: PlanetId; angle: number }> = PLANET_RING_ORDER.map((id, i) => ({
-  id,
-  angle: -90 + i * 36,
-}));
-
-const PLANET_ICON: Record<PlanetId, typeof ShoppingCart> = {
-  sales: ShoppingCart,
-  collections: Wallet,
-  purchase: Truck,
-  inventory: Boxes,
-  delivery: MapPin,
-  finance: Building2,
-  expenses: FileText,
-  payroll: Users,
-  ai_team: Crosshair,
-  reports: BarChart3,
 };
 
 function todayIsoLocal(): string {
@@ -89,10 +56,6 @@ function todayIsoLocal(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-function planetById(planets: NexusPlanet[], id: string): NexusPlanet | undefined {
-  return planets.find((p) => p.id === id);
 }
 
 function laneLabel(lane: TimelineLaneId): string {
@@ -117,38 +80,24 @@ function formatNowLabel(d: Date): string {
   return `NOW ${hh}:${mm}`;
 }
 
-const RING_R = 132;
-const RING_CIRC = 2 * Math.PI * RING_R;
-const ORBIT_R = 178;
-const VIEW = 420;
-const CX = VIEW / 2;
-const CY = VIEW / 2;
-
 export default function NexusPage() {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const shell = useErpShell();
   const reloadShell = useErpShellReload();
   const navigate = useNavigate();
   const name = firstName(user?.full_name || user?.username);
   const [cards, setCards] = useState<NexusSignalCard[]>([]);
   const [cardsLoad, setCardsLoad] = useState<SourceResult<true>>(unavailableResult());
-  const [loadingExtras, setLoadingExtras] = useState(true);
-  const [loadMs, setLoadMs] = useState<number | null>(null);
-  const [requestCount, setRequestCount] = useState(0);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activePlanetId, setActivePlanetId] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const [now, setNow] = useState(() => new Date());
-  const [planetInputs, setPlanetInputs] = useState({
-    owedToUs: unavailableResult<number>(),
-    openPoCount: unavailableResult<number>(),
-    lowStockCount: unavailableResult<{ alertCount: number; outOfStock: number; belowMin: number }>(),
-    vansOnline: unavailableResult<number>(),
-    vansTotal: unavailableResult<number>(),
-    pendingExpenses: unavailableResult<number>(),
-    invoiceCountToday: unavailableResult<number>(),
-  });
+  const [moduleExtras, setModuleExtras] = useState<ModuleSourceExtras>({});
+  const [pendingExpensesState, setPendingExpensesState] = useState<{
+    state: BlockState;
+    count?: number;
+  }>({ state: 'unavailable' });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const cacheKey = homeSummaryCacheKey(
     (user as { tenant_id?: number | string } | null)?.tenant_id ?? null,
@@ -200,61 +149,59 @@ export default function NexusPage() {
     const cached = readHomeSummaryCache(cacheKey);
     if (cached) setHomeSummary(cached);
     let cancelled = false;
-    void loadHomeSummary(shell).then((summary) => {
+    void loadHomeSummary(shell, moduleExtras).then((summary) => {
       if (cancelled) return;
+      setPendingExpensesState(
+        summary.modules.expenses.state === 'error'
+          ? { state: 'error' }
+          : summary.modules.expenses.state === 'unavailable'
+            ? { state: 'unavailable' }
+            : {
+                state: 'ok',
+                count:
+                  typeof summary.modules.expenses.value === 'number'
+                    ? summary.modules.expenses.value
+                    : undefined,
+              },
+      );
       setHomeSummary(summary);
       writeHomeSummaryCache(cacheKey, summary);
     });
     return () => {
       cancelled = true;
     };
+    // moduleExtras intentionally omitted — vans patch rebuilds modules below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shell, shellReady, cacheKey, summaryRefreshKey]);
+
+  // Rebuild orbit modules when vans / expense extras settle (no invented values).
+  useEffect(() => {
+    if (!isStaging || !shellReady) return;
+    setHomeSummary((prev) => {
+      if (!prev) return prev;
+      const nextModules = buildHomeModules({
+        shell,
+        pendingExpenses: pendingExpensesState,
+        extras: moduleExtras,
+      });
+      const updated = { ...prev, modules: nextModules };
+      writeHomeSummaryCache(cacheKey, updated);
+      return updated;
+    });
+  }, [shell, shellReady, moduleExtras, pendingExpensesState, cacheKey]);
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(t);
   }, []);
 
-  // Reuse App shell data for Collections / Inventory / Purchase — no re-fetch.
-  useEffect(() => {
-    if (!isStaging || !shellReady) return;
-    const owed = owedToUsFromArSummary(shell.arSummary);
-    const low =
-      shell.productsLoad === 'ok'
-        ? (() => {
-            const s = summarizeLowStock(shell.products as any[]);
-            return okResult({
-              alertCount: s.alertCount,
-              outOfStock: s.outOfStock,
-              belowMin: s.belowMin,
-            });
-          })()
-        : errResult<{ alertCount: number; outOfStock: number; belowMin: number }>();
-    setPlanetInputs((prev) => ({
-      ...prev,
-      owedToUs: owed != null ? okResult(owed) : okResult(0),
-      openPoCount: okResult(countOpenPurchaseOrders(shell.purchaseOrders as Array<{ status?: string | null }>)),
-      lowStockCount: low,
-      invoiceCountToday: unavailableResult(),
-    }));
-  }, [shell, shellReady]);
-
   // Progressive extras: signals, vans, expenses, timeline — settle one-by-one.
   useEffect(() => {
     if (!isStaging) return;
     let cancelled = false;
-    const started = performance.now();
-    let requests = 0;
-    setLoadingExtras(true);
     setCardsLoad(unavailableResult());
 
-    const patch = (partial: Partial<typeof planetInputs>) => {
-      if (cancelled) return;
-      setPlanetInputs((prev) => ({ ...prev, ...partial }));
-    };
-
     const run = async <T,>(p: Promise<T>): Promise<PromiseSettledResult<T>> => {
-      requests += 1;
       try {
         const value = await p;
         return { status: 'fulfilled', value };
@@ -291,25 +238,33 @@ export default function NexusPage() {
         if (cancelled) return;
         if (vansSettled.status === 'fulfilled') {
           const list = vansSettled.value;
-          patch({
-            vansOnline: okResult(
-              list.filter((v) => deriveVanLiveStatus(v.recorded_at, v.speed) !== 'offline').length,
-            ),
-            vansTotal: okResult(list.length),
-          });
+          setModuleExtras((prev) => ({
+            ...prev,
+            vans: {
+              state: 'ok',
+              online: list.filter((v) => deriveVanLiveStatus(v.recorded_at, v.speed) !== 'offline')
+                .length,
+              total: list.length,
+            },
+          }));
         } else {
-          patch({ vansOnline: errResult(), vansTotal: errResult() });
+          setModuleExtras((prev) => ({
+            ...prev,
+            vans: { state: 'error' },
+          }));
         }
       });
 
       void run(getExpenseStats()).then((expensesSettled) => {
         if (cancelled) return;
-        patch({
-          pendingExpenses:
-            expensesSettled.status === 'fulfilled'
-              ? okResult(Number(expensesSettled.value.pending_approval_count || 0))
-              : errResult(),
-        });
+        setPendingExpensesState(
+          expensesSettled.status === 'fulfilled'
+            ? {
+                state: 'ok',
+                count: Number(expensesSettled.value.pending_approval_count || 0),
+              }
+            : { state: 'error' },
+        );
       });
 
       const [paymentsSettled, dnsSettled, leaveSettled] = await Promise.all([
@@ -329,26 +284,12 @@ export default function NexusPage() {
           leaveRequests: leave,
         }),
       );
-      setRequestCount(requests);
-      setLoadMs(Math.round(performance.now() - started));
-      setLoadingExtras(false);
     })();
 
     return () => {
       cancelled = true;
     };
   }, [reloadKey]);
-
-  const planets = useMemo(
-    () =>
-      buildPlanets({
-        cards,
-        cardsLoadOk,
-        cardsLoad,
-        ...planetInputs,
-      }).filter((p) => p.visible),
-    [cards, cardsLoadOk, cardsLoad, planetInputs],
-  );
 
   const needs = attentionFacts.length;
   const signalNeeds = cardsLoadOk ? needsYouCards(cards).filter((c) => !dismissed.has(c.id)) : [];
@@ -381,16 +322,6 @@ export default function NexusPage() {
     ? formatUpdatedAgo(homeSummary.generated_at, now)
     : null;
 
-  const onPlanet = (planet: NexusPlanet) => {
-    if (planet.status === 'error') {
-      setReloadKey((k) => k + 1);
-      return;
-    }
-    setActivePlanetId(planet.id);
-    const match = cards.find((c) => String(c.module || '').toLowerCase().includes(planet.id.split('_')[0]));
-    if (match) setActiveCardId(match.id);
-  };
-
   const nextUpdate = () => {
     if (!activeCard || speakable.length < 2) return;
     const i = speakable.findIndex((c) => c.id === activeCard.id);
@@ -406,8 +337,11 @@ export default function NexusPage() {
     );
   }
 
-  const segmentLen = RING_CIRC / PLANET_RING_ORDER.length;
-  const gap = 6;
+  const activeOrbitModule = (['sales', 'customers', 'collections', 'purchase', 'inventory', 'warehouse', 'delivery', 'finance', 'expenses', 'payroll'] as HomeModuleId[]).includes(
+    activePlanetId as HomeModuleId,
+  )
+    ? (activePlanetId as HomeModuleId)
+    : null;
 
   return (
     <div className="zava-nexus-root" style={rootStyle}>
@@ -598,182 +532,23 @@ export default function NexusPage() {
           </div>
         </aside>
 
-        {/* CENTER */}
+        {/* CENTER — STEP 3 orbit */}
         <section style={{ ...panelStyle, padding: 12, overflow: 'visible' }}>
-          <div style={{ position: 'relative', width: '100%', maxWidth: 440, margin: '0 auto', aspectRatio: '1' }}>
-            <svg viewBox={`0 0 ${VIEW} ${VIEW}`} width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
-              <defs>
-                <radialGradient id="nexusOrbGrad" cx="35%" cy="30%" r="70%">
-                  <stop offset="0%" stopColor="#E9D5FF" />
-                  <stop offset="35%" stopColor="#A78BFA" />
-                  <stop offset="70%" stopColor="#4F8EF7" />
-                  <stop offset="100%" stopColor="#1E3A5F" />
-                </radialGradient>
-                <filter id="orbGlow" x="-40%" y="-40%" width="180%" height="180%">
-                  <feGaussianBlur stdDeviation="12" result="b" />
-                  <feMerge>
-                    <feMergeNode in="b" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <circle cx={CX} cy={CY} r={RING_R + 8} fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" strokeDasharray="3 6" />
-              {PLANET_RING_ORDER.map((id, i) => {
-                const planet = planetById(planets, id);
-                const color = PLANET_STATUS_COLOR[planet?.status || 'offline'];
-                return (
-                  <circle
-                    key={id}
-                    cx={CX}
-                    cy={CY}
-                    r={RING_R}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="14"
-                    strokeDasharray={`${segmentLen - gap} ${RING_CIRC - (segmentLen - gap)}`}
-                    strokeDashoffset={-i * segmentLen}
-                    transform={`rotate(-90 ${CX} ${CY})`}
-                    opacity={0.95}
-                    style={{ filter: `drop-shadow(0 0 6px ${color})` }}
-                  />
-                );
-              })}
-              <circle cx={CX} cy={CY} r={86} fill="url(#nexusOrbGrad)" filter="url(#orbGlow)" opacity={0.92} />
-              <circle cx={CX} cy={CY} r={86} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-            </svg>
-
-            {/* Push-to-talk orb hit target */}
-            <button
-              type="button"
-              aria-label={
-                voice.voiceState === 'listening'
-                  ? 'Stop recording'
-                  : voice.voiceState === 'speaking'
-                    ? 'Stop speaking'
-                    : 'Talk to Zava'
-              }
-              onClick={voice.onOrb}
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '41%',
-                aspectRatio: '1',
-                borderRadius: '50%',
-                border: voice.voiceState === 'listening' ? '2px solid #5EEAD4' : '2px solid transparent',
-                background: 'transparent',
-                cursor: 'pointer',
-                zIndex: 4,
-                boxShadow:
-                  voice.voiceState === 'listening'
-                    ? '0 0 28px rgba(45,212,191,0.55)'
-                    : voice.voiceState === 'speaking'
-                      ? '0 0 28px rgba(167,139,250,0.45)'
-                      : 'none',
-              }}
-            />
-
-            {/* Welcome over orb — health score hidden until defined */}
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                width: 160,
-                pointerEvents: 'none',
-                zIndex: 5,
-              }}
-            >
-              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25, textShadow: '0 2px 12px rgba(0,0,0,0.55)' }}>
-                <div>Welcome back,</div>
-                <div>{name}</div>
-              </div>
-              {shellReady && needs > 0 && (
-                <div style={{ marginTop: 12, fontSize: 22, fontWeight: 900, lineHeight: 1.05, color: '#F87171' }}>
-                  {needs}
-                </div>
-              )}
-              {shellReady && needs > 0 && (
-                <div
-                  style={{
-                    marginTop: 4,
-                    fontSize: 10,
-                    letterSpacing: '0.14em',
-                    color: 'rgba(248,113,113,0.9)',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  need you
-                </div>
-              )}
-            </div>
-
-            {/* Planets outside ring */}
-            {RING.map((slot) => {
-              const planet = planetById(planets, slot.id);
-              if (!planet) return null;
-              const rad = (slot.angle * Math.PI) / 180;
-              const x = CX + ORBIT_R * Math.cos(rad);
-              const y = CY + ORBIT_R * Math.sin(rad);
-              const color = PLANET_STATUS_COLOR[planet.status];
-              const glow = activePlanetId === planet.id || (activeCard && String(activeCard.module || '').toLowerCase().includes(planet.id.split('_')[0]));
-              const Icon = PLANET_ICON[planet.id];
-              const leftPct = (x / VIEW) * 100;
-              const topPct = (y / VIEW) * 100;
-              return (
-                <button
-                  key={planet.id}
-                  type="button"
-                  title={`${planet.label}: ${planet.metricLabel}`}
-                  onClick={() => onPlanet(planet)}
-                  style={{
-                    position: 'absolute',
-                    left: `${leftPct}%`,
-                    top: `${topPct}%`,
-                    transform: 'translate(-50%, -50%)',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 0,
-                    width: 72,
-                    zIndex: 3,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      margin: '0 auto',
-                      borderRadius: '50%',
-                      border: `2px solid ${color}`,
-                      background: 'rgba(6,12,24,0.92)',
-                      boxShadow: glow ? `0 0 22px ${color}` : `0 0 14px ${color}99`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Icon size={18} color={color} strokeWidth={2.25} />
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: '#E2E8F0', lineHeight: 1.1 }}>
-                    {planet.label}
-                    {planet.metricLabel ? ` · ${planet.metricLabel}` : ''}
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 800, color, marginTop: 2 }}>
-                    {planet.status === 'error' ? 'Retry' : planet.orbitValue}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          {!loadingExtras && loadMs != null && (
-            <div style={{ textAlign: 'center', marginTop: 4, fontSize: 10, color: '#64748B' }}>
-              {requestCount} requests · {loadMs} ms
-            </div>
-          )}
+          <NexusOrbit
+            needsYouCount={homeSummary?.needs_you_count ?? needs}
+            modules={homeSummary?.modules ?? null}
+            role={user?.role}
+            hasRole={hasRole}
+            onOrbTap={voice.onOrb}
+            orbActive={voice.voiceState === 'listening' || voice.voiceState === 'speaking'}
+            activeModuleId={activeOrbitModule}
+            onNavigate={(href) => navigate(href)}
+            onRetry={() => {
+              setReloadKey((k) => k + 1);
+              setSummaryRefreshKey((k) => k + 1);
+              reloadShell();
+            }}
+          />
         </section>
 
         {/* RIGHT */}
@@ -1080,7 +855,7 @@ const dashLinkStyle: CSSProperties = {
 const gridStyle: CSSProperties = {
   position: 'relative',
   display: 'grid',
-  gridTemplateColumns: 'minmax(240px, 0.95fr) minmax(360px, 1.35fr) minmax(240px, 0.95fr)',
+  gridTemplateColumns: 'minmax(200px, 0.85fr) minmax(480px, 1.5fr) minmax(200px, 0.85fr)',
   gap: 14,
   alignItems: 'stretch',
 };
