@@ -43,8 +43,12 @@ export type CustomerDraftView = {
   openingBalanceFromApi: boolean;
 };
 
-const CREATE_INTENT =
-  /\b(add|create)\s+(a\s+)?new\s+customer\b|\b(add|create)\s+customer\b|\bnew\s+customer\b/i;
+/** Optional lead-in before a create-customer command (not mid-sentence questions). */
+const CREATE_LEAD_IN = /^(?:zava\s*,?\s*|please\s+)/i;
+
+/** Command must start the utterance (after lead-in): add/create customer, add a new customer, new customer … */
+const CREATE_COMMAND =
+  /^(?:(?:add|create)\s+(?:a\s+)?new\s+customer\b|(?:add|create)\s+customer\b|new\s+customer(?:\s*:|\s+\S))/i;
 
 export const UNDO_FAIL_MSG = "Couldn't undo — open the customer and set it Inactive";
 
@@ -57,7 +61,10 @@ const OPENING_TEXT =
   /\b(opening\s+balance|they\s+already\s+owe|already\s+owe\s+us|we\s+owe\s+them|owe\s+us\s+\d|in\s+credit|advance\s+payment)\b/i;
 
 export function isCreateCustomerIntent(text: string): boolean {
-  return CREATE_INTENT.test(String(text || '').trim());
+  let t = String(text || '').trim();
+  if (!t) return false;
+  t = t.replace(CREATE_LEAD_IN, '').trim();
+  return CREATE_COMMAND.test(t);
 }
 
 export function mentionsOpeningBalance(text: string): boolean {

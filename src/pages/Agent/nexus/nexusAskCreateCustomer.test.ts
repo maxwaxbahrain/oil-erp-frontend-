@@ -12,12 +12,21 @@ import {
 } from './nexusAskCreateCustomer';
 
 describe('isCreateCustomerIntent', () => {
-  it('matches add/create new customer phrasing', () => {
+  it('matches create commands at sentence start (optional zava/please)', () => {
     expect(isCreateCustomerIntent('add a new customer Surjeet')).toBe(true);
     expect(isCreateCustomerIntent('create new customer Acme')).toBe(true);
     expect(isCreateCustomerIntent('add customer Surjeet A1')).toBe(true);
     expect(isCreateCustomerIntent('create customer Acme Corp')).toBe(true);
     expect(isCreateCustomerIntent('new customer Joe Garage')).toBe(true);
+    expect(isCreateCustomerIntent('new customer: Surjeet A1')).toBe(true);
+    expect(isCreateCustomerIntent('zava, add customer Surjeet')).toBe(true);
+    expect(isCreateCustomerIntent('please create customer Acme')).toBe(true);
+  });
+
+  it('does not match questions or lookups about customers', () => {
+    expect(isCreateCustomerIntent('did we get any new customer this week?')).toBe(false);
+    expect(isCreateCustomerIntent('how many new customers this month?')).toBe(false);
+    expect(isCreateCustomerIntent('show new customers')).toBe(false);
     expect(isCreateCustomerIntent('Who owes the most?')).toBe(false);
   });
 });
