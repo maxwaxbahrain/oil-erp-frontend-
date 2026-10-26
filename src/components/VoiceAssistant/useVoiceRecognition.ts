@@ -13,6 +13,13 @@
 // ============================================
 
 import { useCallback, useEffect, useRef } from 'react';
+import {
+    claimMicSession,
+    registerMicConsumer,
+    releaseMicSession,
+} from '../../lib/micSessionOwner';
+
+const WS_MIC_OWNER = 'web-speech-generic' as const;
 
 // ── Minimal Web Speech API type declarations ──────────────────────
 // lib.dom.d.ts doesn't ship these on every TS version, so we declare
@@ -153,6 +160,7 @@ export function useVoiceRecognition(
 
         rec.onend = () => {
             activeRef.current = false;
+            releaseMicSession(WS_MIC_OWNER);
             // Surface an empty transcript so the caller can return to
             // idle when recognition ended without ever producing one
             // (e.g. user clicked stop before speaking).
@@ -186,6 +194,7 @@ export function useVoiceRecognition(
             return;
         }
         try {
+            claimMicSession(WS_MIC_OWNER);
             rec.start();
         } catch (e) {
             // Common race: previous session not fully torn down.  Abort
@@ -213,7 +222,12 @@ export function useVoiceRecognition(
                 /* ignore */
             }
         }
+        releaseMicSession(WS_MIC_OWNER);
     }, []);
+
+    useEffect(() => {
+        return registerMicConsumer(WS_MIC_OWNER, () => stop());
+    }, [stop]);
 
     return { isSupported, start, stop };
 }
