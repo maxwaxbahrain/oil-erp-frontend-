@@ -20,7 +20,6 @@ import { buildOpsVans } from '../opsMap/opsMapModel';
 import { companyAmount, signalFigure, signalWhy } from '../signalCards';
 import type { NexusSignalCard } from './nexusModel';
 import {
-  VOICE_FALLBACK_CHIPS,
   countVanStatuses,
   customerBalanceSpeech,
   formatCardSpeech,
@@ -32,6 +31,13 @@ import {
   resolveCustomerMatches,
 } from './voiceIntent';
 import { tryNexusTranscriptHook } from './nexusVoiceIntercept';
+import { askZavaChat } from './nexusAskChat';
+import { queryNexusAsk } from './nexusAskQuery';
+import type { AskFastContext } from './nexusAskFastPath';
+import { startWebSpeechListen, webSpeechAvailable } from './nexusLiveSpeech';
+import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
+import { playMicAck } from './nexusMicAck';
+import { logVoiceTiming } from './nexusVoiceTimings';
 
 export type VoiceLine = { who: 'zava' | 'you'; text: string };
 
@@ -92,6 +98,10 @@ type Opts = {
   navigate: NavigateFunction;
   /** On-screen hero line — spoken once on the first mic tap of the tab session. */
   heroLine?: string;
+  /** Data for instant Ask fast-path when voice phrase is not a Phase-3 intent. */
+  getAskContext: () => AskFastContext;
+  /** Live interim transcript → Ask input while listening. */
+  onLiveTranscript?: (text: string) => void;
 };
 
 export function useNexusVoice(opts: Opts) {
@@ -102,6 +112,8 @@ export function useNexusVoice(opts: Opts) {
     setActivePlanetId,
     navigate,
     heroLine = '',
+    getAskContext,
+    onLiveTranscript,
   } = opts;
 
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -113,8 +125,15 @@ export function useNexusVoice(opts: Opts) {
   const [customerChoices, setCustomerChoices] = useState<CustomerChoice[] | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [capReached, setCapReached] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [voiceNavIntent, setVoiceNavIntent] = useState(false);
+  const [voiceNavHref, setVoiceNavHref] = useState<string | null>(null);
+  const [voiceNavLabel, setVoiceNavLabel] = useState<string | null>(null);
+  const transcriptHandledRef = useRef(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const webSpeechStopRef = useRef<(() => void) | null>(null);
+  const speechEndAtRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const voiceUrlRef = useRef('');
   const listenTimers = useRef<{ tick?: number; limit?: number }>({});
@@ -154,6 +173,7 @@ export function useNexusVoice(opts: Opts) {
   }, []);
 
   const stopSpeaking = useCallback(() => {
+    cancelSynth();
     const playing = audioRef.current;
     if (playing) {
       playing.pause();
@@ -169,53 +189,81 @@ export function useNexusVoice(opts: Opts) {
   }, [resolveSpeakDone]);
 
   const speakText = useCallback(
-    async (text: string) => {
-      setZavaLine(text);
+    async (text: string, mode: 'local' | 'split' = 'local') => {
+      const line = String(text || '').trim();
+      if (!line) return;
+      setZavaLine(line);
       if (capReached) {
         setVoiceState('idle');
         return;
       }
       setVoiceState('speaking');
-      let settled = false;
-      let speakWatchdog = 0;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(speakWatchdog);
-        setVoiceState((s) => (s === 'speaking' ? 'idle' : s));
-        resolveSpeakDone();
-      };
-      const awaitEnd = new Promise<void>((resolve) => {
-        speakDoneRef.current = resolve;
-      });
-      speakWatchdog = window.setTimeout(finish, 50_000);
+      const t0 = Date.now();
       try {
-        const response = await api.post<Blob>(
-          '/api/agent/speak',
-          { headline: text, note: null },
-          { responseType: 'blob', timeout: 45_000 },
-        );
-        const url = URL.createObjectURL(response.data);
-        voiceUrlRef.current = url;
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = finish;
-        audio.onerror = finish;
-        await audio.play();
-        await awaitEnd;
+        if (synthAvailable()) {
+          if (mode === 'split') await speakFirstThenRest(line);
+          else await speakWithSynth(line);
+        } else {
+          const response = await api.post<Blob>(
+            '/api/agent/speak',
+            { headline: line, note: null },
+            { responseType: 'blob', timeout: 45_000 },
+          );
+          const url = URL.createObjectURL(response.data);
+          voiceUrlRef.current = url;
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          await new Promise<void>((resolve) => {
+            audio.onended = () => resolve();
+            audio.onerror = () => resolve();
+            void audio.play();
+          });
+        }
+        logVoiceTiming('answer→speaking', Date.now() - t0);
       } catch (error) {
-        finish();
         const message = await voiceFailure(error);
         if (message === ERRORS.limit) {
           setCapReached(true);
           setVoiceNotice(VOICE.cap);
-        } else {
+        } else if (message !== ERRORS.limit) {
           setVoiceNotice(message);
         }
-        // Cap / speak failure → text only (already set zavaLine)
+      } finally {
+        setVoiceState((s) => (s === 'speaking' ? 'idle' : s));
+        resolveSpeakDone();
       }
     },
     [capReached, resolveSpeakDone],
+  );
+
+  const answerUnknownQuestion = useCallback(
+    async (raw: string) => {
+      const q = raw.trim();
+      if (!q) {
+        setVoiceNotice(VOICE.unheard);
+        await speakText("I didn't catch that.");
+        return;
+      }
+      setVoiceState('thinking');
+      const t0 = speechEndAtRef.current || Date.now();
+      try {
+        const { answer, fromFastPath } = await queryNexusAsk(q, getAskContext(), askZavaChat);
+        setZavaLine(answer.headline);
+        const btn = answer.buttons[0];
+        setVoiceNavIntent(Boolean(btn?.href));
+        setVoiceNavHref(btn?.href ?? null);
+        setVoiceNavLabel(btn?.label ?? null);
+        logVoiceTiming('speech end→answer shown', Date.now() - t0);
+        const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
+        await speakText(speakLine, fromFastPath ? 'local' : 'split');
+      } catch {
+        setZavaLine("Couldn't get an answer.");
+        await speakText("Couldn't get an answer.");
+      } finally {
+        setVoiceState('idle');
+      }
+    },
+    [getAskContext, speakText],
   );
 
   const highlightCard = useCallback(
@@ -291,9 +339,7 @@ export function useNexusVoice(opts: Opts) {
       switch (intent.type) {
         case 'yes':
         case 'no':
-          // No pending confirm — treat as unknown
-          setFallbackChips([...VOICE_FALLBACK_CHIPS]);
-          await speakText("I didn't catch that.");
+          await speakText("I'm not sure what you mean.");
           return;
         case 'stop':
           stopSpeaking();
@@ -333,6 +379,9 @@ export function useNexusVoice(opts: Opts) {
         case 'open_module':
           setActivePlanetId(intent.module);
           navigate(intent.href);
+          setVoiceNavIntent(true);
+          setVoiceNavHref(intent.href);
+          setVoiceNavLabel(`Open ${intent.label}`);
           await speakText(`Opening ${intent.label}.`);
           return;
         case 'go_nexus':
@@ -399,11 +448,47 @@ export function useNexusVoice(opts: Opts) {
         }
         case 'unknown':
         default:
-          setFallbackChips([...VOICE_FALLBACK_CHIPS]);
-          await speakText("I didn't catch that.");
+          await answerUnknownQuestion(raw);
       }
     },
-    [navigate, setActivePlanetId, speakCardAt, speakCustomerBalance, speakText, stopSpeaking],
+    [
+      answerUnknownQuestion,
+      navigate,
+      setActivePlanetId,
+      speakCardAt,
+      speakCustomerBalance,
+      speakText,
+      stopSpeaking,
+    ],
+  );
+
+  const processTranscript = useCallback(
+    async (transcript: string) => {
+      if (transcriptHandledRef.current) return;
+      transcriptHandledRef.current = true;
+      const t = transcript.trim();
+      speechEndAtRef.current = Date.now();
+      setLiveTranscript('');
+      onLiveTranscript?.('');
+      setVoiceNavIntent(false);
+      setVoiceNavHref(null);
+      setVoiceNavLabel(null);
+      if (!t) {
+        setVoiceState('idle');
+        setVoiceNotice(VOICE.unheard);
+        return;
+      }
+      setVoiceNotice('');
+      setYouLine(t);
+      if (await tryNexusTranscriptHook(t)) {
+        setVoiceState('idle');
+        logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
+        return;
+      }
+      await runIntent(t);
+      logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
+    },
+    [onLiveTranscript, runIntent],
   );
 
   const sendClip = useCallback(
@@ -416,19 +501,7 @@ export function useNexusVoice(opts: Opts) {
           headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 45_000,
         });
-        const transcript = (heard.data.transcript || '').trim();
-        if (!transcript) {
-          setVoiceState('idle');
-          setVoiceNotice(VOICE.unheard);
-          return;
-        }
-        setVoiceNotice('');
-        setYouLine(transcript);
-        if (await tryNexusTranscriptHook(transcript)) {
-          setVoiceState('idle');
-          return;
-        }
-        await runIntent(transcript);
+        await processTranscript(heard.data.transcript || '');
       } catch (error) {
         setVoiceState('idle');
         const message = failureFromError(error);
@@ -440,16 +513,20 @@ export function useNexusVoice(opts: Opts) {
         }
       }
     },
-    [runIntent],
+    [processTranscript],
   );
 
   const stopRecording = useCallback(() => {
+    webSpeechStopRef.current?.();
+    webSpeechStopRef.current = null;
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     recorderRef.current = null;
     clearListenTimers();
     setCountdown(null);
-  }, [clearListenTimers]);
+    setLiveTranscript('');
+    onLiveTranscript?.('');
+  }, [clearListenTimers, onLiveTranscript]);
 
   const startListening = useCallback(async () => {
     stopSpeaking();
@@ -468,6 +545,40 @@ export function useNexusVoice(opts: Opts) {
       setVoiceState('idle');
       return;
     }
+
+    if (webSpeechAvailable()) {
+      try {
+        transcriptHandledRef.current = false;
+        const session = startWebSpeechListen(
+          {
+            onInterim: (text) => {
+              setLiveTranscript(text);
+              onLiveTranscript?.(text);
+            },
+            onFinal: (text) => {
+              void processTranscript(text);
+            },
+            onError: (code) => {
+              if (code !== 'aborted' && code !== 'no-speech') {
+                setVoiceNotice(VOICE.unheard);
+              }
+              setVoiceState('idle');
+            },
+            onEnd: () => {
+              webSpeechStopRef.current = null;
+              setVoiceState((s) => (s === 'listening' ? 'idle' : s));
+            },
+          },
+          { silenceMs: 800 },
+        );
+        webSpeechStopRef.current = session.stop;
+        setVoiceState('listening');
+        return;
+      } catch {
+        /* fall through to MediaRecorder */
+      }
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
       const mime = recorderMime();
@@ -497,7 +608,7 @@ export function useNexusVoice(opts: Opts) {
       setVoiceState('idle');
       setVoiceNotice(permissionDenied(error) ? VOICE.denied : 'This browser cannot record a voice clip.');
     }
-  }, [clearListenTimers, sendClip, stopRecording, stopSpeaking]);
+  }, [clearListenTimers, onLiveTranscript, processTranscript, sendClip, stopSpeaking]);
 
   /**
    * Mic tap only — never speak without a mic tap.
@@ -516,12 +627,18 @@ export function useNexusVoice(opts: Opts) {
       stopRecording();
       return;
     }
+    const tapAt = Date.now();
+    playMicAck();
+    setVoiceState('listening');
+    logVoiceTiming('tap→listening', Date.now() - tapAt);
     const gen = ++micGenRef.current;
     void (async () => {
       if (!hasSpokenWelcome()) {
         markWelcomeSpoken();
         const line = heroLineRef.current.trim();
-        if (line) await speakText(line);
+        if (line && !webSpeechAvailable()) {
+          await speakText(line);
+        }
       }
       if (gen !== micGenRef.current) return;
       await startListening();
@@ -612,5 +729,9 @@ export function useNexusVoice(opts: Opts) {
     confirmNo,
     stopSpeaking,
     speakText,
+    liveTranscript,
+    voiceNavIntent,
+    voiceNavHref,
+    voiceNavLabel,
   };
 }

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Mic, Search } from 'lucide-react';
-import api from '../../../api/axios';
 import { createCustomer, updateCustomer } from '../../../services/customerService';
-import type { SpatialBlock } from '../spatial';
+import { askZavaChat } from './nexusAskChat';
+import type { AskAnswer } from './nexusAskNav';
 import NexusAskCustomerDraft, { NexusAskCustomerCreated } from './NexusAskCustomerDraft';
 import {
   ADD_CUSTOMER_CHIP,
+  ADD_CUSTOMER_PREFILL,
+  ADD_CUSTOMER_PROMPT,
   NO_PERMISSION_MSG,
   UNDO_WINDOW_MS,
   VOICE_CONFIRM_WINDOW_MS,
@@ -15,11 +17,15 @@ import {
   draftSpeakScript,
   duplicateBlocksCreate,
   fetchExtractCustomer,
+  isAddCustomerPromptOnly,
   isCreateCustomerIntent,
   undoDeactivatePayload,
   UNDO_FAIL_MSG,
   type CustomerDraftView,
 } from './nexusAskCreateCustomer';
+import type { AskFastContext } from './nexusAskFastPath';
+import { queryNexusAsk, ASK_TIMEOUT_MESSAGE } from './nexusAskQuery';
+import { speakFirstThenRest } from './nexusSpeechOut';
 import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
 import { setNexusTranscriptHook } from './nexusVoiceIntercept';
 
@@ -34,15 +40,11 @@ export const ASK_CHIPS = [
   "Today's sales",
 ] as const;
 
-export type AskNavButton = { label: string; href: string };
+export type { AskAnswer, AskNavButton } from './nexusAskNav';
+export { askZavaChat } from './nexusAskChat';
+export { navButtonsFromBlocks } from './nexusAskNav';
 
-export type AskAnswer = {
-  headline: string;
-  detail: string;
-  buttons: AskNavButton[];
-};
-
-type AskStatus = 'idle' | 'thinking' | 'ok' | 'error';
+type AskStatus = 'idle' | 'listening' | 'thinking' | 'ok' | 'error';
 type CustomerPhase = 'idle' | 'reading' | 'draft' | 'created';
 
 type Props = {
@@ -59,55 +61,10 @@ type Props = {
   speakZava?: (text: string) => Promise<void>;
   /** Global always-listening hands-free — voice confirm disabled when true. */
   handsFreeActive?: boolean;
+  liveTranscript?: string;
+  askFastContext?: AskFastContext;
+  voiceNavFromIntent?: boolean;
 };
-
-export function navButtonsFromBlocks(blocks: SpatialBlock[] | undefined): AskNavButton[] {
-  const out: AskNavButton[] = [];
-  const seen = new Set<string>();
-  const push = (label: string, href?: string) => {
-    if (!href || seen.has(href) || out.length >= 2) return;
-    seen.add(href);
-    out.push({ label, href });
-  };
-  for (const block of blocks || []) {
-    if (block.view_all?.href) push(block.view_all.label || 'Open', block.view_all.href);
-    if (block.href) push(block.headline || 'Open', block.href);
-    for (const tile of block.tiles || []) {
-      push(tile.label ? `Open ${tile.label}` : 'Open', tile.href);
-    }
-    for (const item of block.items || []) {
-      push(item.name ? `Open ${item.name}` : 'Open', item.href);
-    }
-    for (const d of block.debtors || []) {
-      push(d.name ? `Open ${d.name}` : 'Open customer', d.href);
-    }
-    for (const row of block.rows || []) {
-      push('Open', row.href);
-    }
-    for (const g of block.groups || []) {
-      push(g.type ? `Open ${g.type}` : 'Open', g.href);
-    }
-  }
-  return out.slice(0, 2);
-}
-
-export async function askZavaChat(message: string): Promise<AskAnswer> {
-  const response = await api.post<{
-    answer?: string;
-    headline?: string;
-    note?: string | null;
-    blocks?: SpatialBlock[];
-  }>('/api/agent/chat', { message }, { timeout: 70_000 });
-  const headline = (response.data.headline || response.data.answer || '').trim();
-  if (!headline) throw new Error('empty');
-  const detail = String(response.data.note || response.data.answer || '').trim();
-  const buttons = navButtonsFromBlocks(response.data.blocks);
-  return {
-    headline,
-    detail: detail && detail !== headline ? detail : '',
-    buttons,
-  };
-}
 
 export default function NexusAsk({
   onNavigate,
@@ -122,9 +79,13 @@ export default function NexusAsk({
   userDisplayName = '',
   speakZava,
   handsFreeActive = false,
+  liveTranscript = '',
+  askFastContext,
+  voiceNavFromIntent = false,
 }: Props) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AskStatus>('idle');
+  const [slowHint, setSlowHint] = useState(false);
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [lastQuestion, setLastQuestion] = useState('');
   const askGen = useRef(0);
@@ -228,11 +189,23 @@ export default function NexusAsk({
     }
   }, [creating, draft, duplicateChoice, speakZava]);
 
+  const promptAddCustomer = useCallback(() => {
+    resetCustomerFlow();
+    setQuery(ADD_CUSTOMER_PREFILL);
+    setAnswer({ headline: ADD_CUSTOMER_PROMPT, detail: '', buttons: [] });
+    setStatus('ok');
+    setLastQuestion('');
+  }, [resetCustomerFlow]);
+
   const runAsk = useCallback(
     async (text: string) => {
       const q = text.trim();
       if (!q) return;
-      if (isCreateCustomerIntent(q) || q.startsWith(ADD_CUSTOMER_CHIP)) {
+      if (isAddCustomerPromptOnly(q)) {
+        promptAddCustomer();
+        return;
+      }
+      if (isCreateCustomerIntent(q)) {
         resetCustomerFlow();
         await startCreateFlow(q);
         return;
@@ -242,19 +215,33 @@ export default function NexusAsk({
       setLastQuestion(q);
       setQuery(q);
       setStatus('thinking');
+      setSlowHint(false);
       setAnswer(null);
+      const ctx = askFastContext || {
+        homeSummary: null,
+        needsItems: [],
+        arSummary: null,
+        arLoadedOk: false,
+      };
       try {
-        const result = await askZavaChat(q);
+        const { answer, timedOut } = await queryNexusAsk(q, ctx, askZavaChat, () => {
+          if (gen === askGen.current) setSlowHint(true);
+        });
         if (gen !== askGen.current) return;
-        setAnswer(result);
-        setStatus('ok');
+        setAnswer(answer);
+        setStatus(timedOut ? 'error' : 'ok');
+        if (timedOut) setCreateError(ASK_TIMEOUT_MESSAGE);
+        const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
+        if (speakZava && speakLine) {
+          void speakFirstThenRest(speakLine);
+        }
       } catch {
         if (gen !== askGen.current) return;
         setAnswer(null);
         setStatus('error');
       }
     },
-    [resetCustomerFlow, startCreateFlow],
+    [askFastContext, promptAddCustomer, resetCustomerFlow, speakZava, startCreateFlow],
   );
 
   useEffect(() => {
@@ -296,16 +283,40 @@ export default function NexusAsk({
       setStatus('thinking');
       return;
     }
+    if (micActive) {
+      setStatus('listening');
+      return;
+    }
     if (voiceZavaLine && voiceYouLine) {
+      const unheard =
+        /didn't catch that/i.test(voiceZavaLine) ||
+        /I'm not sure what you mean/i.test(voiceZavaLine);
       setLastQuestion(voiceYouLine);
+      setQuery(voiceYouLine);
       setAnswer({
         headline: voiceZavaLine,
         detail: '',
-        buttons: voiceNavHref ? [{ label: voiceNavLabel || 'Open', href: voiceNavHref }] : [],
+        buttons:
+          !unheard && voiceNavFromIntent && voiceNavHref
+            ? [{ label: voiceNavLabel || 'Open', href: voiceNavHref }]
+            : [],
       });
       setStatus('ok');
     }
-  }, [customerPhase, voiceThinking, voiceZavaLine, voiceYouLine, voiceNavHref, voiceNavLabel]);
+  }, [
+    customerPhase,
+    micActive,
+    voiceNavFromIntent,
+    voiceThinking,
+    voiceZavaLine,
+    voiceYouLine,
+    voiceNavHref,
+    voiceNavLabel,
+  ]);
+
+  useEffect(() => {
+    if (liveTranscript) setQuery(liveTranscript);
+  }, [liveTranscript]);
 
   useEffect(() => {
     if (!voiceConfirmEnds || handsFreeActive) return;
@@ -366,6 +377,7 @@ export default function NexusAsk({
 
   return (
     <aside style={panel} data-testid="nexus-ask">
+      <style>{`@keyframes nexusAskSpin { to { transform: rotate(360deg); } }`}</style>
       <div style={title}>Ask Zava</div>
 
       <form onSubmit={onSubmit} style={searchRow}>
@@ -444,15 +456,24 @@ export default function NexusAsk({
           />
         )}
 
+        {customerPhase === 'idle' && status === 'listening' && (
+          <div style={thinking} data-testid="ask-listening">
+            Listening…
+          </div>
+        )}
         {customerPhase === 'idle' && status === 'thinking' && (
           <div style={thinking} data-testid="ask-thinking">
-            Thinking…
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <span style={spinner} aria-hidden />
+              Thinking…
+            </div>
+            {slowHint ? <div style={{ fontWeight: 600 }}>Still working…</div> : null}
           </div>
         )}
         {customerPhase === 'idle' && status === 'error' && (
           <div style={errorCard} data-testid="ask-error">
             <div style={{ fontWeight: 700, marginBottom: 8 }}>
-              {createError || "Couldn't get an answer"}
+              {createError || ASK_TIMEOUT_MESSAGE || "Couldn't get an answer"}
             </div>
             <button type="button" style={primaryBtn} onClick={() => void runAsk(lastQuestion || query)}>
               Retry
@@ -494,7 +515,8 @@ export default function NexusAsk({
               style={chipBtn}
               onClick={() => {
                 if (chip === ADD_CUSTOMER_CHIP) {
-                  setQuery('Add a new customer: ');
+                  promptAddCustomer();
+                  onMicTap();
                   return;
                 }
                 void runAsk(chip);
@@ -574,6 +596,20 @@ const thinking: CSSProperties = {
   fontSize: 13,
   color: '#94A3B8',
   fontStyle: 'italic',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const spinner: CSSProperties = {
+  display: 'inline-block',
+  width: 14,
+  height: 14,
+  marginRight: 8,
+  border: '2px solid rgba(148,163,184,0.35)',
+  borderTopColor: '#4F8EF7',
+  borderRadius: '50%',
+  animation: 'nexusAskSpin 0.8s linear infinite',
 };
 
 const errorCard: CSSProperties = {

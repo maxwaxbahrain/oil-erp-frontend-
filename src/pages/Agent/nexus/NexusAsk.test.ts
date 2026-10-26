@@ -37,7 +37,8 @@ describe('Ask Zava panel contract', () => {
     expect(src).toMatch(/Ask Zava/);
     expect(src).toMatch(/Thinking…/);
     expect(src).toMatch(/Couldn't get an answer/);
-    expect(src).toMatch(/\/api\/agent\/chat/);
+    const chatSrc = readFileSync(join(__dirname, 'nexusAskChat.ts'), 'utf8');
+    expect(chatSrc).toMatch(/\/api\/agent\/chat/);
     expect(src).not.toMatch(/\bConfirm\b/);
     expect(src).not.toMatch(/\bEdit\b/);
     // Cancel/Confirm live in NexusAskCustomerDraft; NexusAsk uses onDismiss only.
@@ -72,7 +73,7 @@ describe('askZavaChat uses agent chat', () => {
         }),
       },
     }));
-    const { askZavaChat } = await import('./NexusAsk');
+    const { askZavaChat } = await import('./nexusAskChat');
     const api = (await import('../../../api/axios')).default;
     const result = await askZavaChat('Who owes the most?');
     expect(api.post).toHaveBeenCalledWith(

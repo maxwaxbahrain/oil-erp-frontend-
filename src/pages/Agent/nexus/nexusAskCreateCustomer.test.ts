@@ -5,6 +5,7 @@ import {
   draftFromExtract,
   duplicateBlocksCreate,
   isCreateCustomerIntent,
+  isAddCustomerPromptOnly,
   mentionsOpeningBalance,
   fetchExtractCustomer,
   undoDeactivatePayload,
@@ -28,6 +29,14 @@ describe('isCreateCustomerIntent', () => {
     expect(isCreateCustomerIntent('how many new customers this month?')).toBe(false);
     expect(isCreateCustomerIntent('show new customers')).toBe(false);
     expect(isCreateCustomerIntent('Who owes the most?')).toBe(false);
+  });
+});
+
+describe('isAddCustomerPromptOnly', () => {
+  it('blocks empty chip text from extract', () => {
+    expect(isAddCustomerPromptOnly('')).toBe(true);
+    expect(isAddCustomerPromptOnly('Add a new customer')).toBe(true);
+    expect(isAddCustomerPromptOnly('add customer Surjeet')).toBe(false);
   });
 });
 
