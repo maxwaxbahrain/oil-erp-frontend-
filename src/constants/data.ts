@@ -45,14 +45,6 @@ export function addSalesman(input: { name: string; phone?: string }): Salesman {
 // They'll get whatever is in localStorage at module-load time.
 export const SALESMEN: Salesman[] = getSalesmen();
 
-export const VANS = [
-    { id: 'V001', name: 'Van 01 - North Route', code: 'VAN-01', route: 'North' },
-    { id: 'V002', name: 'Van 02 - South Route', code: 'VAN-02', route: 'South' },
-    { id: 'V003', name: 'Van 03 - East Route', code: 'VAN-03', route: 'East' },
-    { id: 'V004', name: 'Van 04 - West Route', code: 'VAN-04', route: 'West' },
-    { id: 'V005', name: 'Van 05 - Central Route', code: 'VAN-05', route: 'Central' },
-];
-
 export const PAYMENT_METHODS = [
     'Cash',
     'Bank Transfer',
