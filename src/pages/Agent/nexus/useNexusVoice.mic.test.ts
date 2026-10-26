@@ -23,6 +23,18 @@ function sampleSummary(overrides: Partial<HomeSummary> = {}): HomeSummary {
     cash_and_bank: { state: 'unavailable' },
     sales_today: { state: 'unavailable' },
     profit_month: { state: 'unavailable' },
+    modules: {
+      sales: { state: 'unavailable' },
+      customers: { state: 'ok', value: 1 },
+      collections: { state: 'ok', value: 1 },
+      purchase: { state: 'ok', value: 0 },
+      inventory: { state: 'ok', value: 0 },
+      warehouse: { state: 'unavailable' },
+      delivery: { state: 'unavailable' },
+      finance: { state: 'unavailable' },
+      expenses: { state: 'ok', value: 0 },
+      payroll: { state: 'unavailable' },
+    },
     ...overrides,
   };
 }
@@ -43,6 +55,13 @@ describe('useNexusVoice mic-only speak', () => {
     expect(src).toMatch(/heroLine/);
     expect(src).toMatch(/await speakText\(line\)/);
     expect(src).toMatch(/await startListening\(\)/);
+  });
+
+  it('tap while speaking stops and does not start listening', () => {
+    const src = readFileSync(join(__dirname, 'useNexusVoice.ts'), 'utf8');
+    expect(src).toMatch(/do NOT start listening/);
+    expect(src).toMatch(/micGenRef/);
+    expect(src).toMatch(/gen !== micGenRef\.current/);
   });
 });
 

@@ -123,6 +123,8 @@ export function useNexusVoice(opts: Opts) {
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
   const heroLineRef = useRef(heroLine);
   const speakDoneRef = useRef<(() => void) | null>(null);
+  /** Bumped on interrupt so an in-flight first-mic speak does not start listening. */
+  const micGenRef = useRef(0);
 
   useEffect(() => {
     pendingConfirmRef.current = pendingConfirm;
@@ -496,9 +498,11 @@ export function useNexusVoice(opts: Opts) {
    * Mic tap only — never speak without a mic tap.
    * First tap of the tab session: speak the on-screen hero line, then listen.
    * Later taps: listen only.
+   * Tap while speaking: stop speaking and do NOT start listening.
    */
   const onMicTap = useCallback(() => {
     if (voiceState === 'speaking') {
+      micGenRef.current += 1;
       stopSpeaking();
       return;
     }
@@ -507,12 +511,14 @@ export function useNexusVoice(opts: Opts) {
       stopRecording();
       return;
     }
+    const gen = ++micGenRef.current;
     void (async () => {
       if (!hasSpokenWelcome()) {
         markWelcomeSpoken();
         const line = heroLineRef.current.trim();
         if (line) await speakText(line);
       }
+      if (gen !== micGenRef.current) return;
       await startListening();
     })();
   }, [speakText, startListening, stopRecording, stopSpeaking, voiceState]);
