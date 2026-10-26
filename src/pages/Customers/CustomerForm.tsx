@@ -25,6 +25,7 @@ import TellZavaBox, {
   type ZavaFillableField,
   type ZavaFormSnapshot,
 } from './TellZavaBox';
+import { consumeNexusCustomerFormDraft } from '../Agent/nexus/nexusCustomerFormBridge';
 
 interface CustomerFormProps {
   editingCustomer: Customer | null;
@@ -121,12 +122,39 @@ export default function CustomerForm({ editingCustomer, onSave, onCancel }: Cust
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const savingRef = useRef(false);
+  const nexusPrefillDone = useRef(false);
 
   useEffect(() => {
     if (editingCustomer) {
       setFormData(editingCustomer);
       setZavaTagged(new Set());
+      return;
     }
+    if (nexusPrefillDone.current) return;
+    nexusPrefillDone.current = true;
+    const draft = consumeNexusCustomerFormDraft();
+    if (!draft) return;
+    setFormData((prev) => ({
+      ...prev,
+      ...(draft.name != null && draft.name !== '' ? { name: draft.name } : {}),
+      ...(draft.email != null && draft.email !== '' ? { email: draft.email } : {}),
+      ...(draft.phone != null && draft.phone !== '' ? { phone: draft.phone } : {}),
+      ...(draft.address != null && draft.address !== '' ? { address: draft.address } : {}),
+      ...(draft.category != null && draft.category !== '' ? { category: draft.category } : {}),
+      ...(draft.credit_limit != null ? { credit_limit: draft.credit_limit } : {}),
+    }));
+    const tagged = (draft.zavaTagged || []).filter(
+      (k): k is ZavaFillableField =>
+        k !== 'opening_balance' &&
+        (k === 'name' ||
+          k === 'email' ||
+          k === 'phone' ||
+          k === 'address' ||
+          k === 'category' ||
+          k === 'credit_limit' ||
+          k === 'notes'),
+    );
+    if (tagged.length > 0) setZavaTagged(new Set(tagged));
   }, [editingCustomer]);
 
   const growNotes = useCallback(() => {

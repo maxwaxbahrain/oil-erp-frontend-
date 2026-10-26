@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Mic, Search } from 'lucide-react';
 import api from '../../../api/axios';
+import { createCustomer, updateCustomer } from '../../../services/customerService';
 import type { SpatialBlock } from '../spatial';
+import NexusAskCustomerDraft, { NexusAskCustomerCreated } from './NexusAskCustomerDraft';
+import {
+  ADD_CUSTOMER_CHIP,
+  NO_PERMISSION_MSG,
+  UNDO_WINDOW_MS,
+  VOICE_CONFIRM_WINDOW_MS,
+  classifyCustomerDraftVoice,
+  createPayloadFromDraft,
+  draftFromExtract,
+  draftSpeakScript,
+  duplicateBlocksCreate,
+  fetchExtractCustomer,
+  isCreateCustomerIntent,
+  undoDeactivatePayload,
+  UNDO_FAIL_MSG,
+  type CustomerDraftView,
+} from './nexusAskCreateCustomer';
+import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
+import { setNexusTranscriptHook } from './nexusVoiceIntercept';
 
 const BLUE = '#4F8EF7';
 const GREEN = '#22c55e';
 
 export const ASK_CHIPS = [
+  ADD_CUSTOMER_CHIP,
   'What are the vans doing?',
   'Who owes the most?',
   "What should I reorder?",
@@ -22,20 +43,24 @@ export type AskAnswer = {
 };
 
 type AskStatus = 'idle' | 'thinking' | 'ok' | 'error';
+type CustomerPhase = 'idle' | 'reading' | 'draft' | 'created';
 
 type Props = {
   onNavigate: (href: string) => void;
   onMicTap: () => void;
   micActive?: boolean;
-  /** Voice intent router lines — mirror into the same answer card (no action cards). */
   voiceYouLine?: string;
   voiceZavaLine?: string;
   voiceThinking?: boolean;
   voiceNavHref?: string | null;
   voiceNavLabel?: string | null;
+  canCreateCustomers?: boolean;
+  userDisplayName?: string;
+  speakZava?: (text: string) => Promise<void>;
+  /** Global always-listening hands-free — voice confirm disabled when true. */
+  handsFreeActive?: boolean;
 };
 
-/** Pull up to 2 navigate buttons from chat spatial blocks (href only). */
 export function navButtonsFromBlocks(blocks: SpatialBlock[] | undefined): AskNavButton[] {
   const out: AskNavButton[] = [];
   const seen = new Set<string>();
@@ -93,6 +118,10 @@ export default function NexusAsk({
   voiceThinking,
   voiceNavHref,
   voiceNavLabel,
+  canCreateCustomers = false,
+  userDisplayName = '',
+  speakZava,
+  handsFreeActive = false,
 }: Props) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AskStatus>('idle');
@@ -100,28 +129,169 @@ export default function NexusAsk({
   const [lastQuestion, setLastQuestion] = useState('');
   const askGen = useRef(0);
 
-  const runAsk = useCallback(async (text: string) => {
-    const q = text.trim();
-    if (!q) return;
-    const gen = ++askGen.current;
-    setLastQuestion(q);
-    setQuery(q);
-    setStatus('thinking');
-    setAnswer(null);
-    try {
-      const result = await askZavaChat(q);
-      if (gen !== askGen.current) return;
-      setAnswer(result);
-      setStatus('ok');
-    } catch {
-      if (gen !== askGen.current) return;
-      setAnswer(null);
-      setStatus('error');
-    }
+  const [customerPhase, setCustomerPhase] = useState<CustomerPhase>('idle');
+  const [draft, setDraft] = useState<CustomerDraftView | null>(null);
+  const [duplicateChoice, setDuplicateChoice] = useState<'pending' | 'create_anyway'>('pending');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const createStarted = useRef(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [createdName, setCreatedName] = useState('');
+  const [undoLeft, setUndoLeft] = useState(0);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const voiceConfirmUntil = useRef(0);
+  const [voiceConfirmEnds, setVoiceConfirmEnds] = useState(0);
+
+  const resetCustomerFlow = useCallback(() => {
+    setCustomerPhase('idle');
+    setDraft(null);
+    setDuplicateChoice('pending');
+    setCreateError(null);
+    setCreating(false);
+    createStarted.current = false;
+    voiceConfirmUntil.current = 0;
+    setVoiceConfirmEnds(0);
+    setUndoError(null);
   }, []);
 
-  // Voice → same answer card (navigate-only buttons; no action cards).
+  const startCreateFlow = useCallback(
+    async (text: string) => {
+      const q = text.trim();
+      if (!q) return;
+      if (!canCreateCustomers) {
+        setAnswer({ headline: NO_PERMISSION_MSG, detail: '', buttons: [] });
+        setStatus('ok');
+        setCustomerPhase('idle');
+        return;
+      }
+      const gen = ++askGen.current;
+      setLastQuestion(q);
+      setQuery(q);
+      setAnswer(null);
+      setCreateError(null);
+      setDuplicateChoice('pending');
+      setCustomerPhase('reading');
+      setStatus('thinking');
+      try {
+        const apiResult = await fetchExtractCustomer(q);
+        if (gen !== askGen.current) return;
+        const view = draftFromExtract(q, apiResult);
+        if (!view.fields.name.trim()) {
+          setCreateError('Zava needs at least a customer name in your sentence.');
+          setCustomerPhase('idle');
+          setStatus('error');
+          return;
+        }
+        setDraft(view);
+        setCustomerPhase('draft');
+        setStatus('ok');
+        voiceConfirmUntil.current = 0;
+        setVoiceConfirmEnds(0);
+        if (speakZava && !handsFreeActive) {
+          await speakZava(draftSpeakScript(view.fields));
+          const ends = Date.now() + VOICE_CONFIRM_WINDOW_MS;
+          voiceConfirmUntil.current = ends;
+          setVoiceConfirmEnds(ends);
+        }
+      } catch {
+        if (gen !== askGen.current) return;
+        setCreateError("Zava couldn't read that — please fill the fields yourself.");
+        setCustomerPhase('idle');
+        setStatus('error');
+      }
+    },
+    [canCreateCustomers, handsFreeActive, speakZava],
+  );
+
+  const runCreate = useCallback(async () => {
+    if (!draft || createStarted.current || creating) return;
+    if (duplicateBlocksCreate(draft.duplicates, duplicateChoice)) return;
+    createStarted.current = true;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const payload = createPayloadFromDraft(draft.fields);
+      const row = await createCustomer(payload);
+      setCreatedId(String(row.id));
+      setCreatedName(row.name || draft.fields.name);
+      setCustomerPhase('created');
+      setUndoLeft(Math.ceil(UNDO_WINDOW_MS / 1000));
+      setUndoError(null);
+      if (speakZava) {
+        await speakZava(`Done. ${row.name || draft.fields.name} is created.`);
+      }
+    } catch (err) {
+      createStarted.current = false;
+      setCreateError(err instanceof Error ? err.message : 'Could not create customer');
+    } finally {
+      setCreating(false);
+    }
+  }, [creating, draft, duplicateChoice, speakZava]);
+
+  const runAsk = useCallback(
+    async (text: string) => {
+      const q = text.trim();
+      if (!q) return;
+      if (isCreateCustomerIntent(q) || q.startsWith(ADD_CUSTOMER_CHIP)) {
+        resetCustomerFlow();
+        await startCreateFlow(q);
+        return;
+      }
+      const gen = ++askGen.current;
+      resetCustomerFlow();
+      setLastQuestion(q);
+      setQuery(q);
+      setStatus('thinking');
+      setAnswer(null);
+      try {
+        const result = await askZavaChat(q);
+        if (gen !== askGen.current) return;
+        setAnswer(result);
+        setStatus('ok');
+      } catch {
+        if (gen !== askGen.current) return;
+        setAnswer(null);
+        setStatus('error');
+      }
+    },
+    [resetCustomerFlow, startCreateFlow],
+  );
+
   useEffect(() => {
+    const hook = async (transcript: string): Promise<boolean> => {
+      const t = transcript.trim();
+      if (!t) return false;
+      if (customerPhase === 'draft' && draft && !handsFreeActive) {
+        if (voiceConfirmUntil.current > 0 && Date.now() > voiceConfirmUntil.current) return false;
+        const kind = classifyCustomerDraftVoice(t);
+        if (kind === 'cancel') {
+          resetCustomerFlow();
+          setStatus('idle');
+          setAnswer(null);
+          return true;
+        }
+        if (kind === 'weak_yes') {
+          if (speakZava) await speakZava('Say confirm to create it.');
+          return true;
+        }
+        if (kind === 'confirm') {
+          await runCreate();
+          return true;
+        }
+        return false;
+      }
+      if (isCreateCustomerIntent(t)) {
+        await startCreateFlow(t);
+        return true;
+      }
+      return false;
+    };
+    setNexusTranscriptHook(hook);
+    return () => setNexusTranscriptHook(null);
+  }, [customerPhase, draft, handsFreeActive, resetCustomerFlow, runCreate, speakZava, startCreateFlow]);
+
+  useEffect(() => {
+    if (customerPhase !== 'idle') return;
     if (voiceThinking) {
       setStatus('thinking');
       return;
@@ -131,19 +301,68 @@ export default function NexusAsk({
       setAnswer({
         headline: voiceZavaLine,
         detail: '',
-        buttons:
-          voiceNavHref
-            ? [{ label: voiceNavLabel || 'Open', href: voiceNavHref }]
-            : [],
+        buttons: voiceNavHref ? [{ label: voiceNavLabel || 'Open', href: voiceNavHref }] : [],
       });
       setStatus('ok');
     }
-  }, [voiceThinking, voiceZavaLine, voiceYouLine, voiceNavHref, voiceNavLabel]);
+  }, [customerPhase, voiceThinking, voiceZavaLine, voiceYouLine, voiceNavHref, voiceNavLabel]);
+
+  useEffect(() => {
+    if (!voiceConfirmEnds || handsFreeActive) return;
+    const t = window.setInterval(() => setVoiceConfirmEnds((v) => v), 1000);
+    return () => window.clearInterval(t);
+  }, [voiceConfirmEnds, handsFreeActive]);
+
+  useEffect(() => {
+    if (customerPhase !== 'created' || undoLeft <= 0) return;
+    const t = window.setInterval(() => {
+      setUndoLeft((s) => {
+        if (s <= 1) {
+          window.clearInterval(t);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [customerPhase, undoLeft]);
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     void runAsk(query);
   };
+
+  const openFullForm = () => {
+    if (!draft) return;
+    const tagged = ['name', 'email', 'phone', 'address', 'category', 'credit_limit'].filter((k) => {
+      const f = draft.fields;
+      if (k === 'name') return Boolean(f.name);
+      if (k === 'email') return Boolean(f.email);
+      if (k === 'phone') return Boolean(f.phone);
+      if (k === 'address') return Boolean(f.address);
+      if (k === 'category') return Boolean(f.category);
+      if (k === 'credit_limit') return f.credit_limit != null;
+      return false;
+    });
+    writeNexusCustomerFormDraft({
+      name: draft.fields.name,
+      email: draft.fields.email,
+      phone: draft.fields.phone,
+      address: draft.fields.address,
+      category: draft.fields.category,
+      credit_limit: draft.fields.credit_limit ?? undefined,
+      zavaTagged: tagged,
+    });
+    onNavigate('/customers/new');
+  };
+
+  const voiceExpired =
+    customerPhase === 'draft' && voiceConfirmEnds > 0 && Date.now() > voiceConfirmEnds;
+
+  const createDisabled =
+    !draft ||
+    !draft.fields.name.trim() ||
+    duplicateBlocksCreate(draft.duplicates, duplicateChoice);
 
   return (
     <aside style={panel} data-testid="nexus-ask">
@@ -174,21 +393,73 @@ export default function NexusAsk({
         </button>
       </form>
 
-      <div style={{ marginTop: 12, minHeight: 120 }} data-testid="nexus-ask-answer">
-        {status === 'thinking' && (
+      <div style={{ marginTop: 12, minHeight: 80 }} data-testid="nexus-ask-answer">
+        {customerPhase === 'reading' && (
+          <div style={thinking} data-testid="nexus-customer-reading">
+            Zava is reading your sentence…
+          </div>
+        )}
+
+        {customerPhase === 'draft' && draft && (
+          <NexusAskCustomerDraft
+            draft={draft}
+            userLabel={userDisplayName}
+            duplicateChoice={duplicateChoice}
+            createDisabled={createDisabled}
+            creating={creating}
+            createError={createError}
+            voiceConfirmActive={!handsFreeActive && voiceConfirmUntil.current > 0}
+            voiceConfirmExpired={voiceExpired}
+            onCreate={() => void runCreate()}
+            onOpenForm={openFullForm}
+            onDismiss={() => {
+              resetCustomerFlow();
+              setStatus('idle');
+            }}
+            onOpenDuplicate={(id) => onNavigate(`/customers/${id}`)}
+            onCreateAnyway={() => setDuplicateChoice('create_anyway')}
+          />
+        )}
+
+        {customerPhase === 'created' && createdId && (
+          <NexusAskCustomerCreated
+            name={createdName}
+            userLabel={userDisplayName}
+            customerId={createdId}
+            undoSecondsLeft={undoLeft}
+            undoError={undoError}
+            onOpen={() => onNavigate(`/customers/${createdId}`)}
+            onInvoice={() => onNavigate('/sales/invoices/new')}
+            onUndo={() => {
+              void updateCustomer(createdId, undoDeactivatePayload())
+                .then(() => {
+                  resetCustomerFlow();
+                  setStatus('idle');
+                  setCreatedId(null);
+                })
+                .catch(() => {
+                  setUndoError(UNDO_FAIL_MSG);
+                });
+            }}
+          />
+        )}
+
+        {customerPhase === 'idle' && status === 'thinking' && (
           <div style={thinking} data-testid="ask-thinking">
             Thinking…
           </div>
         )}
-        {status === 'error' && (
+        {customerPhase === 'idle' && status === 'error' && (
           <div style={errorCard} data-testid="ask-error">
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Couldn't get an answer</div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>
+              {createError || "Couldn't get an answer"}
+            </div>
             <button type="button" style={primaryBtn} onClick={() => void runAsk(lastQuestion || query)}>
               Retry
             </button>
           </div>
         )}
-        {status === 'ok' && answer && (
+        {customerPhase === 'idle' && status === 'ok' && answer && (
           <div style={answerCard} data-testid="ask-ok">
             <div style={headline}>{answer.headline}</div>
             {answer.detail ? <p style={detail}>{answer.detail}</p> : null}
@@ -208,15 +479,28 @@ export default function NexusAsk({
             )}
           </div>
         )}
-        {status === 'idle' && <div style={muted}>Ask a question or tap the mic.</div>}
+        {customerPhase === 'idle' && status === 'idle' && (
+          <div style={muted}>Ask a question or tap the mic.</div>
+        )}
       </div>
 
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 12 }}>
         <div style={chipLabel}>Try asking</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} data-testid="ask-chips">
           {ASK_CHIPS.map((chip) => (
-            <button key={chip} type="button" style={chipBtn} onClick={() => void runAsk(chip)}>
-              {chip}
+            <button
+              key={chip}
+              type="button"
+              style={chipBtn}
+              onClick={() => {
+                if (chip === ADD_CUSTOMER_CHIP) {
+                  setQuery('Add a new customer: ');
+                  return;
+                }
+                void runAsk(chip);
+              }}
+            >
+              {chip === ADD_CUSTOMER_CHIP ? `+ ${chip}` : chip}
             </button>
           ))}
         </div>
