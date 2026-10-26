@@ -4,9 +4,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { createCustomer, updateCustomer } = vi.hoisted(() => ({
+const { createCustomer, updateCustomer, navigate, apiPost, canZava } = vi.hoisted(() => ({
   createCustomer: vi.fn(),
   updateCustomer: vi.fn(),
+  navigate: vi.fn(),
+  apiPost: vi.fn(),
+  canZava: { value: true },
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigate,
+}));
+
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    hasRole: (...roles: string[]) =>
+      canZava.value && roles.some((r) => ['admin', 'manager', 'accountant'].includes(r)),
+  }),
+}));
+
+vi.mock('../../../api/axios', () => ({
+  default: {
+    post: (...args: unknown[]) => apiPost(...args),
+    get: vi.fn().mockResolvedValue({ data: {} }),
+  },
 }));
 
 vi.mock('../../../services/customerService', async () => {
@@ -72,17 +93,147 @@ describe('CustomerForm redesign', () => {
   });
 
   beforeEach(() => {
+    canZava.value = true;
+    navigate.mockReset();
+    apiPost.mockReset();
     createCustomer.mockReset();
     updateCustomer.mockReset();
     createCustomer.mockResolvedValue({ id: '1', name: 'Acme' });
     updateCustomer.mockResolvedValue({ id: '9', name: 'Acme' });
   });
 
-  it('hides the Tell Zava slot for PR B', () => {
+  it('hides Tell Zava and Zava guide tips without management role', () => {
+    canZava.value = false;
     const { host, cleanup } = renderForm();
     const slot = host.querySelector('[data-testid="customer-form-zava-slot"]') as HTMLElement;
     expect(slot).toBeTruthy();
     expect(slot.hidden || slot.getAttribute('aria-hidden') === 'true').toBe(true);
+    expect(host.textContent).not.toContain('Speak or type one sentence');
+    expect(host.querySelector('[data-testid="customer-form-zava-guide-note"]')).toBeNull();
+    cleanup();
+  });
+
+  it('shows Tell Zava box for management and fills empty fields without creating', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/api/agent/extract-customer') {
+        return Promise.resolve({
+          data: {
+            name: 'Surjeet A1',
+            email: null,
+            phone: '7185550177',
+            address: '37th Ave',
+            category: null,
+            credit_limit: 3000,
+            opening_balance: null,
+            notes: null,
+            filled_fields: ['name', 'phone', 'address', 'credit_limit'],
+            warnings: [],
+            possible_duplicates: [],
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected post ${url}`));
+    });
+    const { host, cleanup } = renderForm();
+    expect(host.querySelector('[data-testid="customer-form-zava-slot"]')).toBeTruthy();
+    expect(host.textContent).toContain('Tell Zava');
+    setValue(host.querySelector('[data-testid="tell-zava-input"]') as HTMLInputElement, 'Surjeet A1 718…');
+    await act(async () => {
+      (host.querySelector('[data-testid="tell-zava-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiPost).toHaveBeenCalledWith(
+      '/api/agent/extract-customer',
+      expect.objectContaining({ text: expect.any(String) }),
+      expect.anything(),
+    );
+    expect(createCustomer).not.toHaveBeenCalled();
+    expect((host.querySelector('[data-testid="customer-name"]') as HTMLInputElement).value).toBe('Surjeet A1');
+    expect(host.querySelector('[data-testid="zava-tag-name"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="tell-zava-filled"]')?.textContent).toMatch(/Zava filled 4 field/);
+    cleanup();
+  });
+
+  it('asks Replace? for occupied fields and clears Zava tag when user edits', async () => {
+    apiPost.mockResolvedValue({
+      data: {
+        name: 'Zava Name',
+        phone: '222',
+        email: 'new@x.com',
+        address: null,
+        category: null,
+        credit_limit: null,
+        opening_balance: null,
+        notes: null,
+        filled_fields: ['name', 'phone', 'email'],
+        warnings: [],
+        possible_duplicates: [],
+      },
+    });
+    const { host, cleanup } = renderForm();
+    setValue(host.querySelector('[data-testid="customer-name"]') as HTMLInputElement, 'Typed Co');
+    setValue(host.querySelector('[data-testid="tell-zava-input"]') as HTMLInputElement, 'fill please');
+    await act(async () => {
+      (host.querySelector('[data-testid="tell-zava-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-testid="tell-zava-replace-name"]')).toBeTruthy();
+    expect((host.querySelector('[data-testid="customer-name"]') as HTMLInputElement).value).toBe('Typed Co');
+    expect((host.querySelector('[data-testid="customer-email"]') as HTMLInputElement).value).toBe('new@x.com');
+    expect(host.querySelector('[data-testid="zava-tag-email"]')).toBeTruthy();
+    setValue(host.querySelector('[data-testid="customer-email"]') as HTMLInputElement, 'edited@x.com');
+    expect(host.querySelector('[data-testid="zava-tag-email"]')).toBeNull();
+    cleanup();
+  });
+
+  it('shows duplicate warning and does not call createCustomer from Zava', async () => {
+    apiPost.mockResolvedValue({
+      data: {
+        name: 'Dup Co',
+        email: null,
+        phone: null,
+        address: null,
+        category: null,
+        credit_limit: null,
+        opening_balance: null,
+        notes: null,
+        filled_fields: ['name'],
+        warnings: ['Unknown category in text — left blank.'],
+        possible_duplicates: [{ id: 99, name: 'Dup Co' }],
+      },
+    });
+    const { host, cleanup } = renderForm();
+    setValue(host.querySelector('[data-testid="tell-zava-input"]') as HTMLInputElement, 'Dup Co');
+    await act(async () => {
+      (host.querySelector('[data-testid="tell-zava-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(createCustomer).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="tell-zava-duplicates"]')?.textContent).toContain('Dup Co');
+    expect(host.querySelector('[data-testid="tell-zava-warnings"]')?.textContent).toContain('Unknown category');
+    cleanup();
+  });
+
+  it('shows Zava read error on extract failure', async () => {
+    apiPost.mockRejectedValue(new Error('network'));
+    const { host, cleanup } = renderForm();
+    setValue(host.querySelector('[data-testid="tell-zava-input"]') as HTMLInputElement, 'bad');
+    await act(async () => {
+      (host.querySelector('[data-testid="tell-zava-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-testid="tell-zava-error"]')?.textContent).toContain(
+      "Zava couldn't read that",
+    );
+    expect(createCustomer).not.toHaveBeenCalled();
     cleanup();
   });
 
