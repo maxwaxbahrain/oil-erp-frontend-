@@ -50,33 +50,13 @@ import { formatLowStockShort, summarizeLowStock } from '../utils/lowStock';
 import api from '../api/axios';
 import { HandsFreeHeaderChip } from '../pages/Agent/handsFree/HandsFreeProvider';
 import { ErpShellProvider, type ErpShellData } from '../contexts/ErpShellContext';
-
-// Six role dashboards — pill cycles through these; each route must exist.
-const ROLES = ['System Admin', 'Accountant', 'Sales Manager', 'Warehouse', 'Van Driver', 'AI Hub'] as const;
-
-const ROLE_ROUTES: Record<(typeof ROLES)[number], string> = {
-  'System Admin':  '/dashboard',
-  'Accountant':    '/finance/dashboard',
-  'Sales Manager': '/sales/dashboard',
-  'Warehouse':     '/warehouse/dashboard',
-  'Van Driver':    '/logistics/pod',
-  'AI Hub':        '/ai/hub',
-};
-
-function roleIndexForPath(pathname: string): number {
-  if (pathname.startsWith('/finance') || pathname.startsWith('/tax')) return ROLES.indexOf('Accountant');
-  if (pathname.startsWith('/sales') || pathname.startsWith('/customers') || pathname.startsWith('/crm')) {
-    return ROLES.indexOf('Sales Manager');
-  }
-  if (pathname.startsWith('/warehouse') || pathname.startsWith('/products') || pathname.startsWith('/inventory')) {
-    return ROLES.indexOf('Warehouse');
-  }
-  if (pathname.startsWith('/van') || pathname.startsWith('/logistics') || pathname.startsWith('/pod')) {
-    return ROLES.indexOf('Van Driver');
-  }
-  if (pathname.startsWith('/ai') || pathname.startsWith('/agents')) return ROLES.indexOf('AI Hub');
-  return ROLES.indexOf('System Admin');
-}
+import {
+  nextWorkspaceRoute,
+  visibleAlertLinks,
+  visibleTabs,
+  visibleWorkspaces,
+  workspaceLabel,
+} from './headerNav';
 
 function App() {
   const location = useLocation();
@@ -142,28 +122,16 @@ function App() {
   }, [isLight]);
   const notifsRef = useRef<HTMLDivElement>(null);
 
-  // Role pill — cycles through the six dashboards. Cosmetic only.
-  const [roleIndex, setRoleIndex] = useState(() => roleIndexForPath(location.pathname));
-
-  useEffect(() => {
-    setRoleIndex(prev => {
-      const next = roleIndexForPath(location.pathname);
-      return prev === next ? prev : next;
-    });
-  }, [location.pathname]);
+  const headerWorkspaces = useMemo(() => visibleWorkspaces(hasRole), [hasRole]);
+  const headerWorkspaceLabel = useMemo(
+    () => workspaceLabel(hasRole, location.pathname),
+    [hasRole, location.pathname],
+  );
+  const headerTabs = useMemo(() => visibleTabs(hasRole), [hasRole]);
 
   const cycleRole = () => {
-    const start = roleIndex;
-    for (let step = 1; step <= ROLES.length; step++) {
-      const next = (start + step) % ROLES.length;
-      const target = ROLE_ROUTES[ROLES[next]];
-      if (target !== location.pathname) {
-        setRoleIndex(next);
-        navigate(target);
-        return;
-      }
-    }
-    setRoleIndex((start + 1) % ROLES.length);
+    const target = nextWorkspaceRoute(hasRole, location.pathname);
+    if (target) navigate(target);
   };
 
   // Alert bar — dismissible per-session.
@@ -184,6 +152,16 @@ function App() {
         arLoad: aiCtx.arLoad,
       }),
     [aiCtx],
+  );
+
+  const headerAlertLinks = useMemo(
+    () =>
+      visibleAlertLinks(hasRole, {
+        unpaid: alertCounts.unpaid,
+        lowStock: alertCounts.lowStock,
+        overdue: alertCounts.overdue,
+      }),
+    [hasRole, alertCounts.unpaid, alertCounts.lowStock, alertCounts.overdue],
   );
 
   // Trial banner — fetch once on mount (not per navigation). Change guards
@@ -548,6 +526,29 @@ function App() {
                 <User size={11} strokeWidth={2.5} />
                 {rolePillLabel(user?.role)}
               </span>
+            ) : headerWorkspaces.length === 0 ? null : headerWorkspaces.length === 1 ? (
+              <span
+                aria-label={`Workspace: ${headerWorkspaceLabel ?? headerWorkspaces[0].label}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'rgba(79,142,247,.12)',
+                  color: '#93C5FD',
+                  border: '1px solid rgba(79,142,247,.3)',
+                  borderRadius: '999px',
+                  padding: '0 11px',
+                  height: '38px',
+                  fontSize: '10.5px',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <User size={11} strokeWidth={2.5} />
+                {headerWorkspaceLabel ?? headerWorkspaces[0].label}
+              </span>
             ) : (
             <button
               type="button"
@@ -575,7 +576,7 @@ function App() {
               onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(79,142,247,.12)'; }}
             >
               <User size={11} strokeWidth={2.5} />
-              {ROLES[roleIndex]}
+              {headerWorkspaceLabel ?? headerWorkspaces[0].label}
               <ChevronDown size={10} strokeWidth={2.5} />
             </button>
             )}
@@ -818,15 +819,16 @@ function App() {
                 {alertCounts.overdue > 0 && alertCounts.lowStock > 0 && ' · '}
                 {alertCounts.lowStock > 0 && <>{alertCounts.lowStockLabel}</>}
               </span>
-              {alertCounts.unpaid > 0 && (
-                <button onClick={() => navigate('/sales/invoices')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Invoices →</button>
-              )}
-              {alertCounts.lowStock > 0 && (
-                <button onClick={() => navigate('/products')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Stock →</button>
-              )}
-              {alertCounts.overdue > 0 && (
-                <button onClick={() => navigate('/reports/aged-receivable')} className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0">Aged AR →</button>
-              )}
+              {headerAlertLinks.map((link) => (
+                <button
+                  key={link.key}
+                  type="button"
+                  onClick={() => navigate(link.route)}
+                  className="text-[9.5px] text-[#F59E0B] font-semibold underline hover:no-underline flex-shrink-0"
+                >
+                  {link.label}
+                </button>
+              ))}
               <button
                 onClick={() => {
                   try { sessionStorage.setItem('soltol_alert_dismissed', '1'); } catch { /* ignore */ }
@@ -851,7 +853,9 @@ function App() {
             { key: 'security',  label: 'Security',       route: '/settings/users',     icon: Shield,          prefix: ['/settings/users'], show: canSeeAdmin },
             { key: 'sales',     label: 'Sales & CRM',    route: '/sales/dashboard',    icon: TrendingUp,      prefix: ['/sales', '/customers', '/crm'], show: true },
             { key: 'ai',        label: 'AI Hub',         route: '/ai/hub',             icon: Sparkles,        prefix: ['/ai', '/agents'], show: true },
-          ].filter((t) => t.show).map((t) => {
+          ]
+            .filter((t) => headerTabs.some((ht) => ht.key === t.key))
+            .map((t) => {
             const Icon = t.icon;
             const isActive = t.key === 'overview'
               ? location.pathname === '/'
