@@ -358,22 +358,11 @@ async function mockHandler<T>(endpoint: string, options: RequestInit = {}): Prom
   }
 
   // --- Vans ---
+  // No sample fleet. A failed GET /vans must reject (see apiRequest), never invent vans.
   if (endpoint.startsWith('/vans')) {
-    // FIX: seed sample vans on first request so the POD driver app
-    // (and any other van-dependent screen) isn't blank on a fresh
-    // install / cold mock. Mirrors what initializeSampleData() does
-    // for customers — the original mock branch had no seed at all.
-    let vans = getStorage<Van>('vans');
-    if (vans.length === 0 && method === 'GET') {
-      const seeded: Van[] = [
-        { id: 'van-01', van_number: 'VAN-01', driver_name: 'Ahmed Hassan', driver_phone: '+973-3000-1001', vehicle_number: 'BH-1001', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
-        { id: 'van-02', van_number: 'VAN-02', driver_name: 'Mohammed Ali',  driver_phone: '+973-3000-1002', vehicle_number: 'BH-1002', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
-        { id: 'van-03', van_number: 'VAN-03', driver_name: 'Yusuf Khan',   driver_phone: '+973-3000-1003', vehicle_number: 'BH-1003', capacity_liters: 7500, status: 'active', created_at: new Date().toISOString() },
-        { id: 'van-04', van_number: 'VAN-04', driver_name: 'Omar Salem',   driver_phone: '+973-3000-1004', vehicle_number: 'BH-1004', capacity_liters: 5000, status: 'active', created_at: new Date().toISOString() },
-        { id: 'van-05', van_number: 'VAN-05', driver_name: 'Fahad Rashid', driver_phone: '+973-3000-1005', vehicle_number: 'BH-1005', capacity_liters: 7500, status: 'maintenance', created_at: new Date().toISOString() },
-      ];
-      setStorage('vans', seeded);
-      vans = seeded;
+    const vans = getStorage<Van>('vans');
+    if (method === 'GET' && (endpoint === '/vans' || endpoint.startsWith('/vans?'))) {
+      return [] as any;
     }
     if (method === 'POST') {
       const newVan = { ...body, id: crypto.randomUUID(), created_at: new Date().toISOString() };
@@ -551,6 +540,14 @@ export type ApiRequestOptions = RequestInit & {
   skipBillingRedirect?: boolean;
 };
 
+const VANS_UNREACHABLE = "Couldn't load vans — check your connection and try again";
+
+function isGetVanList(endpoint: string, options: RequestInit = {}): boolean {
+  const method = (options.method || 'GET').toUpperCase();
+  const path = endpoint.split('?')[0];
+  return method === 'GET' && (path === '/vans' || path === '/vans/');
+}
+
 async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}): Promise<T> {
   const { skipBillingRedirect, ...fetchOptions } = options;
   const url = `${API_BASE_URL}${endpoint}`;
@@ -572,8 +569,11 @@ async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}):
   try {
     const response = await fetch(url, config);
     if (!response.ok) {
-      // Fallback to mock if connection refused
+      // Fallback to mock if connection refused. GET /vans must reject — never a fake fleet.
       if (response.status === 0 || response.status === 503 || response.status === 504) {
+        if (isGetVanList(endpoint, options)) {
+          throw new Error(VANS_UNREACHABLE);
+        }
         console.warn('Backend unreachable, falling back to mock');
         return mockHandler<T>(endpoint, options);
       }
@@ -593,7 +593,12 @@ async function apiRequest<T>(endpoint: string, options: ApiRequestOptions = {}):
     }
     return await response.json();
   } catch (error: any) {
-    if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+    if (error?.message === VANS_UNREACHABLE) throw error;
+    const unreachable = (typeof error?.message === 'string' && error.message.includes('Failed to fetch')) || error?.name === 'TypeError';
+    if (unreachable && isGetVanList(endpoint, options)) {
+      throw new Error(VANS_UNREACHABLE);
+    }
+    if (unreachable) {
       console.warn('Network Error detected, switching to Mock Mode');
       return mockHandler<T>(endpoint, options);
     }

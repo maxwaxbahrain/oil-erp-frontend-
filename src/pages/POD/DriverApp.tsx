@@ -14,7 +14,9 @@ import {
   type LeaveRequest,
 } from '../../services/leaveService';
 import { getCurrentUser } from '../../store/authStore';
-import { completeDeliveryNote, createDeliveryNote, toDriverDeliveryStatus } from '../../services/deliveryService';
+import { completeDeliveryNote, createDeliveryNote, listDeliveryNotes, toDriverDeliveryStatus } from '../../services/deliveryService';
+import { getManifest, listPickLists } from '../../services/pickingService';
+import { buildVanDispatch, type VanDispatchCard } from './vanSelectModel';
 import { compressImage } from '../../utils/imageCompression';
 import { buildCompleteDeliveryPayload, buildDeliveryNotePayload } from './driverPodMapping';
 import { localIsoDate } from '../../utils/localDate';
@@ -44,53 +46,34 @@ function formatCompactUsd(n: number): string {
 }
 
 function formatVanCapacity(liters?: number): string {
-  if (!liters) return '800 kg';
+  if (!liters) return '—';
   if (liters >= 1000) return `${(liters / 1000).toFixed(1)}T`;
   return `${liters} L`;
-}
-
-function vanDisplayStats(van: Van, index: number) {
-  const seed = van.id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const stops = 3 + (seed % 5);
-  const orderValue = 40000 + (seed % 210) * 1000;
-  const isLoaded = index === 0 || String(van.status).toLowerCase() === 'active';
-  return { stops, orderValue, isLoaded };
 }
 
 export function pluralize(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
-export function computeFleetSummary(vans: Van[]) {
-  const activeVans = vans.filter((v) => String(v.status).toLowerCase() === 'active').length;
-  const totalStops = vans.reduce((sum, van, i) => sum + vanDisplayStats(van, i).stops, 0);
-  const zones = Math.min(vans.length, 3);
-  return {
-    deliveries: totalStops,
-    zones,
-    activeVans,
-  };
-}
-
-function driverRole(index: number): string {
-  return index === 0 ? 'Senior driver' : 'Driver';
+function scheduleHeadline(stops: number): string {
+  if (stops === 0) return 'No deliveries dispatched today';
+  return `${pluralize(stops, 'delivery', 'deliveries')} scheduled today`;
 }
 
 function vanDisplayLabel(vanNumber: string): string {
   return vanNumber.startsWith('Van') ? vanNumber : `Van ${vanNumber}`;
 }
 
-function driverTenure(createdAt?: string): string {
-  if (!createdAt) return '1 yr';
-  const years = Math.max(1, Math.floor((Date.now() - new Date(createdAt).getTime()) / (365.25 * 86400000)));
-  return years === 1 ? '1 yr' : `${years} yrs`;
-}
-
 function formatDriverShort(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return `${parts[0]} ${parts[parts.length - 1][0]}.`;
-  return parts[0] || 'Driver';
+  return parts[0] || '';
 }
+
+const EMPTY_VAN_CARD: VanDispatchCard = { stops: 0, orderValue: 0, loaded: false, nextLabel: null };
+
+const VANS_LOAD_ERROR = "Couldn't load vans — check your connection and try again";
+const DELIVERIES_LOAD_ERROR = "Couldn't load today's deliveries";
 
 type DriverStep = 'van-select' | 'dashboard' | 'confirm' | 'success' | 'leave';
 
@@ -152,6 +135,9 @@ export default function DriverApp() {
   // dead — user always sees either spinner, error+retry, list, or empty.
   const [loading, setLoading] = useState(true);
   const [vansError, setVansError] = useState<string | null>(null);
+  const [dispatchByVan, setDispatchByVan] = useState<Record<string, VanDispatchCard>>({});
+  const [scheduleStops, setScheduleStops] = useState(0);
+  const [deliveriesError, setDeliveriesError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMode>('CASH');
   const [amountReceived, setAmountReceived] = useState<number>(0);
   const [notes, setNotes] = useState('');
@@ -252,8 +238,6 @@ export default function DriverApp() {
     [vans, uiSelectedVanId]
   );
 
-  const fleetSummary = useMemo(() => computeFleetSummary(vans), [vans]);
-
   const statusBarDate = useMemo(
     () =>
       new Date().toLocaleDateString('en-GB', {
@@ -292,18 +276,53 @@ export default function DriverApp() {
     return { stopsToday: stops.length, delivered, pending, collected };
   }, [stops]);
 
+  async function loadDeliveries(rows: Van[]) {
+    try {
+      const today = localIsoDate();
+      const [page, notes] = await Promise.all([
+        listPickLists({ status: 'dispatched', routeDate: today }),
+        listDeliveryNotes({ delivery_date: today, status: 'delivered' }),
+      ]);
+      const lists = page.items.filter((row) => {
+        if (row.status !== 'dispatched' || !row.vanId) return false;
+        if (row.routeDate && row.routeDate.slice(0, 10) !== today) return false;
+        return true;
+      });
+      const manifests = await Promise.all(lists.map(async (row) => ({
+        vanId: row.vanId,
+        dispatchedAt: row.dispatchedAt,
+        manifest: await getManifest(row.id),
+      })));
+      const built = buildVanDispatch(rows, manifests, notes);
+      setDispatchByVan(built.byVanId);
+      setScheduleStops(built.totalStops);
+      setDeliveriesError(null);
+    } catch (e: unknown) {
+      console.error(e);
+      const empty: Record<string, VanDispatchCard> = {};
+      for (const row of rows) empty[row.id] = EMPTY_VAN_CARD;
+      setDispatchByVan(empty);
+      setScheduleStops(0);
+      setDeliveriesError(DELIVERIES_LOAD_ERROR);
+    }
+  }
+
   async function loadVans() {
     setLoading(true);
     setVansError(null);
+    setDeliveriesError(null);
     try {
       const list = await getVans();
-      setVans(Array.isArray(list) ? list : []);
-    } catch (e: any) {
+      const rows = Array.isArray(list) ? list : [];
+      setVans(rows);
+      await loadDeliveries(rows);
+    } catch (e: unknown) {
       console.error(e);
-      // FIX: surface the failure to the user instead of silently
-      // swallowing it into an empty array. Retry button below uses this.
-      setVansError(e?.message || 'Could not load vans. Tap retry to try again.');
       setVans([]);
+      setDispatchByVan({});
+      setScheduleStops(0);
+      setDeliveriesError(null);
+      setVansError(VANS_LOAD_ERROR);
     } finally {
       setLoading(false);
     }
@@ -1106,9 +1125,33 @@ export default function DriverApp() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{dateLabel}</div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45 }}>
-                  {pluralize(fleetSummary.deliveries, 'delivery', 'deliveries')} scheduled today · {pluralize(fleetSummary.zones, 'zone', 'zones')}
-                </div>
+                {!loading && !vansError && deliveriesError && (
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45 }}>
+                    {deliveriesError}{' '}
+                    <button
+                      type="button"
+                      onClick={() => void loadDeliveries(vans)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: C.muted,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {!loading && !vansError && !deliveriesError && (
+                  <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45 }}>
+                    {scheduleHeadline(scheduleStops)}
+                  </div>
+                )}
               </div>
               <span style={badge(C.green, 'rgba(34,197,94,.14)')}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green }} />
@@ -1188,10 +1231,11 @@ export default function DriverApp() {
         {/* Van cards */}
         {!loading && !vansError && (
           <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {vans.map((van, index) => {
+            {vans.map((van) => {
               const isSelected = uiSelectedVanId === van.id;
-              const stats = vanDisplayStats(van, index);
+              const stats = dispatchByVan[van.id] ?? EMPTY_VAN_CARD;
               const isAvailable = String(van.status).toLowerCase() === 'active';
+              const driverLabel = formatDriverShort(van.driver_name || '');
 
               return (
                 <button
@@ -1231,9 +1275,9 @@ export default function DriverApp() {
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-.01em' }}>{vanDisplayLabel(van.van_number)}</div>
-                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                          {formatDriverShort(van.driver_name || 'Driver')} · {driverRole(index)} · {driverTenure(van.created_at)}
-                        </div>
+                        {driverLabel ? (
+                          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{driverLabel}</div>
+                        ) : null}
                       </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
@@ -1243,11 +1287,11 @@ export default function DriverApp() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span
                           style={badge(
-                            stats.isLoaded ? C.blue : C.dim,
-                            stats.isLoaded ? 'rgba(79,142,247,.14)' : 'rgba(255,255,255,.06)'
+                            stats.loaded ? C.blue : C.dim,
+                            stats.loaded ? 'rgba(79,142,247,.14)' : 'rgba(255,255,255,.06)'
                           )}
                         >
-                          {stats.isLoaded ? 'Loaded' : 'Empty'}
+                          {stats.loaded ? 'Loaded' : 'Empty'}
                         </span>
                         <ChevronRight size={14} color={C.dim} />
                       </div>
@@ -1268,7 +1312,7 @@ export default function DriverApp() {
                   >
                     <div>
                       <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>Stops</div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: index === 0 ? C.green : C.amber }}>{stats.stops}</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: stats.stops > 0 ? C.green : C.muted }}>{stats.stops}</div>
                     </div>
                     <div>
                       <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 3 }}>Order value</div>
@@ -1280,32 +1324,14 @@ export default function DriverApp() {
                     </div>
                   </div>
 
-                  {/* Next / first stop */}
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
-                      {index === 0 ? 'Next' : 'First stop'}
+                  {stats.nextLabel ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 9, color: C.dim, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>
+                        Next
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.4 }}>{stats.nextLabel}</div>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.4 }}>
-                      {index === 0 ? (
-                        <>
-                          Qahir Trading · Jamaica Ave ·{' '}
-                          <span style={{ color: C.muted, fontWeight: 500 }}>09:45 AM</span>
-                        </>
-                      ) : (
-                        <>Arshad R&A</>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                      <span
-                        style={badge(
-                          index === 0 ? C.green : C.amber,
-                          index === 0 ? 'rgba(34,197,94,.14)' : 'rgba(245,158,11,.14)'
-                        )}
-                      >
-                        {index === 0 ? 'On route' : 'Not started'}
-                      </span>
-                    </div>
-                  </div>
+                  ) : null}
 
                   {/* Footer */}
                   <div
@@ -1320,12 +1346,9 @@ export default function DriverApp() {
                     }}
                   >
                     {isSelected ? (
-                      <>
-                        <span>Last active today</span>
-                        <span style={{ color: C.green, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <CheckCircle2 size={12} /> Selected
-                        </span>
-                      </>
+                      <span style={{ color: C.green, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+                        <CheckCircle2 size={12} /> Selected
+                      </span>
                     ) : (
                       <span style={{ color: C.dim }}>Tap to select</span>
                     )}
