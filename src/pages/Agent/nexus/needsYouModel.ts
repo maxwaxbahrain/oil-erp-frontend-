@@ -59,27 +59,38 @@ export function isBooksHealthCard(card: NexusSignalCard): boolean {
   );
 }
 
-/** Sign-aware plain sentence with absolute money; uses real title/why. */
+/** Signed amount for sentence meaning (`-$33,075` / `$48,381`). Labels still use formatNeedsMoney. */
+function formatNeedsMoneySigned(n: number): string {
+  const abs = formatNeedsMoney(n);
+  return n < -0.005 ? `-${abs}` : abs;
+}
+
+function isMismatchCopy(text: string): boolean {
+  return /difference|doesn't match|do not match|mismatch/i.test(text);
+}
+
+/** Plain sentence from real title/why. "difference" only for real mismatches — never guess direction. */
 export function booksOrMoneySentence(opts: {
   title: string;
   why: string;
   money: number;
   books: boolean;
 }): string {
+  void opts.books;
   const title = cleanNeedsCopy(opts.title);
   const why = cleanNeedsCopy(opts.why);
-  const amt = formatNeedsMoney(opts.money);
   const core = why || title;
+  const absAmt = formatNeedsMoney(opts.money);
+  const signedAmt = formatNeedsMoneySigned(opts.money);
   if (!core) {
-    return opts.money < -0.005
-      ? `${amt} difference (books below stock).`
-      : `${amt} needs attention.`;
+    return Math.abs(opts.money) > 0.005 ? signedAmt : '';
   }
-  if (opts.books || Math.abs(opts.money) > 0.005) {
-    if (/difference|doesn't match|do not match|mismatch/i.test(core)) {
-      return /\$[\d,]/.test(core) ? core : `${core.replace(/[.\s]+$/, '')} — ${amt} difference.`;
-    }
-    return `${core.replace(/[.\s]+$/, '')} — ${amt} difference.`;
+  const trimmed = core.replace(/[.\s]+$/, '');
+  if (isMismatchCopy(core)) {
+    return /\$[\d,]/.test(core) ? core : `${trimmed} — ${absAmt} difference.`;
+  }
+  if (Math.abs(opts.money) > 0.005) {
+    return `${trimmed} — ${signedAmt}.`;
   }
   return core;
 }

@@ -183,6 +183,54 @@ describe('buildNeedsYouItems', () => {
     expect(focus?.sentences[0]).toContain('$203,775');
   });
 
+  it('difference only on real mismatches; other money keeps sign; no direction guess', () => {
+    const mismatch = booksOrMoneySentence({
+      title: 'Inventory mismatch',
+      why: "Inventory in the books doesn't match stock records.",
+      money: -203775.1,
+      books: true,
+    });
+    expect(mismatch).toMatch(/difference/i);
+    expect(mismatch).toContain('$203,775');
+
+    const negCash = booksOrMoneySentence({
+      title: 'Cash on hand is negative',
+      why: '',
+      money: -33075,
+      books: false,
+    });
+    expect(negCash).not.toMatch(/difference/i);
+    expect(negCash).toBe('Cash on hand is negative — -$33,075.');
+    expect(negCash).not.toMatch(/books below stock/i);
+
+    const testInvoices = booksOrMoneySentence({
+      title: '41 test invoices are still in this company',
+      why: '',
+      money: 48381,
+      books: false,
+    });
+    expect(testInvoices).not.toMatch(/difference/i);
+    expect(testInvoices).toBe('41 test invoices are still in this company — $48,381.');
+
+    const bareNeg = booksOrMoneySentence({
+      title: '',
+      why: '',
+      money: -33075,
+      books: true,
+    });
+    expect(bareNeg).toBe('-$33,075');
+    expect(bareNeg).not.toMatch(/difference|books below stock|needs attention/i);
+
+    const barePos = booksOrMoneySentence({
+      title: '',
+      why: '',
+      money: 48381,
+      books: false,
+    });
+    expect(barePos).toBe('$48,381');
+    expect(barePos).not.toMatch(/difference|needs attention/i);
+  });
+
   it('hero line matches needs-you list counts', () => {
     const ranked = buildNeedsYouItems({
       alertCounts: counts({ unpaidTotal: 50000, overdue: 10, outOfStock: 2 }),
