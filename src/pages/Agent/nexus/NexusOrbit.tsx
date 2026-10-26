@@ -25,6 +25,12 @@ import {
   type OrbitModuleDef,
   type OrbitNavCtx,
 } from './nexusOrbitNav';
+import {
+  ORBIT_DESIGN_H,
+  ORBIT_DESIGN_W,
+  orbitFitScale,
+  shouldUseOrbitGrid,
+} from './orbitScale';
 
 const BLUE = '#4F8EF7';
 const GREEN = '#22c55e';
@@ -72,7 +78,6 @@ function formatPrimary(block: HomeModuleBlock): string {
     if (Math.abs(block.value) >= 100 && Number.isInteger(block.value) === false) {
       return `$${Math.round(block.value).toLocaleString('en-US')}`;
     }
-    // Money-ish large integers on collections often stored as dollars
     return Number.isInteger(block.value)
       ? block.value.toLocaleString('en-US')
       : String(block.value);
@@ -141,18 +146,31 @@ export default function NexusOrbit({
   );
 
   const wrapRef = useRef<HTMLDivElement>(null);
+  const stageBoxRef = useRef<HTMLDivElement>(null);
   const [useGrid, setUseGrid] = useState(false);
+  const [scale, setScale] = useState(1);
 
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      // Ellipse needs room for full module names; below ~640 → 2-col grid
-      // (covers 1024px layouts and tight centre columns at 1280).
-      setUseGrid(w < 640);
-    });
-    ro.observe(el);
+    const wrap = wrapRef.current;
+    const box = stageBoxRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') return;
+
+    const measure = () => {
+      const pageW = wrap.getBoundingClientRect().width;
+      const grid = shouldUseOrbitGrid(pageW);
+      setUseGrid(grid);
+      if (grid || !box) {
+        setScale(1);
+        return;
+      }
+      const { width, height } = box.getBoundingClientRect();
+      setScale(orbitFitScale(width, height));
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    if (box) ro.observe(box);
     return () => ro.disconnect();
   }, []);
 
@@ -164,40 +182,31 @@ export default function NexusOrbit({
     });
   }, [visible]);
 
+  const needHeader =
+    needsYouCount <= 0
+      ? 'Nothing needs you'
+      : `${needsYouCount} need you`;
+
   return (
     <div ref={wrapRef} className="zava-nexus-orbit" style={root}>
-      <div style={stage}>
-        {!useGrid && (
-          <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" style={ellipseSvg} aria-hidden>
-            <ellipse
-              cx="50"
-              cy="50"
-              rx="38"
-              ry="32"
-              fill="none"
-              stroke="rgba(148,163,184,0.18)"
-              strokeWidth="0.35"
-              strokeDasharray="1.2 1.8"
-            />
-          </svg>
-        )}
+      {useGrid && (
+        <div style={narrowHeader} data-testid="nexus-orbit-narrow-header">
+          <button
+            type="button"
+            aria-label={orbActive ? 'Stop Zava' : 'Talk to Zava'}
+            onClick={onOrbTap}
+            style={{
+              ...narrowNeedBtn,
+              borderColor: orbActive ? BLUE : 'rgba(79,142,247,0.35)',
+              boxShadow: orbActive ? `0 0 16px ${BLUE}66` : 'none',
+            }}
+          >
+            {needHeader}
+          </button>
+        </div>
+      )}
 
-        <button
-          type="button"
-          aria-label={orbActive ? 'Stop Zava' : 'Talk to Zava'}
-          onClick={onOrbTap}
-          style={{
-            ...orbBtn,
-            boxShadow: orbActive
-              ? `0 0 36px ${BLUE}99, 0 0 12px ${BLUE}`
-              : `0 0 28px ${BLUE}66`,
-            borderColor: orbActive ? BLUE : 'rgba(79,142,247,0.35)',
-          }}
-        >
-          <span style={orbNum}>{needsYouCount}</span>
-          <span style={orbNeed}>NEED YOU</span>
-        </button>
-
+      <div ref={stageBoxRef} style={stageBox}>
         {useGrid ? (
           <div style={gridCards} data-testid="nexus-orbit-grid">
             {placed.map((def) => (
@@ -219,41 +228,88 @@ export default function NexusOrbit({
             ))}
           </div>
         ) : (
-          <div style={ellipseLayer} data-testid="nexus-orbit-ellipse">
-            {placed.map((def) => {
-              const rad = (def.angle * Math.PI) / 180;
-              const rx = 38;
-              const ry = 32;
-              const x = 50 + rx * Math.cos(rad);
-              const y = 50 + ry * Math.sin(rad);
-              return (
-                <div
-                  key={def.id}
-                  style={{
-                    position: 'absolute',
-                    left: `${x}%`,
-                    top: `${y}%`,
-                    transform: 'translate(-50%, -50%)',
-                    zIndex: 2,
-                  }}
-                >
-                  <ModuleCard
-                    def={def}
-                    block={modules?.[def.id] ?? { state: 'unavailable' }}
-                    active={activeModuleId === def.id}
-                    layout="orbit"
-                    onOpen={() => {
-                      const block = modules?.[def.id];
-                      if (block?.state === 'error' && onRetry) {
-                        onRetry();
-                        return;
-                      }
-                      onNavigate(def.href);
-                    }}
-                  />
-                </div>
-              );
-            })}
+          <div
+            data-testid="nexus-orbit-ellipse"
+            data-orbit-scale={scale.toFixed(3)}
+            style={{
+              ...scaleHost,
+              width: ORBIT_DESIGN_W,
+              height: ORBIT_DESIGN_H,
+              transform: `translate(-50%, -50%) scale(${scale})`,
+            }}
+          >
+            <div style={designStage}>
+              <svg
+                viewBox="0 0 100 100"
+                preserveAspectRatio="xMidYMid meet"
+                style={ellipseSvg}
+                aria-hidden
+              >
+                <ellipse
+                  cx="50"
+                  cy="50"
+                  rx="38"
+                  ry="32"
+                  fill="none"
+                  stroke="rgba(148,163,184,0.18)"
+                  strokeWidth="0.35"
+                  strokeDasharray="1.2 1.8"
+                />
+              </svg>
+
+              <button
+                type="button"
+                aria-label={orbActive ? 'Stop Zava' : 'Talk to Zava'}
+                onClick={onOrbTap}
+                style={{
+                  ...orbBtn,
+                  boxShadow: orbActive
+                    ? `0 0 36px ${BLUE}99, 0 0 12px ${BLUE}`
+                    : `0 0 28px ${BLUE}66`,
+                  borderColor: orbActive ? BLUE : 'rgba(79,142,247,0.35)',
+                }}
+              >
+                <span style={orbNum}>{needsYouCount}</span>
+                <span style={orbNeed}>NEED YOU</span>
+              </button>
+
+              <div style={ellipseLayer}>
+                {placed.map((def) => {
+                  const rad = (def.angle * Math.PI) / 180;
+                  const rx = 38;
+                  const ry = 32;
+                  const x = 50 + rx * Math.cos(rad);
+                  const y = 50 + ry * Math.sin(rad);
+                  return (
+                    <div
+                      key={def.id}
+                      style={{
+                        position: 'absolute',
+                        left: `${x}%`,
+                        top: `${y}%`,
+                        transform: 'translate(-50%, -50%)',
+                        zIndex: 2,
+                      }}
+                    >
+                      <ModuleCard
+                        def={def}
+                        block={modules?.[def.id] ?? { state: 'unavailable' }}
+                        active={activeModuleId === def.id}
+                        layout="orbit"
+                        onOpen={() => {
+                          const block = modules?.[def.id];
+                          if (block?.state === 'error' && onRetry) {
+                            onRetry();
+                            return;
+                          }
+                          onNavigate(def.href);
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -359,17 +415,51 @@ export function moduleCardDisplay(id: HomeModuleId, block: HomeModuleBlock): {
 const root: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 8,
   width: '100%',
+  height: '100%',
   minWidth: 0,
+  minHeight: 0,
 };
 
-const stage: CSSProperties = {
+const narrowHeader: CSSProperties = {
+  flexShrink: 0,
+  display: 'flex',
+  justifyContent: 'center',
+  paddingBottom: 4,
+};
+
+const narrowNeedBtn: CSSProperties = {
+  border: '1.5px solid',
+  borderRadius: 999,
+  padding: '6px 14px',
+  background: `radial-gradient(circle at 35% 28%, #E0E7FF 0%, ${BLUE} 55%, #1E3A8A 100%)`,
+  color: '#F8FAFC',
+  fontWeight: 800,
+  fontSize: 13,
+  letterSpacing: '0.04em',
+  cursor: 'pointer',
+};
+
+const stageBox: CSSProperties = {
+  position: 'relative',
+  flex: 1,
+  minHeight: 0,
+  width: '100%',
+  overflow: 'hidden',
+};
+
+const scaleHost: CSSProperties = {
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  transformOrigin: 'center center',
+};
+
+const designStage: CSSProperties = {
   position: 'relative',
   width: '100%',
-  minHeight: 420,
-  aspectRatio: '1.05 / 1',
-  maxHeight: 560,
+  height: '100%',
 };
 
 const ellipseSvg: CSSProperties = {
@@ -392,10 +482,8 @@ const orbBtn: CSSProperties = {
   left: '50%',
   top: '50%',
   transform: 'translate(-50%, -50%)',
-  width: '28%',
-  minWidth: 110,
-  maxWidth: 150,
-  aspectRatio: '1',
+  width: 132,
+  height: 132,
   borderRadius: '50%',
   border: '2px solid',
   background: `radial-gradient(circle at 35% 28%, #E0E7FF 0%, ${BLUE} 48%, #1E3A8A 78%, #0B1224 100%)`,
@@ -429,9 +517,12 @@ const gridCards: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
   gap: 10,
-  paddingTop: 160,
+  padding: 4,
   position: 'relative',
   zIndex: 2,
+  height: '100%',
+  overflow: 'auto',
+  alignContent: 'start',
 };
 
 const card: CSSProperties = {
@@ -512,9 +603,10 @@ const cardSub: CSSProperties = {
 const chipRow: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 8,
+  gap: 6,
   justifyContent: 'center',
-  paddingTop: 4,
+  paddingTop: 2,
+  flexShrink: 0,
 };
 
 const chipBtn: CSSProperties = {
@@ -527,6 +619,6 @@ const chipBtn: CSSProperties = {
   background: 'rgba(15,23,42,0.85)',
   border: '1px solid rgba(148,163,184,0.2)',
   borderRadius: 999,
-  padding: '6px 12px',
+  padding: '4px 10px',
   cursor: 'pointer',
 };

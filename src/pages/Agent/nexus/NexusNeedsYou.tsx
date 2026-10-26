@@ -93,12 +93,14 @@ export default function NexusNeedsYou({
           data-kind={focus.kind}
         >
           <div style={eyebrow}>Most important right now</div>
-          {focus.badge ? <div style={badge}>{focus.badge}</div> : null}
+          {focus.badge && focus.badge !== focus.valueLabel ? (
+            <div style={badge}>{focus.badge}</div>
+          ) : null}
           <div
             style={{
               ...focusValue,
               color: focus.kind === 'error' ? RED : '#F8FAFC',
-              fontSize: focus.kind === 'error' || focus.badge ? 22 : 28,
+              fontSize: focus.kind === 'error' || focus.valueLabel === 'Books check' ? 22 : 26,
             }}
           >
             {focus.valueLabel}
@@ -159,10 +161,14 @@ const panel: CSSProperties = {
   background: 'rgba(8, 14, 28, 0.55)',
   border: '1px solid rgba(148,163,184,0.14)',
   borderRadius: 18,
-  padding: 16,
+  padding: 14,
   backdropFilter: 'blur(14px)',
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
   minWidth: 0,
+  minHeight: 0,
+  height: '100%',
+  overflowY: 'auto',
+  overflowX: 'hidden',
 };
 
 const headerRow: CSSProperties = {

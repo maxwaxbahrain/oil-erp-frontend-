@@ -97,17 +97,20 @@ export default function NexusLiveStrip({
 export const LIVE_STRIP_REFRESH_MS_DEFAULT = 60_000;
 
 const bar: CSSProperties = {
-  marginTop: 14,
+  marginTop: 8,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 12,
-  flexWrap: 'wrap',
+  flexWrap: 'nowrap',
   background: 'rgba(8, 14, 28, 0.7)',
   border: '1px solid rgba(148,163,184,0.14)',
-  borderRadius: 14,
-  padding: '10px 14px',
+  borderRadius: 12,
+  padding: '6px 12px',
   minWidth: 0,
+  flexShrink: 0,
+  maxHeight: 40,
+  overflow: 'hidden',
 };
 
 const left: CSSProperties = {
@@ -139,7 +142,7 @@ const liveDot: CSSProperties = {
 
 const eventsRow: CSSProperties = {
   display: 'flex',
-  flexWrap: 'wrap',
+  flexWrap: 'nowrap',
   gap: 8,
   minWidth: 0,
   overflow: 'hidden',

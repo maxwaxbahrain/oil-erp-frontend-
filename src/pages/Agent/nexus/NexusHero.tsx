@@ -109,8 +109,10 @@ export default function NexusHero({
         <div style={clock}>{formatClock(now)}</div>
         <div style={searchRow}>
           <button type="button" style={searchBtn} onClick={() => openGlobalCommandBar()} title="Open command bar (Ctrl K)">
-            <Search size={16} color="#94A3B8" />
-            <span style={{ flex: 1, textAlign: 'left', color: '#64748B' }}>Ask Zava or jump to anything…</span>
+            <Search size={14} color="#94A3B8" />
+            <span style={{ flex: 1, textAlign: 'left', color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Ask Zava…
+            </span>
             <kbd style={kbd}>Ctrl K</kbd>
           </button>
           <button
@@ -123,7 +125,7 @@ export default function NexusHero({
             aria-label={micActive ? 'Stop listening' : 'Talk to Zava'}
             onClick={onMicTap}
           >
-            <Mic size={18} color={BLUE} />
+            <Mic size={16} color={BLUE} />
           </button>
         </div>
       </div>
@@ -133,74 +135,96 @@ export default function NexusHero({
 
 const wrap: CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-start',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 20,
-  flexWrap: 'wrap',
-  padding: '8px 4px 16px',
+  gap: 12,
+  flexWrap: 'nowrap',
+  padding: '4px 2px 8px',
   borderBottom: '1px solid rgba(148,163,184,0.12)',
-  marginBottom: 16,
+  marginBottom: 8,
+  flexShrink: 0,
+  minHeight: 0,
 };
 
-const leftCol: CSSProperties = { flex: '1 1 320px', minWidth: 0 };
-const rightCol: CSSProperties = { flex: '1 1 280px', minWidth: 220, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'stretch' };
+const leftCol: CSSProperties = { flex: '1 1 auto', minWidth: 0 };
+const rightCol: CSSProperties = {
+  flex: '0 1 320px',
+  minWidth: 180,
+  display: 'flex',
+  flexDirection: 'row',
+  gap: 8,
+  alignItems: 'center',
+};
 
-const orbRow: CSSProperties = { display: 'flex', gap: 14, alignItems: 'flex-start' };
+const orbRow: CSSProperties = { display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 };
 const orb: CSSProperties = {
-  width: 44,
-  height: 44,
+  width: 28,
+  height: 28,
   borderRadius: '50%',
   flexShrink: 0,
   background: `radial-gradient(circle at 35% 30%, #E0E7FF, ${BLUE} 55%, #1E3A8A)`,
-  boxShadow: `0 0 24px ${BLUE}88`,
+  boxShadow: `0 0 14px ${BLUE}88`,
 };
 
-const titleRow: CSSProperties = { fontSize: 20, fontWeight: 700, color: '#F1F5F9', lineHeight: 1.3 };
+const titleRow: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 700,
+  color: '#F1F5F9',
+  lineHeight: 1.25,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
 const greetingText: CSSProperties = { color: '#E2E8F0' };
 const subRow: CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
+  marginTop: 2,
+  fontSize: 11,
   color: '#94A3B8',
   display: 'flex',
-  flexWrap: 'wrap',
-  gap: 10,
+  flexWrap: 'nowrap',
+  gap: 8,
   alignItems: 'baseline',
+  overflow: 'hidden',
 };
-const ago: CSSProperties = { color: '#64748B', fontSize: 12 };
+const ago: CSSProperties = { color: '#64748B', fontSize: 11, flexShrink: 0 };
 const clock: CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12,
+  fontSize: 11,
   color: '#94A3B8',
   textAlign: 'right',
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
 };
-const searchRow: CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' };
+const searchRow: CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', flex: 1, minWidth: 0 };
 const searchBtn: CSSProperties = {
   flex: 1,
   display: 'flex',
   alignItems: 'center',
-  gap: 10,
-  height: 42,
-  padding: '0 12px',
-  borderRadius: 10,
+  gap: 8,
+  height: 32,
+  padding: '0 10px',
+  borderRadius: 8,
   border: '1.5px solid rgba(79,142,247,0.4)',
   background: 'rgba(15,23,42,0.85)',
   cursor: 'pointer',
   color: '#E2E8F0',
-  fontSize: 13,
+  fontSize: 12,
+  minWidth: 0,
 };
 const kbd: CSSProperties = {
-  fontSize: 10,
+  fontSize: 9,
   fontWeight: 700,
   letterSpacing: '0.04em',
   color: '#64748B',
   border: '1px solid rgba(148,163,184,0.25)',
-  borderRadius: 6,
-  padding: '2px 6px',
+  borderRadius: 5,
+  padding: '1px 5px',
+  flexShrink: 0,
 };
 const micBtn: CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 10,
+  width: 32,
+  height: 32,
+  borderRadius: 8,
   border: '1.5px solid rgba(79,142,247,0.45)',
   background: 'rgba(15,23,42,0.9)',
   cursor: 'pointer',

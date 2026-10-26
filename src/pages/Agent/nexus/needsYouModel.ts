@@ -42,12 +42,23 @@ function moneyLabel(n: number): string {
   return formatNeedsMoney(n);
 }
 
-/** Drop generic status fluff from titles/why. */
+/** Drop generic status fluff and leading/trailing punctuation from titles/why. */
 export function cleanNeedsCopy(raw: string): string {
   return String(raw || '')
     .replace(/\bStatus\s+attention\b/gi, '')
-    .replace(/^\s*[·|]\s*/g, '')
-    .replace(/\s*[·|]\s*$/g, '')
+    .replace(/^\s*[.·|,;:\-–—]+\s*/g, '')
+    .replace(/\s*[.·|,;:\-–—]+\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Remove raw signed/unsigned money so we only show one formatted amount. */
+export function stripRawMoneyFigures(raw: string): string {
+  return String(raw || '')
+    .replace(/(?:USD|BHD|\$)?\s*-?\d{1,3}(?:,\d{3})+(?:\.\d+)?/gi, '')
+    .replace(/(?:USD|BHD|\$)?\s*-?\d+\.\d{2}\b/gi, '')
+    .replace(/^\s*[.·|,;:\-–—]+\s*/g, '')
+    .replace(/\s*[.·|,;:\-–—]+\s*$/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -79,15 +90,16 @@ export function booksOrMoneySentence(opts: {
   void opts.books;
   const title = cleanNeedsCopy(opts.title);
   const why = cleanNeedsCopy(opts.why);
-  const core = why || title;
+  const core = stripRawMoneyFigures(why || title);
   const absAmt = formatNeedsMoney(opts.money);
   const signedAmt = formatNeedsMoneySigned(opts.money);
   if (!core) {
     return Math.abs(opts.money) > 0.005 ? signedAmt : '';
   }
   const trimmed = core.replace(/[.\s]+$/, '');
-  if (isMismatchCopy(core)) {
-    return /\$[\d,]/.test(core) ? core : `${trimmed} — ${absAmt} difference.`;
+  if (isMismatchCopy(core) || isMismatchCopy(`${title} ${why}`)) {
+    // Prefer formatted absolute once — never keep a raw signed figure beside it.
+    return `${trimmed} — ${absAmt} difference.`;
   }
   if (Math.abs(opts.money) > 0.005) {
     return `${trimmed} — ${signedAmt}.`;
@@ -270,7 +282,8 @@ export function buildNeedsYouItems(input: {
           ? { label: 'Retry ›', href: '#' }
           : { label: 'Review ›', href },
         retry: isFail,
-        badge: books ? 'Books check' : undefined,
+        // Badge OR title — never both "Books check".
+        badge: undefined,
       });
     }
   }
