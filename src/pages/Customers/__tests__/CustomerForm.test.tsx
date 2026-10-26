@@ -4,12 +4,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { createCustomer, updateCustomer, navigate, apiPost, canZava } = vi.hoisted(() => ({
+const { createCustomer, updateCustomer, navigate, apiPost, canZava, stagingEnv } = vi.hoisted(() => ({
   createCustomer: vi.fn(),
   updateCustomer: vi.fn(),
   navigate: vi.fn(),
   apiPost: vi.fn(),
   canZava: { value: true },
+  stagingEnv: { isStaging: true },
+}));
+
+vi.mock('../../../config/appEnv', () => ({
+  get isStaging() {
+    return stagingEnv.isStaging;
+  },
+  isProduction: false,
+  appEnv: 'staging',
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -86,6 +95,17 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof CustomerForm>
   return { ...view, onSave, onCancel };
 }
 
+function visibleFormText(host: HTMLElement): string {
+  const clone = host.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[hidden], [aria-hidden="true"]').forEach((el) => el.remove());
+  clone.querySelectorAll('[data-testid="customer-form-zava-slot"]').forEach((el) => {
+    if (el instanceof HTMLElement && (el.hidden || el.style.display === 'none')) {
+      el.remove();
+    }
+  });
+  return clone.textContent || '';
+}
+
 describe('CustomerForm redesign', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -94,6 +114,7 @@ describe('CustomerForm redesign', () => {
 
   beforeEach(() => {
     canZava.value = true;
+    stagingEnv.isStaging = true;
     navigate.mockReset();
     apiPost.mockReset();
     createCustomer.mockReset();
@@ -428,6 +449,96 @@ describe('CustomerForm redesign', () => {
     });
     expect(createCustomer).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('production (isStaging false, admin): no Tell Zava, no extract API, no visible Zava copy', () => {
+    stagingEnv.isStaging = false;
+    canZava.value = true;
+    const { host, cleanup } = renderForm();
+    expect(host.querySelector('[data-testid="customer-form-zava-slot"]')?.textContent).not.toContain(
+      'Tell Zava',
+    );
+    expect(apiPost).not.toHaveBeenCalled();
+    expect(visibleFormText(host)).not.toMatch(/Zava/i);
+    cleanup();
+
+    const editing: Customer = {
+      id: '42',
+      name: 'Old Name',
+      email: 'old@x.com',
+      phone: '111',
+      address: 'A',
+      category: 'retail',
+      credit_limit: 100,
+      opening_balance: 55,
+      notes: 'n',
+    };
+    const editView = renderForm({ editingCustomer: editing });
+    expect(visibleFormText(editView.host)).not.toMatch(/Zava/i);
+    editView.cleanup();
+  });
+
+  it('staging + admin renders Tell Zava box', () => {
+    stagingEnv.isStaging = true;
+    canZava.value = true;
+    const { host, cleanup } = renderForm();
+    expect(host.textContent).toContain('Tell Zava');
+    cleanup();
+  });
+
+  it('staging + sales role does not render Tell Zava box', () => {
+    stagingEnv.isStaging = true;
+    canZava.value = false;
+    const { host, cleanup } = renderForm();
+    const slot = host.querySelector('[data-testid="customer-form-zava-slot"]') as HTMLElement;
+    expect(slot).toBeTruthy();
+    expect(slot.hidden || slot.getAttribute('aria-hidden') === 'true').toBe(true);
+    expect(host.textContent).not.toContain('Tell Zava — it fills the form for you');
+    cleanup();
+  });
+
+  it('fields container scrolls with overflow-y-auto', () => {
+    const { host, cleanup } = renderForm();
+    const fields = host.querySelector('[data-testid="customer-form-fields"]') as HTMLElement;
+    expect(fields.className).toContain('overflow-y-auto');
+    expect(fields.className).not.toContain('overflow-hidden');
+    cleanup();
+  });
+
+  it('Cancel on empty form calls onCancel immediately', () => {
+    const { host, cleanup, onCancel } = renderForm();
+    act(() => {
+      (host.querySelector('[data-testid="customer-cancel"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')).toBeNull();
+    cleanup();
+  });
+
+  it('Cancel on dirty form opens discard dialog then onCancel once after Discard', () => {
+    const { host, cleanup, onCancel } = renderForm();
+    setValue(host.querySelector('[data-testid="customer-name"]') as HTMLInputElement, 'Draft Co');
+    act(() => {
+      (host.querySelector('[data-testid="customer-cancel"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')).toBeTruthy();
+    act(() => {
+      (host.querySelector('[data-testid="customer-discard-confirm"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it('header Close on dirty form opens discard dialog', () => {
+    const { host, cleanup, onCancel } = renderForm();
+    setValue(host.querySelector('[data-testid="customer-name"]') as HTMLInputElement, 'Draft Co');
+    act(() => {
+      (host.querySelector('[aria-label="Close"]') as HTMLButtonElement).click();
+    });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="customer-discard-dialog"]')).toBeTruthy();
     cleanup();
   });
 
