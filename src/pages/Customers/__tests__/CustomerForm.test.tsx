@@ -56,6 +56,7 @@ vi.mock('../../../utils/localDate', () => ({
 
 import CustomerForm from '../CustomerForm';
 import type { Customer } from '../../../services/customerService';
+import { NEXUS_CUSTOMER_FORM_DRAFT_KEY } from '../../Agent/nexus/nexusCustomerFormBridge';
 
 function mount(node: ReactElement) {
   const host = document.createElement('div');
@@ -449,6 +450,36 @@ describe('CustomerForm redesign', () => {
     });
     expect(createCustomer).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('consumes Nexus Ask sessionStorage draft on new customer (no opening balance)', () => {
+    stagingEnv.isStaging = true;
+    canZava.value = true;
+    sessionStorage.setItem(
+      NEXUS_CUSTOMER_FORM_DRAFT_KEY,
+      JSON.stringify({
+        name: 'Surjeet A1',
+        phone: '7185550177',
+        address: '37th Ave',
+        category: 'workshop',
+        credit_limit: 3000,
+        opening_balance: 999,
+        zavaTagged: ['name', 'phone', 'address', 'credit_limit', 'opening_balance'],
+      }),
+    );
+    const { host, cleanup } = renderForm();
+    expect((host.querySelector('[data-testid="customer-name"]') as HTMLInputElement).value).toBe(
+      'Surjeet A1',
+    );
+    expect((host.querySelector('[data-testid="customer-phone"]') as HTMLInputElement).value).toBe(
+      '7185550177',
+    );
+    expect(host.querySelector('[data-testid="zava-tag-name"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="zava-tag-phone"]')).toBeTruthy();
+    expect(sessionStorage.getItem(NEXUS_CUSTOMER_FORM_DRAFT_KEY)).toBeNull();
+    const opening = host.querySelector('[data-testid="customer-opening-amount"]') as HTMLInputElement;
+    expect(opening?.value || '').toBe('');
     cleanup();
   });
 

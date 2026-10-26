@@ -165,6 +165,7 @@ type SuccessProps = {
   userLabel: string;
   customerId: string;
   undoSecondsLeft: number;
+  undoError: string | null;
   onOpen: () => void;
   onInvoice: () => void;
   onUndo: () => void;
@@ -175,6 +176,7 @@ export function NexusAskCustomerCreated({
   userLabel,
   customerId,
   undoSecondsLeft,
+  undoError,
   onOpen,
   onInvoice,
   onUndo,
@@ -197,7 +199,12 @@ export function NexusAskCustomerCreated({
           New invoice
         </button>
       </div>
-      {undoSecondsLeft > 0 && (
+      {undoError && (
+        <p data-testid="nexus-created-undo-error" style={{ ...foot, color: '#FBBF24', marginTop: 8 }}>
+          {undoError}
+        </p>
+      )}
+      {undoSecondsLeft > 0 && !undoError && (
         <button type="button" data-testid="nexus-created-undo" style={{ ...ghostBtn, marginTop: 8 }} onClick={onUndo}>
           Undo ({undoSecondsLeft}s)
         </button>

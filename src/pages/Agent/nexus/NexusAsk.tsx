@@ -16,6 +16,8 @@ import {
   duplicateBlocksCreate,
   fetchExtractCustomer,
   isCreateCustomerIntent,
+  undoDeactivatePayload,
+  UNDO_FAIL_MSG,
   type CustomerDraftView,
 } from './nexusAskCreateCustomer';
 import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
@@ -136,6 +138,7 @@ export default function NexusAsk({
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [createdName, setCreatedName] = useState('');
   const [undoLeft, setUndoLeft] = useState(0);
+  const [undoError, setUndoError] = useState<string | null>(null);
   const voiceConfirmUntil = useRef(0);
   const [voiceConfirmEnds, setVoiceConfirmEnds] = useState(0);
 
@@ -148,6 +151,7 @@ export default function NexusAsk({
     createStarted.current = false;
     voiceConfirmUntil.current = 0;
     setVoiceConfirmEnds(0);
+    setUndoError(null);
   }, []);
 
   const startCreateFlow = useCallback(
@@ -212,6 +216,7 @@ export default function NexusAsk({
       setCreatedName(row.name || draft.fields.name);
       setCustomerPhase('created');
       setUndoLeft(Math.ceil(UNDO_WINDOW_MS / 1000));
+      setUndoError(null);
       if (speakZava) {
         await speakZava(`Done. ${row.name || draft.fields.name} is created.`);
       }
@@ -422,14 +427,19 @@ export default function NexusAsk({
             userLabel={userDisplayName}
             customerId={createdId}
             undoSecondsLeft={undoLeft}
+            undoError={undoError}
             onOpen={() => onNavigate(`/customers/${createdId}`)}
             onInvoice={() => onNavigate('/sales/invoices/new')}
             onUndo={() => {
-              void updateCustomer(createdId, { status: 'Inactive' }).then(() => {
-                resetCustomerFlow();
-                setStatus('idle');
-                setCreatedId(null);
-              });
+              void updateCustomer(createdId, undoDeactivatePayload())
+                .then(() => {
+                  resetCustomerFlow();
+                  setStatus('idle');
+                  setCreatedId(null);
+                })
+                .catch(() => {
+                  setUndoError(UNDO_FAIL_MSG);
+                });
             }}
           />
         )}

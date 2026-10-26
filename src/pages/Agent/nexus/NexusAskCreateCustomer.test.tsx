@@ -4,15 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { createCustomer, apiPost, speakZava } = vi.hoisted(() => ({
+const { createCustomer, updateCustomer, apiPost, speakZava } = vi.hoisted(() => ({
   createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   apiPost: vi.fn(),
   speakZava: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../services/customerService', () => ({
   createCustomer,
-  updateCustomer: vi.fn(),
+  updateCustomer,
 }));
 
 vi.mock('../../../api/axios', () => ({
@@ -135,6 +136,41 @@ describe('Nexus Ask create customer', () => {
       await tryNexusTranscriptHook('cancel');
     });
     expect(host.querySelector('[data-testid="nexus-customer-draft"]')).toBeNull();
+    cleanup();
+  });
+
+  it('undo sends status-only update; failure keeps created card', async () => {
+    updateCustomer.mockRejectedValueOnce(new Error('network'));
+    const { host, cleanup } = mount(
+      <NexusAsk
+        onNavigate={vi.fn()}
+        onMicTap={vi.fn()}
+        canCreateCustomers
+        speakZava={speakZava}
+        handsFreeActive={false}
+      />,
+    );
+    const input = host.querySelector('[aria-label="Ask Zava"]') as HTMLInputElement;
+    await act(async () => {
+      setValue(input, 'add customer Surjeet A1');
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await act(async () => {
+      (host.querySelector('[data-testid="nexus-draft-create"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('[data-testid="nexus-created-undo"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(updateCustomer).toHaveBeenCalledWith('412', { status: 'Inactive' });
+    expect(host.querySelector('[data-testid="nexus-customer-created"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="nexus-created-undo-error"]')?.textContent).toContain(
+      'Inactive',
+    );
     cleanup();
   });
 

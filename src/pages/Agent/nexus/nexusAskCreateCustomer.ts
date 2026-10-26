@@ -44,7 +44,14 @@ export type CustomerDraftView = {
 };
 
 const CREATE_INTENT =
-  /\b(add|create)\s+(a\s+)?new\s+customer\b|\bnew\s+customer\b.*\b(add|create)\b/i;
+  /\b(add|create)\s+(a\s+)?new\s+customer\b|\b(add|create)\s+customer\b|\bnew\s+customer\b/i;
+
+export const UNDO_FAIL_MSG = "Couldn't undo — open the customer and set it Inactive";
+
+/** Undo deactivates only — backend PUT applies partial updates (exclude_unset). */
+export function undoDeactivatePayload(): Pick<Customer, 'status'> {
+  return { status: 'Inactive' };
+}
 
 const OPENING_TEXT =
   /\b(opening\s+balance|they\s+already\s+owe|already\s+owe\s+us|we\s+owe\s+them|owe\s+us\s+\d|in\s+credit|advance\s+payment)\b/i;

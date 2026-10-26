@@ -36,3 +36,10 @@ export function clearNexusCustomerFormDraft(): void {
     /* ignore */
   }
 }
+
+/** Read once and remove — for CustomerForm mount on /customers/new. */
+export function consumeNexusCustomerFormDraft(): NexusCustomerFormDraft | null {
+  const draft = readNexusCustomerFormDraft();
+  if (draft) clearNexusCustomerFormDraft();
+  return draft;
+}

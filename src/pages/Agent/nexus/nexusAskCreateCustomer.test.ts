@@ -7,6 +7,7 @@ import {
   isCreateCustomerIntent,
   mentionsOpeningBalance,
   fetchExtractCustomer,
+  undoDeactivatePayload,
   type ExtractCustomerApi,
 } from './nexusAskCreateCustomer';
 
@@ -14,7 +15,18 @@ describe('isCreateCustomerIntent', () => {
   it('matches add/create new customer phrasing', () => {
     expect(isCreateCustomerIntent('add a new customer Surjeet')).toBe(true);
     expect(isCreateCustomerIntent('create new customer Acme')).toBe(true);
+    expect(isCreateCustomerIntent('add customer Surjeet A1')).toBe(true);
+    expect(isCreateCustomerIntent('create customer Acme Corp')).toBe(true);
+    expect(isCreateCustomerIntent('new customer Joe Garage')).toBe(true);
     expect(isCreateCustomerIntent('Who owes the most?')).toBe(false);
+  });
+});
+
+describe('undoDeactivatePayload', () => {
+  it('sends status only so name/phone/address stay on the server', () => {
+    const body = undoDeactivatePayload();
+    expect(body).toEqual({ status: 'Inactive' });
+    expect(Object.keys(body)).toEqual(['status']);
   });
 });
 
