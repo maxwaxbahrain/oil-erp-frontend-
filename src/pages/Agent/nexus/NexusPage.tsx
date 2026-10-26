@@ -100,6 +100,7 @@ export default function NexusPage() {
     count?: number;
   }>({ state: 'unavailable' });
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [askLiveLine, setAskLiveLine] = useState('');
   const [liveRefreshKey, setLiveRefreshKey] = useState(0);
   const [paymentsTodayLoad, setPaymentsTodayLoad] = useState<LoadSlotState>('unavailable');
   const [dnsTodayLoad, setDnsTodayLoad] = useState<LoadSlotState>('unavailable');
@@ -353,8 +354,6 @@ export default function NexusPage() {
   );
   const needs = needsCounts.total;
   const speakable = cards.filter((c) => !dismissed.has(c.id));
-  const activeCard = speakable.find((c) => c.id === activeCardId) || speakable[0] || null;
-
   const loadSlots: LoadSlot[] = useMemo(
     () => [
       { id: 'ar', state: shellToSlot(shell.arLoad) },
@@ -409,6 +408,11 @@ export default function NexusPage() {
     setActivePlanetId,
     navigate,
     heroLine: heroSpeakLine,
+    getAskContext: () => ({ homeSummary, needsItems }),
+    onLiveTranscript: (text) => {
+      if (text) setAskLiveLine(text);
+      else setAskLiveLine('');
+    },
   });
 
   const updatedLabel = homeSummary?.generated_at
@@ -513,8 +517,11 @@ export default function NexusPage() {
           voiceYouLine={voice.youLine}
           voiceZavaLine={voice.zavaLine}
           voiceThinking={voice.voiceState === 'thinking'}
-          voiceNavHref={activeCard?.href || null}
-          voiceNavLabel={activeCard ? 'Open update' : null}
+          liveTranscript={askLiveLine}
+          askFastContext={{ homeSummary, needsItems }}
+          voiceNavFromIntent={voice.voiceNavIntent}
+          voiceNavHref={voice.voiceNavHref}
+          voiceNavLabel={voice.voiceNavLabel}
           canCreateCustomers={canCreateCustomers}
           userDisplayName={userDisplayName}
           speakZava={voice.speakText}

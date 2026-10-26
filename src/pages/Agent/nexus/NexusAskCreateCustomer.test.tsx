@@ -174,6 +174,26 @@ describe('Nexus Ask create customer', () => {
     cleanup();
   });
 
+  it('add customer chip prompts and does not extract empty text', async () => {
+    const onMic = vi.fn();
+    const { host, cleanup } = mount(
+      <NexusAsk
+        onNavigate={vi.fn()}
+        onMicTap={onMic}
+        canCreateCustomers
+        speakZava={speakZava}
+        handsFreeActive={false}
+      />,
+    );
+    await act(async () => {
+      (host.querySelector('[data-testid="ask-chips"] button') as HTMLButtonElement).click();
+    });
+    expect(apiPost).not.toHaveBeenCalledWith('/api/agent/extract-customer', expect.anything(), expect.anything());
+    expect(host.textContent).toContain('Tell me the customer');
+    expect(onMic).toHaveBeenCalled();
+    cleanup();
+  });
+
   it('hides create flow without management role', async () => {
     const { host, cleanup } = mount(
       <NexusAsk onNavigate={vi.fn()} onMicTap={vi.fn()} canCreateCustomers={false} />,

@@ -3,6 +3,8 @@ import type { Customer } from '../../../services/customerService';
 import { normalizeVoicePhrase } from './voiceIntent';
 
 export const ADD_CUSTOMER_CHIP = 'Add a new customer';
+export const ADD_CUSTOMER_PREFILL = 'add customer ';
+export const ADD_CUSTOMER_PROMPT = "Tell me the customer's name and details.";
 export const VOICE_CONFIRM_WINDOW_MS = 30_000;
 export const UNDO_WINDOW_MS = 10_000;
 
@@ -65,6 +67,16 @@ export function isCreateCustomerIntent(text: string): boolean {
   if (!t) return false;
   t = t.replace(CREATE_LEAD_IN, '').trim();
   return CREATE_COMMAND.test(t);
+}
+
+/** Chip / empty prefix only — must not call extract-customer. */
+export function isAddCustomerPromptOnly(text: string): boolean {
+  const q = String(text || '').trim();
+  if (!q) return true;
+  if (q === ADD_CUSTOMER_CHIP) return true;
+  if (/^add a new customer:?\s*$/i.test(q)) return true;
+  if (q === ADD_CUSTOMER_PREFILL.trim()) return true;
+  return false;
 }
 
 export function mentionsOpeningBalance(text: string): boolean {
