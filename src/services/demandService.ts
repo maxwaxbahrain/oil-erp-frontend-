@@ -1,8 +1,11 @@
 /**
- * Demand forecast API — mirrors app/api/demand.py (ledger net demand + Holt forecast).
+ * Demand forecast API — mirrors app/api/demand.py (ledger net demand + method selection).
  */
 import { authFetch } from '../api/axios';
 import { ledgerQuery } from './inventoryLedgerService';
+
+/** Canonical method values from the backend; holt_weekly is a legacy alias for holt. */
+export type DemandMethod = 'average' | 'holt' | 'seasonal' | 'no_history' | 'holt_weekly' | string;
 
 export interface DemandSummaryRow {
   product_id: number;
@@ -18,7 +21,9 @@ export interface DemandSummaryRow {
   high: number | null;
   days_of_cover: number | null;
   stockout_date: string | null;
-  method: 'holt_weekly' | 'no_history' | string;
+  method: DemandMethod;
+  accuracy_wape: number | null;
+  history_weeks: number;
 }
 
 export interface DemandSeriesPoint {
@@ -38,7 +43,7 @@ export interface DemandProductStats {
 }
 
 export interface DemandProductForecast {
-  method: string;
+  method: DemandMethod;
   avg_daily: number;
   trend_pct: number;
   forecasts: Record<number, number | null>;
@@ -47,6 +52,9 @@ export interface DemandProductForecast {
   stockout_date: string | null;
   days_of_cover: number | null;
   on_hand_units: number;
+  accuracy_wape?: number | null;
+  methods_tried?: Record<string, number | string>;
+  history_weeks?: number;
 }
 
 export interface DemandProductDetail {
