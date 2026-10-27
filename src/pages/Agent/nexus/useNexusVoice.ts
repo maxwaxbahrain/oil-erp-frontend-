@@ -41,6 +41,7 @@ import {
   NO_SPEECH_HEARD_MSG,
   NEXUS_MAX_LISTEN_MS,
   plainSpeechError,
+  isIgnorableAborted,
   shouldFallbackToUpload,
 } from './nexusSpeechErrors';
 import {
@@ -629,8 +630,9 @@ export function useNexusVoice(opts: Opts) {
               setZavaLine(NO_SPEECH_HEARD_MSG);
               setVoiceState('idle');
             },
-            onError: (code) => {
-              if (shouldFallbackToUpload(code) && !uploadFallbackRef.current) {
+            onError: (code, ctx) => {
+              if (isIgnorableAborted(code, ctx)) return;
+              if (shouldFallbackToUpload(code, ctx) && !uploadFallbackRef.current) {
                 uploadFallbackRef.current = true;
                 setVoiceNotice(plainSpeechError(code));
                 webSpeechStopRef.current?.();

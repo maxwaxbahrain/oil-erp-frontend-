@@ -3,12 +3,12 @@
  * Fallback to record/upload when unavailable.
  */
 
-import { NEXUS_MAX_LISTEN_MS, NEXUS_NO_SPEECH_MS } from './nexusSpeechErrors';
+import { NEXUS_MAX_LISTEN_MS, NEXUS_NO_SPEECH_MS, type SpeechErrorContext } from './nexusSpeechErrors';
 
 export type LiveSpeechHandlers = {
   onInterim: (text: string) => void;
   onFinal: (text: string) => void;
-  onError: (code: string) => void;
+  onError: (code: string, ctx?: SpeechErrorContext) => void;
   onEnd: () => void;
   onNoSpeech?: () => void;
 };
@@ -67,6 +67,16 @@ export function startWebSpeechListen(
   let lastHeard = '';
   let heardAny = false;
   let ended = false;
+  let stoppedByUs = false;
+
+  const stopRecogniser = () => {
+    stoppedByUs = true;
+    try {
+      rec.stop();
+    } catch {
+      finishEnd();
+    }
+  };
 
   const finishEnd = () => {
     if (ended) return;
@@ -80,11 +90,7 @@ export function startWebSpeechListen(
   const bumpSilence = () => {
     window.clearTimeout(silenceTimer);
     silenceTimer = window.setTimeout(() => {
-      try {
-        rec.stop();
-      } catch {
-        finishEnd();
-      }
+      stopRecogniser();
     }, silenceMs);
   };
 
@@ -116,7 +122,12 @@ export function startWebSpeechListen(
   };
 
   rec.onerror = (e) => {
-    handlers.onError(e.error || 'error');
+    const code = e.error || 'error';
+    if (String(code).toLowerCase() === 'aborted' && stoppedByUs) {
+      finishEnd();
+      return;
+    }
+    handlers.onError(code, { stoppedByUs });
     finishEnd();
   };
 
@@ -136,20 +147,12 @@ export function startWebSpeechListen(
   noSpeechTimer = window.setTimeout(() => {
     if (heardAny || ended) return;
     handlers.onNoSpeech?.();
-    try {
-      rec.stop();
-    } catch {
-      finishEnd();
-    }
+    stopRecogniser();
   }, noSpeechMs);
 
   maxListenTimer = window.setTimeout(() => {
     if (ended) return;
-    try {
-      rec.stop();
-    } catch {
-      finishEnd();
-    }
+    stopRecogniser();
   }, maxListenMs);
 
   return {
@@ -157,11 +160,7 @@ export function startWebSpeechListen(
       window.clearTimeout(silenceTimer);
       window.clearTimeout(noSpeechTimer);
       window.clearTimeout(maxListenTimer);
-      try {
-        rec.stop();
-      } catch {
-        finishEnd();
-      }
+      stopRecogniser();
     },
   };
 }

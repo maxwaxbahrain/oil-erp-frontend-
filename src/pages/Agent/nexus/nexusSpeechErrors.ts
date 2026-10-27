@@ -25,10 +25,21 @@ export function plainSpeechError(code: string): string {
   return NO_SPEECH_HEARD_MSG;
 }
 
+export type SpeechErrorContext = { stoppedByUs?: boolean };
+
 /** Fall back to record + POST /api/agent/listen for this utterance. */
-export function shouldFallbackToUpload(code: string): boolean {
+export function shouldFallbackToUpload(code: string, ctx?: SpeechErrorContext): boolean {
   const c = String(code || '')
     .trim()
     .toLowerCase();
+  if (ctx?.stoppedByUs && c === 'aborted') return false;
   return c === 'network' || c === 'service-not-allowed' || c === 'service_not_allowed' || c === 'aborted';
+}
+
+/** User/system stop — do not treat as a speech failure. */
+export function isIgnorableAborted(code: string, ctx?: SpeechErrorContext): boolean {
+  const c = String(code || '')
+    .trim()
+    .toLowerCase();
+  return c === 'aborted' && Boolean(ctx?.stoppedByUs);
 }

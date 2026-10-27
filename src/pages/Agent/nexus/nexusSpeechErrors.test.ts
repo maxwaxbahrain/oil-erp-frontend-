@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { NO_SPEECH_HEARD_MSG, plainSpeechError, shouldFallbackToUpload } from './nexusSpeechErrors';
+import {
+  NO_SPEECH_HEARD_MSG,
+  isIgnorableAborted,
+  plainSpeechError,
+  shouldFallbackToUpload,
+} from './nexusSpeechErrors';
 
 describe('plainSpeechError', () => {
   it('maps common recogniser codes to plain English', () => {
@@ -11,9 +16,15 @@ describe('plainSpeechError', () => {
 });
 
 describe('shouldFallbackToUpload', () => {
-  it('is true for network/service/aborted only', () => {
+  it('is true for network/service/aborted when not stopped by us', () => {
     expect(shouldFallbackToUpload('network')).toBe(true);
     expect(shouldFallbackToUpload('aborted')).toBe(true);
     expect(shouldFallbackToUpload('not-allowed')).toBe(false);
+  });
+
+  it('does not fall back on user/system aborted stop', () => {
+    expect(shouldFallbackToUpload('aborted', { stoppedByUs: true })).toBe(false);
+    expect(isIgnorableAborted('aborted', { stoppedByUs: true })).toBe(true);
+    expect(isIgnorableAborted('network', { stoppedByUs: true })).toBe(false);
   });
 });
