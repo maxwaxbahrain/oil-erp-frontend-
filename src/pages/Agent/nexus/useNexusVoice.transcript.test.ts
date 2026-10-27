@@ -15,4 +15,12 @@ describe('useNexusVoice transcript handling', () => {
     expect(src).toMatch(/webSpeechAvailable/);
     expect(src).toMatch(/MediaRecorder/);
   });
+
+  it('enforces listen timeouts and upload fallback on speech errors', () => {
+    const src = readFileSync(join(__dirname, 'useNexusVoice.ts'), 'utf8');
+    expect(src).toMatch(/NEXUS_MAX_LISTEN_MS/);
+    expect(src).toMatch(/onNoSpeech/);
+    expect(src).toMatch(/shouldFallbackToUpload/);
+    expect(src).toMatch(/startMediaRecorderListen/);
+  });
 });
