@@ -9,7 +9,6 @@ import api from '../../../api/axios';
 import { getVanLocations, getVans } from '../../../services/api';
 import { getArSummary, searchCustomers } from '../../../services/customerService';
 import {
-  RECORD_LIMIT_SECONDS,
   permissionDenied,
   recorderMime,
   recordingCountdown,
@@ -38,6 +37,12 @@ import { startWebSpeechListen, webSpeechAvailable } from './nexusLiveSpeech';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
 import { playMicAck } from './nexusMicAck';
 import { logVoiceTiming } from './nexusVoiceTimings';
+import {
+  NO_SPEECH_HEARD_MSG,
+  NEXUS_MAX_LISTEN_MS,
+  plainSpeechError,
+  shouldFallbackToUpload,
+} from './nexusSpeechErrors';
 import {
   claimMicSession,
   registerMicConsumer,
@@ -137,6 +142,7 @@ export function useNexusVoice(opts: Opts) {
   const [voiceNavHref, setVoiceNavHref] = useState<string | null>(null);
   const [voiceNavLabel, setVoiceNavLabel] = useState<string | null>(null);
   const transcriptHandledRef = useRef(false);
+  const uploadFallbackRef = useRef(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const webSpeechStopRef = useRef<(() => void) | null>(null);
@@ -482,7 +488,8 @@ export function useNexusVoice(opts: Opts) {
       setVoiceNavLabel(null);
       if (!t) {
         setVoiceState('idle');
-        setVoiceNotice(VOICE.unheard);
+        setVoiceNotice(NO_SPEECH_HEARD_MSG);
+        setZavaLine(NO_SPEECH_HEARD_MSG);
         return;
       }
       setVoiceNotice('');
@@ -524,6 +531,7 @@ export function useNexusVoice(opts: Opts) {
   );
 
   const stopRecording = useCallback(() => {
+    uploadFallbackRef.current = false;
     webSpeechStopRef.current?.();
     webSpeechStopRef.current = null;
     const recorder = recorderRef.current;
@@ -533,6 +541,7 @@ export function useNexusVoice(opts: Opts) {
     setCountdown(null);
     setLiveTranscript('');
     onLiveTranscript?.('');
+    setVoiceState((s) => (s === 'listening' ? 'idle' : s));
     releaseMicSession(NEXUS_MIC_OWNER);
   }, [clearListenTimers, onLiveTranscript]);
 
@@ -540,10 +549,52 @@ export function useNexusVoice(opts: Opts) {
     return registerMicConsumer(NEXUS_MIC_OWNER, () => stopRecording());
   }, [stopRecording]);
 
+  const startMediaRecorderListen = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
+      const mime = recorderMime();
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        clearListenTimers();
+        setCountdown(null);
+        stream.getTracks().forEach((track) => track.stop());
+        releaseMicSession(NEXUS_MIC_OWNER);
+        uploadFallbackRef.current = false;
+        const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
+        void sendClip(clip);
+      };
+      recorderRef.current = recorder;
+      const started = Date.now();
+      listenTimers.current = {
+        tick: window.setInterval(() => {
+          setCountdown(recordingCountdown(Date.now() - started));
+        }, 200),
+        limit: window.setTimeout(() => stopRecording(), NEXUS_MAX_LISTEN_MS),
+      };
+      recorder.start();
+      setVoiceState('listening');
+    } catch (error) {
+      uploadFallbackRef.current = false;
+      setVoiceState('idle');
+      releaseMicSession(NEXUS_MIC_OWNER);
+      const msg = permissionDenied(error)
+        ? plainSpeechError('not-allowed')
+        : plainSpeechError('audio-capture');
+      setVoiceNotice(msg);
+      setZavaLine(msg);
+    }
+  }, [clearListenTimers, sendClip, stopRecording]);
+
   const startListening = useCallback(async () => {
     stopSpeaking();
     setVoiceNotice('');
     setFallbackChips(null);
+    uploadFallbackRef.current = false;
+    transcriptHandledRef.current = false;
     try {
       await api.get('/api/agent/voice');
     } catch (error) {
@@ -562,7 +613,6 @@ export function useNexusVoice(opts: Opts) {
 
     if (webSpeechAvailable()) {
       try {
-        transcriptHandledRef.current = false;
         const session = startWebSpeechListen(
           {
             onInterim: (text) => {
@@ -572,14 +622,30 @@ export function useNexusVoice(opts: Opts) {
             onFinal: (text) => {
               void processTranscript(text);
             },
+            onNoSpeech: () => {
+              if (transcriptHandledRef.current) return;
+              transcriptHandledRef.current = true;
+              setVoiceNotice(NO_SPEECH_HEARD_MSG);
+              setZavaLine(NO_SPEECH_HEARD_MSG);
+              setVoiceState('idle');
+            },
             onError: (code) => {
-              if (code !== 'aborted' && code !== 'no-speech') {
-                setVoiceNotice(VOICE.unheard);
+              if (shouldFallbackToUpload(code) && !uploadFallbackRef.current) {
+                uploadFallbackRef.current = true;
+                setVoiceNotice(plainSpeechError(code));
+                webSpeechStopRef.current?.();
+                webSpeechStopRef.current = null;
+                void startMediaRecorderListen();
+                return;
               }
+              const msg = plainSpeechError(code);
+              setVoiceNotice(msg);
+              setZavaLine(msg);
               setVoiceState('idle');
             },
             onEnd: () => {
               webSpeechStopRef.current = null;
+              if (uploadFallbackRef.current) return;
               setVoiceState((s) => (s === 'listening' ? 'idle' : s));
               releaseMicSession(NEXUS_MIC_OWNER);
             },
@@ -594,38 +660,13 @@ export function useNexusVoice(opts: Opts) {
       }
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
-      const mime = recorderMime();
-      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        clearListenTimers();
-        setCountdown(null);
-        stream.getTracks().forEach((track) => track.stop());
-        releaseMicSession(NEXUS_MIC_OWNER);
-        const clip = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
-        void sendClip(clip);
-      };
-      recorderRef.current = recorder;
-      const started = Date.now();
-      listenTimers.current = {
-        tick: window.setInterval(() => {
-          setCountdown(recordingCountdown(Date.now() - started));
-        }, 200),
-        limit: window.setTimeout(() => stopRecording(), RECORD_LIMIT_SECONDS * 1000),
-      };
-      recorder.start();
-      setVoiceState('listening');
-    } catch (error) {
-      setVoiceState('idle');
-      releaseMicSession(NEXUS_MIC_OWNER);
-      setVoiceNotice(permissionDenied(error) ? VOICE.denied : 'This browser cannot record a voice clip.');
-    }
-  }, [clearListenTimers, onLiveTranscript, processTranscript, sendClip, stopSpeaking]);
+    await startMediaRecorderListen();
+  }, [
+    onLiveTranscript,
+    processTranscript,
+    startMediaRecorderListen,
+    stopSpeaking,
+  ]);
 
   /**
    * Mic tap only — never speak without a mic tap.

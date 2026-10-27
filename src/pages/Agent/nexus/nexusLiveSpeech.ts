@@ -3,11 +3,14 @@
  * Fallback to record/upload when unavailable.
  */
 
+import { NEXUS_MAX_LISTEN_MS, NEXUS_NO_SPEECH_MS } from './nexusSpeechErrors';
+
 export type LiveSpeechHandlers = {
   onInterim: (text: string) => void;
   onFinal: (text: string) => void;
   onError: (code: string) => void;
   onEnd: () => void;
+  onNoSpeech?: () => void;
 };
 
 type SpeechRecognitionLike = {
@@ -41,7 +44,12 @@ export function webSpeechAvailable(): boolean {
 
 export function startWebSpeechListen(
   handlers: LiveSpeechHandlers,
-  opts?: { silenceMs?: number; lang?: string },
+  opts?: {
+    silenceMs?: number;
+    lang?: string;
+    noSpeechMs?: number;
+    maxListenMs?: number;
+  },
 ): { stop: () => void } {
   const Ctor = webSpeechRecognitionCtor();
   if (!Ctor) throw new Error('no-speech-api');
@@ -51,14 +59,21 @@ export function startWebSpeechListen(
   rec.lang = opts?.lang || 'en-US';
 
   const silenceMs = opts?.silenceMs ?? 800;
+  const noSpeechMs = opts?.noSpeechMs ?? NEXUS_NO_SPEECH_MS;
+  const maxListenMs = opts?.maxListenMs ?? NEXUS_MAX_LISTEN_MS;
   let silenceTimer = 0;
+  let noSpeechTimer = 0;
+  let maxListenTimer = 0;
   let lastHeard = '';
+  let heardAny = false;
   let ended = false;
 
   const finishEnd = () => {
     if (ended) return;
     ended = true;
     window.clearTimeout(silenceTimer);
+    window.clearTimeout(noSpeechTimer);
+    window.clearTimeout(maxListenTimer);
     handlers.onEnd();
   };
 
@@ -73,6 +88,12 @@ export function startWebSpeechListen(
     }, silenceMs);
   };
 
+  const markHeard = (text: string) => {
+    if (!text.trim()) return;
+    heardAny = true;
+    window.clearTimeout(noSpeechTimer);
+  };
+
   rec.onresult = (event) => {
     let interim = '';
     let finalChunk = '';
@@ -85,6 +106,7 @@ export function startWebSpeechListen(
     const combined = (finalChunk || interim).trim();
     if (combined) {
       lastHeard = combined;
+      markHeard(combined);
       handlers.onInterim(combined);
       bumpSilence();
     }
@@ -99,6 +121,9 @@ export function startWebSpeechListen(
   };
 
   rec.onend = () => {
+    if (!ended && !heardAny) {
+      handlers.onNoSpeech?.();
+    }
     if (!ended && lastHeard.trim()) {
       handlers.onFinal(lastHeard.trim());
     }
@@ -108,9 +133,30 @@ export function startWebSpeechListen(
   rec.start();
   bumpSilence();
 
+  noSpeechTimer = window.setTimeout(() => {
+    if (heardAny || ended) return;
+    handlers.onNoSpeech?.();
+    try {
+      rec.stop();
+    } catch {
+      finishEnd();
+    }
+  }, noSpeechMs);
+
+  maxListenTimer = window.setTimeout(() => {
+    if (ended) return;
+    try {
+      rec.stop();
+    } catch {
+      finishEnd();
+    }
+  }, maxListenMs);
+
   return {
     stop: () => {
       window.clearTimeout(silenceTimer);
+      window.clearTimeout(noSpeechTimer);
+      window.clearTimeout(maxListenTimer);
       try {
         rec.stop();
       } catch {
