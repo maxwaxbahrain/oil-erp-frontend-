@@ -1,5 +1,6 @@
 import type { AskAnswer } from './nexusAskNav';
 import { tryAskFastPath, type AskFastContext } from './nexusAskFastPath';
+import type { ChatTurn } from './nexusVoiceCapture';
 
 export const ASK_CHAT_TIMEOUT_MS = 20_000;
 export const ASK_SLOW_HINT_MS = 8_000;
@@ -29,8 +30,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export async function queryNexusAsk(
   message: string,
   ctx: AskFastContext,
-  chat: (msg: string) => Promise<AskAnswer>,
+  chat: (msg: string, history?: ChatTurn[]) => Promise<AskAnswer>,
   onSlowHint?: () => void,
+  history?: ChatTurn[],
 ): Promise<AskQueryResult> {
   const fast = tryAskFastPath(message, ctx);
   if (fast) {
@@ -52,7 +54,7 @@ export async function queryNexusAsk(
   }, ASK_SLOW_HINT_MS);
 
   try {
-    const answer = await withTimeout(chat(message), ASK_CHAT_TIMEOUT_MS);
+    const answer = await withTimeout(chat(message, history), ASK_CHAT_TIMEOUT_MS);
     return { answer, fromFastPath: false, timedOut: false };
   } catch (e) {
     if ((e as Error)?.message === 'timeout' || slowFired) {

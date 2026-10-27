@@ -81,6 +81,22 @@ describe('askZavaChat uses agent chat', () => {
       { message: 'Who owes the most?' },
       expect.objectContaining({ timeout: 70_000 }),
     );
+    const historyResult = await askZavaChat('follow up', [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ]);
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/agent/chat',
+      {
+        message: 'follow up',
+        history: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'hello' },
+        ],
+      },
+      expect.objectContaining({ timeout: 70_000 }),
+    );
+    expect(historyResult.headline).toContain('Gamma');
     expect(result.headline).toContain('Gamma');
     expect(result.buttons[0]?.href).toBe('/customers/3');
   });

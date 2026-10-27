@@ -23,4 +23,23 @@ describe('useNexusVoice transcript handling', () => {
     expect(src).toMatch(/shouldFallbackToUpload/);
     expect(src).toMatch(/startMediaRecorderListen/);
   });
+
+  it('submits full utterance on silence, not per onFinal chunk', () => {
+    const src = readFileSync(join(__dirname, 'useNexusVoice.ts'), 'utf8');
+    expect(src).toMatch(/onUtteranceReady/);
+    expect(src).not.toMatch(/onFinal:/);
+  });
+
+  it('stops listening before TTS and reopens after conversation delay', () => {
+    const src = readFileSync(join(__dirname, 'useNexusVoice.ts'), 'utf8');
+    expect(src).toMatch(/cancelListening\(\)/);
+    expect(src).toMatch(/NEXUS_POST_TTS_LISTEN_DELAY_MS/);
+    expect(src).toMatch(/NEXUS_CONVERSATION_FOLLOWUP_MS/);
+    expect(src).toMatch(/voiceLinesToHistory/);
+  });
+
+  it('no-speech message only on mic tap, not conversation follow-up', () => {
+    const src = readFileSync(join(__dirname, 'useNexusVoice.ts'), 'utf8');
+    expect(src).toMatch(/listenModeRef\.current === 'tap'/);
+  });
 });
