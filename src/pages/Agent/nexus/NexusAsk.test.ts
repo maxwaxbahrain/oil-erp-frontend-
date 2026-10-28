@@ -101,3 +101,43 @@ describe('askZavaChat uses agent chat', () => {
     expect(result.buttons[0]?.href).toBe('/customers/3');
   });
 });
+
+describe('askZavaChat history fallback', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('retries once without history on 422 and stops sending history', async () => {
+    const post = vi
+      .fn()
+      .mockRejectedValueOnce({ response: { status: 422 } })
+      .mockResolvedValue({ data: { headline: 'OK answer.' } });
+    vi.doMock('../../../api/axios', () => ({ default: { post } }));
+    const { askZavaChat } = await import('./nexusAskChat');
+    const hist = [
+      { role: 'user' as const, content: 'hi' },
+      { role: 'assistant' as const, content: 'hello' },
+    ];
+    const first = await askZavaChat('follow up', hist);
+    expect(first.headline).toBe('OK answer.');
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[0][1]).toEqual({ message: 'follow up', history: hist });
+    expect(post.mock.calls[1][1]).toEqual({ message: 'follow up' });
+    await askZavaChat('next', hist);
+    expect(post.mock.calls[2][1]).toEqual({ message: 'next' });
+  });
+
+  it('does not retry other errors or requests without history', async () => {
+    const post = vi.fn().mockRejectedValue({ response: { status: 500 } });
+    vi.doMock('../../../api/axios', () => ({ default: { post } }));
+    const { askZavaChat } = await import('./nexusAskChat');
+    await expect(askZavaChat('x', [{ role: 'user', content: 'hi' }])).rejects.toBeTruthy();
+    expect(post).toHaveBeenCalledTimes(1);
+    const post422 = vi.fn().mockRejectedValue({ response: { status: 422 } });
+    vi.resetModules();
+    vi.doMock('../../../api/axios', () => ({ default: { post: post422 } }));
+    const mod = await import('./nexusAskChat');
+    await expect(mod.askZavaChat('no history')).rejects.toBeTruthy();
+    expect(post422).toHaveBeenCalledTimes(1);
+  });
+});
