@@ -536,6 +536,9 @@ export default function NexusPage() {
           userDisplayName={userDisplayName}
           speakZava={voice.speakText}
           handsFreeActive={handsFreeActive}
+          chatTurns={voice.chatTurns}
+          appendChatTurn={voice.appendChatTurn}
+          conversationFollowUp={voice.conversationFollowUp}
         />
       </div>
 

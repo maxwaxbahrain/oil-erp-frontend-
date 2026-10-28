@@ -3,11 +3,19 @@
  * Fallback to record/upload when unavailable.
  */
 
+import {
+  joinSpeechTranscript,
+  NEXUS_SHORT_UTTERANCE_WAIT_MS,
+  NEXUS_SILENCE_BEFORE_SUBMIT_MS,
+  shouldWaitForMoreWords,
+} from './nexusVoiceCapture';
 import { NEXUS_MAX_LISTEN_MS, NEXUS_NO_SPEECH_MS, type SpeechErrorContext } from './nexusSpeechErrors';
 
 export type LiveSpeechHandlers = {
-  onInterim: (text: string) => void;
-  onFinal: (text: string) => void;
+  /** Full sentence so far (all finals + interim). */
+  onTranscript: (text: string) => void;
+  /** Fired once after silence (or explicit commit), with the full utterance. */
+  onUtteranceReady: (text: string) => void;
   onError: (code: string, ctx?: SpeechErrorContext) => void;
   onEnd: () => void;
   onNoSpeech?: () => void;
@@ -50,7 +58,7 @@ export function startWebSpeechListen(
     noSpeechMs?: number;
     maxListenMs?: number;
   },
-): { stop: () => void } {
+): { stop: () => void; cancel: () => void } {
   const Ctor = webSpeechRecognitionCtor();
   if (!Ctor) throw new Error('no-speech-api');
   const rec = new Ctor();
@@ -58,16 +66,21 @@ export function startWebSpeechListen(
   rec.interimResults = true;
   rec.lang = opts?.lang || 'en-US';
 
-  const silenceMs = opts?.silenceMs ?? 800;
+  const silenceMs = opts?.silenceMs ?? NEXUS_SILENCE_BEFORE_SUBMIT_MS;
   const noSpeechMs = opts?.noSpeechMs ?? NEXUS_NO_SPEECH_MS;
   const maxListenMs = opts?.maxListenMs ?? NEXUS_MAX_LISTEN_MS;
   let silenceTimer = 0;
   let noSpeechTimer = 0;
   let maxListenTimer = 0;
-  let lastHeard = '';
+  const finalParts: string[] = [];
+  let currentInterim = '';
   let heardAny = false;
   let ended = false;
   let stoppedByUs = false;
+  let utteranceDelivered = false;
+  let shortWaitUsed = false;
+
+  const fullText = () => joinSpeechTranscript(finalParts, currentInterim);
 
   const stopRecogniser = () => {
     stoppedByUs = true;
@@ -87,11 +100,34 @@ export function startWebSpeechListen(
     handlers.onEnd();
   };
 
-  const bumpSilence = () => {
+  const deliverUtterance = (text: string) => {
+    const t = text.trim();
+    if (!t || utteranceDelivered) return;
+    utteranceDelivered = true;
+    handlers.onUtteranceReady(t);
+  };
+
+  const scheduleSilenceCommit = (waitMs: number) => {
     window.clearTimeout(silenceTimer);
     silenceTimer = window.setTimeout(() => {
+      const t = fullText().trim();
+      if (!t) {
+        stopRecogniser();
+        return;
+      }
+      if (shouldWaitForMoreWords(t) && !shortWaitUsed) {
+        shortWaitUsed = true;
+        scheduleSilenceCommit(NEXUS_SHORT_UTTERANCE_WAIT_MS);
+        return;
+      }
+      deliverUtterance(t);
       stopRecogniser();
-    }, silenceMs);
+    }, waitMs);
+  };
+
+  const bumpSilence = () => {
+    shortWaitUsed = false;
+    scheduleSilenceCommit(silenceMs);
   };
 
   const markHeard = (text: string) => {
@@ -102,22 +138,21 @@ export function startWebSpeechListen(
 
   rec.onresult = (event) => {
     let interim = '';
-    let finalChunk = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const r = event.results[i];
       const piece = r[0]?.transcript || '';
-      if (r.isFinal) finalChunk += piece;
-      else interim += piece;
+      if (r.isFinal) {
+        if (piece.trim()) finalParts.push(piece.trim());
+      } else {
+        interim += piece;
+      }
     }
-    const combined = (finalChunk || interim).trim();
+    currentInterim = interim.trim();
+    const combined = fullText();
     if (combined) {
-      lastHeard = combined;
       markHeard(combined);
-      handlers.onInterim(combined);
+      handlers.onTranscript(combined);
       bumpSilence();
-    }
-    if (finalChunk.trim()) {
-      handlers.onFinal(finalChunk.trim());
     }
   };
 
@@ -135,9 +170,6 @@ export function startWebSpeechListen(
     if (!ended && !heardAny) {
       handlers.onNoSpeech?.();
     }
-    if (!ended && lastHeard.trim()) {
-      handlers.onFinal(lastHeard.trim());
-    }
     finishEnd();
   };
 
@@ -152,14 +184,26 @@ export function startWebSpeechListen(
 
   maxListenTimer = window.setTimeout(() => {
     if (ended) return;
+    const t = fullText().trim();
+    if (t && !utteranceDelivered) deliverUtterance(t);
     stopRecogniser();
   }, maxListenMs);
 
+  const clearTimers = () => {
+    window.clearTimeout(silenceTimer);
+    window.clearTimeout(noSpeechTimer);
+    window.clearTimeout(maxListenTimer);
+  };
+
   return {
     stop: () => {
-      window.clearTimeout(silenceTimer);
-      window.clearTimeout(noSpeechTimer);
-      window.clearTimeout(maxListenTimer);
+      clearTimers();
+      const t = fullText().trim();
+      if (t && !utteranceDelivered) deliverUtterance(t);
+      stopRecogniser();
+    },
+    cancel: () => {
+      clearTimers();
       stopRecogniser();
     },
   };

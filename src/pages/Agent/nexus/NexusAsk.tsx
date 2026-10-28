@@ -26,6 +26,7 @@ import {
 import type { AskFastContext } from './nexusAskFastPath';
 import { queryNexusAsk, ASK_TIMEOUT_MESSAGE } from './nexusAskQuery';
 import { speakFirstThenRest } from './nexusSpeechOut';
+import { voiceLinesToHistory } from './nexusVoiceCapture';
 import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
 import { setNexusTranscriptHook } from './nexusVoiceIntercept';
 
@@ -64,6 +65,9 @@ type Props = {
   liveTranscript?: string;
   askFastContext?: AskFastContext;
   voiceNavFromIntent?: boolean;
+  chatTurns?: { who: 'zava' | 'you'; text: string }[];
+  appendChatTurn?: (who: 'zava' | 'you', text: string) => void;
+  conversationFollowUp?: boolean;
 };
 
 export default function NexusAsk({
@@ -82,8 +86,12 @@ export default function NexusAsk({
   liveTranscript = '',
   askFastContext,
   voiceNavFromIntent = false,
+  chatTurns = [],
+  appendChatTurn,
+  conversationFollowUp = false,
 }: Props) {
   const [query, setQuery] = useState('');
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<AskStatus>('idle');
   const [slowHint, setSlowHint] = useState(false);
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
@@ -223,16 +231,27 @@ export default function NexusAsk({
         arSummary: null,
         arLoadedOk: false,
       };
+      appendChatTurn?.('you', q);
+      const history = voiceLinesToHistory(chatTurns);
       try {
-        const { answer, timedOut } = await queryNexusAsk(q, ctx, askZavaChat, () => {
-          if (gen === askGen.current) setSlowHint(true);
-        });
+        const { answer, timedOut } = await queryNexusAsk(
+          q,
+          ctx,
+          askZavaChat,
+          () => {
+            if (gen === askGen.current) setSlowHint(true);
+          },
+          history,
+        );
         if (gen !== askGen.current) return;
         setAnswer(answer);
         setStatus(timedOut ? 'error' : 'ok');
         if (timedOut) setCreateError(ASK_TIMEOUT_MESSAGE);
         const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
         if (speakZava && speakLine) {
+          void speakZava(speakLine);
+        } else if (speakLine) {
+          appendChatTurn?.('zava', speakLine);
           void speakFirstThenRest(speakLine);
         }
       } catch {
@@ -241,8 +260,14 @@ export default function NexusAsk({
         setStatus('error');
       }
     },
-    [askFastContext, promptAddCustomer, resetCustomerFlow, speakZava, startCreateFlow],
+    [appendChatTurn, askFastContext, chatTurns, promptAddCustomer, resetCustomerFlow, speakZava, startCreateFlow],
   );
+
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatTurns, liveTranscript, status]);
 
   useEffect(() => {
     const hook = async (transcript: string): Promise<boolean> => {
@@ -406,6 +431,26 @@ export default function NexusAsk({
       </form>
 
       <div style={{ marginTop: 12, minHeight: 80 }} data-testid="nexus-ask-answer">
+        {chatTurns.length > 0 && (
+          <div ref={chatScrollRef} style={chatScroll} data-testid="nexus-ask-chat">
+            {chatTurns.map((turn, i) => (
+              <div
+                key={`${i}-${turn.who}-${turn.text.slice(0, 24)}`}
+                style={{
+                  ...chatBubble,
+                  alignSelf: turn.who === 'you' ? 'flex-end' : 'flex-start',
+                  background:
+                    turn.who === 'you' ? 'rgba(79,142,247,0.22)' : 'rgba(15,23,42,0.92)',
+                  borderColor: turn.who === 'you' ? 'rgba(79,142,247,0.45)' : 'rgba(148,163,184,0.2)',
+                }}
+              >
+                <div style={chatWho}>{turn.who === 'you' ? 'You' : 'Zava'}</div>
+                <div style={chatText}>{turn.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {customerPhase === 'reading' && (
           <div style={thinking} data-testid="nexus-customer-reading">
             Zava is reading your sentence…
@@ -458,7 +503,7 @@ export default function NexusAsk({
 
         {customerPhase === 'idle' && status === 'listening' && (
           <div style={thinking} data-testid="ask-listening">
-            Listening…
+            {conversationFollowUp ? 'Listening for your reply…' : 'Listening…'}
           </div>
         )}
         {customerPhase === 'idle' && status === 'thinking' && (
@@ -668,6 +713,38 @@ const chipLabel: CSSProperties = {
   textTransform: 'uppercase',
   color: '#64748B',
   marginBottom: 8,
+};
+
+const chatScroll: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  maxHeight: 220,
+  overflowY: 'auto',
+  marginBottom: 10,
+  paddingRight: 4,
+};
+
+const chatBubble: CSSProperties = {
+  maxWidth: '92%',
+  borderRadius: 12,
+  border: '1px solid',
+  padding: '8px 10px',
+};
+
+const chatWho: CSSProperties = {
+  fontSize: 9,
+  fontWeight: 800,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: '#64748B',
+  marginBottom: 4,
+};
+
+const chatText: CSSProperties = {
+  fontSize: 13,
+  color: '#E2E8F0',
+  lineHeight: 1.4,
 };
 
 const chipBtn: CSSProperties = {
