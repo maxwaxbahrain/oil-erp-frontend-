@@ -53,3 +53,14 @@ export function voiceLinesToHistory(lines: readonly { who: 'zava' | 'you'; text:
     .filter((l) => l.content);
   return trimChatHistory(mapped);
 }
+
+/** Prior turns for /api/agent/chat. Drops the question just asked; keeps Zava's last answer. */
+export function historyBeforeCurrentQuestion(
+  lines: readonly { who: 'zava' | 'you'; text: string }[],
+  question: string,
+): ChatTurn[] {
+  const q = question.trim();
+  const last = lines[lines.length - 1];
+  const prior = last && last.who === 'you' && last.text.trim() === q ? lines.slice(0, -1) : lines;
+  return voiceLinesToHistory(prior);
+}

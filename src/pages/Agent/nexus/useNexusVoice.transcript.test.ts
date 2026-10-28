@@ -35,7 +35,7 @@ describe('useNexusVoice transcript handling', () => {
     expect(src).toMatch(/cancelListening\(\)/);
     expect(src).toMatch(/NEXUS_POST_TTS_LISTEN_DELAY_MS/);
     expect(src).toMatch(/NEXUS_CONVERSATION_FOLLOWUP_MS/);
-    expect(src).toMatch(/voiceLinesToHistory/);
+    expect(src).toMatch(/historyBeforeCurrentQuestion/);
   });
 
   it('no-speech message only on mic tap, not conversation follow-up', () => {

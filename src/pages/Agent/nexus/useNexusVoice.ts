@@ -38,7 +38,7 @@ import {
   NEXUS_CONVERSATION_FOLLOWUP_MS,
   NEXUS_POST_TTS_LISTEN_DELAY_MS,
   NEXUS_SILENCE_BEFORE_SUBMIT_MS,
-  voiceLinesToHistory,
+  historyBeforeCurrentQuestion,
 } from './nexusVoiceCapture';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
 import { playMicAck } from './nexusMicAck';
@@ -192,7 +192,9 @@ export function useNexusVoice(opts: Opts) {
   const pushChatTurn = useCallback((who: VoiceLine['who'], text: string) => {
     const line = String(text || '').trim();
     if (!line) return;
-    setChatTurns((prev) => [...prev, { who, text: line }].slice(-6));
+    const next = [...chatTurnsRef.current, { who, text: line }].slice(-6);
+    chatTurnsRef.current = next;
+    setChatTurns(next);
   }, []);
 
   const clearListenTimers = useCallback(() => {
@@ -302,7 +304,7 @@ export function useNexusVoice(opts: Opts) {
       setVoiceState('thinking');
       const t0 = speechEndAtRef.current || Date.now();
       try {
-        const history = voiceLinesToHistory(chatTurnsRef.current.slice(0, -1));
+        const history = historyBeforeCurrentQuestion(chatTurnsRef.current, q);
         const { answer, fromFastPath } = await queryNexusAsk(
           q,
           getAskContext(),
