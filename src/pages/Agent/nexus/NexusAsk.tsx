@@ -312,6 +312,8 @@ export default function NexusAsk({
       setStatus('listening');
       return;
     }
+    // Mic stopped without a question: don't leave "Listening…" on screen.
+    setStatus((s) => (s === 'listening' ? 'idle' : s));
     if (voiceZavaLine && voiceYouLine) {
       const unheard =
         /didn't catch that/i.test(voiceZavaLine) ||
