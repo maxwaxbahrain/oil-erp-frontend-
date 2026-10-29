@@ -169,4 +169,59 @@ describe('nexusLiveSpeech', () => {
     vi.advanceTimersByTime(NEXUS_SHORT_UTTERANCE_WAIT_MS);
     expect(onUtteranceReady).toHaveBeenCalledWith('order');
   });
+
+  describe('Chrome ends the session on its own', () => {
+    class EarlyEndRecognition {
+      static last: EarlyEndRecognition | null = null;
+      continuous = false;
+      interimResults = false;
+      lang = 'en-US';
+      onresult: ((ev: unknown) => void) | null = null;
+      onerror: ((ev: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      constructor() { EarlyEndRecognition.last = this; }
+      start() {}
+      stop() { this.onend?.(); }
+      say(text: string, isFinal: boolean) {
+        const r = Object.assign([{ transcript: text }], { isFinal });
+        this.onresult?.({ resultIndex: 0, results: [r] });
+      }
+    }
+    const handlers = () => ({
+      onTranscript: vi.fn(), onUtteranceReady: vi.fn(),
+      onError: vi.fn(), onEnd: vi.fn(), onNoSpeech: vi.fn(),
+    });
+
+    it('answers words already heard when Chrome ends before the silence timer', () => {
+      vi.stubGlobal('SpeechRecognition', EarlyEndRecognition);
+      const h = handlers();
+      startWebSpeechListen(h, { noSpeechMs: 60_000, maxListenMs: 60_000 });
+      EarlyEndRecognition.last!.say('who owes me the most', true);
+      EarlyEndRecognition.last!.onend?.();
+      expect(h.onUtteranceReady).toHaveBeenCalledWith('who owes me the most');
+      expect(h.onNoSpeech).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(NEXUS_SILENCE_BEFORE_SUBMIT_MS + NEXUS_SHORT_UTTERANCE_WAIT_MS);
+      expect(h.onUtteranceReady).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers heard words instead of showing an error', () => {
+      vi.stubGlobal('SpeechRecognition', EarlyEndRecognition);
+      const h = handlers();
+      startWebSpeechListen(h, { noSpeechMs: 60_000, maxListenMs: 60_000 });
+      EarlyEndRecognition.last!.say('show overdue invoices', false);
+      EarlyEndRecognition.last!.onerror?.({ error: 'network' });
+      expect(h.onUtteranceReady).toHaveBeenCalledWith('show overdue invoices');
+      expect(h.onError).not.toHaveBeenCalled();
+    });
+
+    it('cancel() never reports no-speech or delivers words', () => {
+      vi.stubGlobal('SpeechRecognition', EarlyEndRecognition);
+      const h = handlers();
+      const session = startWebSpeechListen(h, { noSpeechMs: 60_000, maxListenMs: 60_000 });
+      session.cancel();
+      expect(h.onNoSpeech).not.toHaveBeenCalled();
+      expect(h.onUtteranceReady).not.toHaveBeenCalled();
+      expect(h.onEnd).toHaveBeenCalled();
+    });
+  });
 });

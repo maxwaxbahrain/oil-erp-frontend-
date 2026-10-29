@@ -77,6 +77,7 @@ export function startWebSpeechListen(
   let heardAny = false;
   let ended = false;
   let stoppedByUs = false;
+  let cancelled = false;
   let utteranceDelivered = false;
   let shortWaitUsed = false;
 
@@ -158,7 +159,14 @@ export function startWebSpeechListen(
 
   rec.onerror = (e) => {
     const code = e.error || 'error';
-    if (String(code).toLowerCase() === 'aborted' && stoppedByUs) {
+    if (cancelled || (String(code).toLowerCase() === 'aborted' && stoppedByUs)) {
+      finishEnd();
+      return;
+    }
+    // Words already heard: answer them instead of showing an error.
+    const heardText = fullText().trim();
+    if (heardText && !utteranceDelivered) {
+      deliverUtterance(heardText);
       finishEnd();
       return;
     }
@@ -167,8 +175,15 @@ export function startWebSpeechListen(
   };
 
   rec.onend = () => {
-    if (!ended && !heardAny) {
-      handlers.onNoSpeech?.();
+    if (!ended && !cancelled) {
+      // Chrome can end the session on its own before our silence timer fires.
+      // Never drop words that were already heard.
+      const heardText = fullText().trim();
+      if (heardText && !utteranceDelivered) {
+        deliverUtterance(heardText);
+      } else if (!heardAny) {
+        handlers.onNoSpeech?.();
+      }
     }
     finishEnd();
   };
@@ -203,6 +218,7 @@ export function startWebSpeechListen(
       stopRecogniser();
     },
     cancel: () => {
+      cancelled = true;
       clearTimers();
       stopRecogniser();
     },
