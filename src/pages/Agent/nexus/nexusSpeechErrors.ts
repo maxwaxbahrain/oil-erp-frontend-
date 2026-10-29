@@ -1,6 +1,6 @@
 /** Plain-English Web Speech / mic errors for Nexus Zava. */
 
-export const NO_SPEECH_HEARD_MSG = "I didn't hear anything — check your microphone";
+export const NO_SPEECH_HEARD_MSG = "I didn't hear anything. Tap the mic and try again.";
 
 export const NEXUS_NO_SPEECH_MS = 6_000;
 export const NEXUS_MAX_LISTEN_MS = 15_000;

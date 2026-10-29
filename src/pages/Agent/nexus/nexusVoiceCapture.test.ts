@@ -5,6 +5,7 @@ import {
   shouldWaitForMoreWords,
   trimChatHistory,
   voiceLinesToHistory,
+  looksUnfinished, cleanSpokenQuestion, isSmallTalk
 } from './nexusVoiceCapture';
 
 describe('nexusVoiceCapture', () => {
@@ -46,5 +47,29 @@ describe('nexusVoiceCapture', () => {
       { role: 'user', content: 'Who owes the most?' },
       { role: 'assistant', content: 'Alpha owes $100.' },
     ]);
+  });
+
+  describe('conversation polish', () => {
+    it('waits when a sentence stops mid-way', () => {
+      expect(looksUnfinished('what are the')).toBe(true);
+      expect(looksUnfinished('who owes the most')).toBe(false);
+      expect(looksUnfinished('show me sales for')).toBe(true);
+      expect(shouldWaitForMoreWords('how much stock do we have of')).toBe(true);
+      expect(shouldWaitForMoreWords('how much stock do we have')).toBe(false);
+      expect(shouldWaitForMoreWords('stop')).toBe(false);
+    });
+    it('strips greetings and misheard wake words', () => {
+      expect(cleanSpokenQuestion('hey Java who owes the most')).toBe('who owes the most');
+      expect(cleanSpokenQuestion('hello, Zava. what are the vans doing')).toBe('what are the vans doing');
+      expect(cleanSpokenQuestion('hey Ja')).toBe('');
+      expect(cleanSpokenQuestion('Javascript errors')).toBe('Javascript errors');
+    });
+    it('treats greetings and small talk as small talk', () => {
+      expect(isSmallTalk('hey hello')).toBe(true);
+      expect(isSmallTalk('hey Ja')).toBe(true);
+      expect(isSmallTalk('hello how are you doing today')).toBe(true);
+      expect(isSmallTalk('who owes the most')).toBe(false);
+      expect(isSmallTalk("hey Zava what are today's sales")).toBe(false);
+    });
   });
 });
