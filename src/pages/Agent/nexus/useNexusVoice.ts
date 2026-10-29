@@ -41,6 +41,7 @@ import {
   historyBeforeCurrentQuestion,
 } from './nexusVoiceCapture';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
+import { createStreamSentenceSpeaker } from './nexusAskStreamSpeech';
 import { playMicAck } from './nexusMicAck';
 import { logVoiceTiming } from './nexusVoiceTimings';
 import {
@@ -197,6 +198,19 @@ export function useNexusVoice(opts: Opts) {
     setChatTurns(next);
   }, []);
 
+  const upsertZavaChatTurn = useCallback((text: string) => {
+    const line = String(text || '').trim();
+    if (!line) return;
+    const prev = chatTurnsRef.current;
+    const last = prev[prev.length - 1];
+    const next =
+      last?.who === 'zava'
+        ? [...prev.slice(0, -1), { who: 'zava' as const, text: line }].slice(-6)
+        : [...prev, { who: 'zava' as const, text: line }].slice(-6);
+    chatTurnsRef.current = next;
+    setChatTurns(next);
+  }, []);
+
   const clearListenTimers = useCallback(() => {
     if (listenTimers.current.tick) window.clearInterval(listenTimers.current.tick);
     if (listenTimers.current.limit) window.clearTimeout(listenTimers.current.limit);
@@ -303,6 +317,7 @@ export function useNexusVoice(opts: Opts) {
       }
       setVoiceState('thinking');
       const t0 = speechEndAtRef.current || Date.now();
+      const streamSpeaker = createStreamSentenceSpeaker();
       try {
         const history = historyBeforeCurrentQuestion(chatTurnsRef.current, q);
         const { answer, fromFastPath } = await queryNexusAsk(
@@ -311,6 +326,13 @@ export function useNexusVoice(opts: Opts) {
           askZavaChat,
           undefined,
           history,
+          {
+            onPartial: (partial) => {
+              upsertZavaChatTurn(partial);
+              setZavaLine(partial);
+              streamSpeaker.onText(partial);
+            },
+          },
         );
         setZavaLine(answer.headline);
         const btn = answer.buttons[0];
@@ -319,7 +341,12 @@ export function useNexusVoice(opts: Opts) {
         setVoiceNavLabel(btn?.label ?? null);
         logVoiceTiming('speech end→answer shown', Date.now() - t0);
         const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
-        await speakText(speakLine, fromFastPath ? 'local' : 'split');
+        if (fromFastPath || !streamSpeaker.spokeAny) {
+          await speakText(speakLine, fromFastPath ? 'local' : 'split');
+        } else {
+          streamSpeaker.flush(speakLine);
+          await streamSpeaker.wait();
+        }
       } catch {
         setZavaLine("Couldn't get an answer.");
         await speakText("Couldn't get an answer.");
@@ -327,7 +354,7 @@ export function useNexusVoice(opts: Opts) {
         setVoiceState('idle');
       }
     },
-    [getAskContext, speakText],
+    [getAskContext, speakText, upsertZavaChatTurn],
   );
 
   const highlightCard = useCallback(
@@ -883,5 +910,6 @@ export function useNexusVoice(opts: Opts) {
     chatTurns,
     conversationFollowUp,
     appendChatTurn: pushChatTurn,
+    upsertZavaChatTurn,
   };
 }

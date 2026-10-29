@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as nexusAskChat from './nexusAskChat';
 import { ASK_TIMEOUT_MESSAGE, queryNexusAsk } from './nexusAskQuery';
 import type { AskAnswer } from './nexusAskNav';
 
@@ -61,6 +62,50 @@ describe('queryNexusAsk', () => {
     expect(result.timedOut).toBe(true);
     expect(result.answer.headline).toBe(ASK_TIMEOUT_MESSAGE);
     vi.useRealTimers();
+  });
+
+  it('fast path ignores stream hooks and never calls prefer-stream chat', async () => {
+    const preferStream = vi.spyOn(nexusAskChat, 'askZavaChatPreferStream');
+    const chat = vi.fn();
+    await queryNexusAsk(
+      "Today's sales",
+      {
+        homeSummary: {
+          generated_at: 'x',
+          needs_you_count: 0,
+          biggest_line: '',
+          load_failures: [],
+          owed_to_us: { state: 'unavailable' },
+          expenses_to_approve: { state: 'unavailable' },
+          stock: { state: 'unavailable' },
+          cash_and_bank: { state: 'unavailable' },
+          sales_today: { state: 'ok', sentence: '$50 today.' },
+          profit_month: { state: 'unavailable' },
+          modules: {
+            sales: { state: 'unavailable' },
+            customers: { state: 'unavailable' },
+            collections: { state: 'unavailable' },
+            purchase: { state: 'unavailable' },
+            inventory: { state: 'unavailable' },
+            warehouse: { state: 'unavailable' },
+            delivery: { state: 'unavailable' },
+            finance: { state: 'unavailable' },
+            expenses: { state: 'unavailable' },
+            payroll: { state: 'unavailable' },
+          },
+        },
+        needsItems: [],
+        arSummary: null,
+        arLoadedOk: false,
+      },
+      chat,
+      undefined,
+      undefined,
+      { onPartial: vi.fn() },
+    );
+    expect(preferStream).not.toHaveBeenCalled();
+    expect(chat).not.toHaveBeenCalled();
+    preferStream.mockRestore();
   });
 
   it('passes conversation history into chat when fast path misses', async () => {

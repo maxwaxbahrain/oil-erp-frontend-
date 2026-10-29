@@ -1,4 +1,5 @@
 import type { AskAnswer } from './nexusAskNav';
+import { askZavaChatPreferStream, type AskZavaStreamHooks } from './nexusAskChat';
 import { tryAskFastPath, type AskFastContext } from './nexusAskFastPath';
 import type { ChatTurn } from './nexusVoiceCapture';
 
@@ -33,6 +34,7 @@ export async function queryNexusAsk(
   chat: (msg: string, history?: ChatTurn[]) => Promise<AskAnswer>,
   onSlowHint?: () => void,
   history?: ChatTurn[],
+  streamHooks?: AskZavaStreamHooks,
 ): Promise<AskQueryResult> {
   const fast = tryAskFastPath(message, ctx);
   if (fast) {
@@ -54,7 +56,10 @@ export async function queryNexusAsk(
   }, ASK_SLOW_HINT_MS);
 
   try {
-    const answer = await withTimeout(chat(message, history), ASK_CHAT_TIMEOUT_MS);
+    const runChat = streamHooks
+      ? () => askZavaChatPreferStream(message, history, streamHooks)
+      : () => chat(message, history);
+    const answer = await withTimeout(runChat(), ASK_CHAT_TIMEOUT_MS);
     return { answer, fromFastPath: false, timedOut: false };
   } catch (e) {
     if ((e as Error)?.message === 'timeout' || slowFired) {

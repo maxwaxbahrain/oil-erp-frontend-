@@ -25,6 +25,7 @@ import {
 } from './nexusAskCreateCustomer';
 import type { AskFastContext } from './nexusAskFastPath';
 import { queryNexusAsk, ASK_TIMEOUT_MESSAGE } from './nexusAskQuery';
+import { createStreamSentenceSpeaker } from './nexusAskStreamSpeech';
 import { speakFirstThenRest } from './nexusSpeechOut';
 import { voiceLinesToHistory } from './nexusVoiceCapture';
 import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
@@ -67,6 +68,7 @@ type Props = {
   voiceNavFromIntent?: boolean;
   chatTurns?: { who: 'zava' | 'you'; text: string }[];
   appendChatTurn?: (who: 'zava' | 'you', text: string) => void;
+  upsertZavaChatTurn?: (text: string) => void;
   conversationFollowUp?: boolean;
 };
 
@@ -88,6 +90,7 @@ export default function NexusAsk({
   voiceNavFromIntent = false,
   chatTurns = [],
   appendChatTurn,
+  upsertZavaChatTurn,
   conversationFollowUp = false,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -233,8 +236,9 @@ export default function NexusAsk({
       };
       appendChatTurn?.('you', q);
       const history = voiceLinesToHistory(chatTurns);
+      const streamSpeaker = createStreamSentenceSpeaker();
       try {
-        const { answer, timedOut } = await queryNexusAsk(
+        const { answer, timedOut, fromFastPath } = await queryNexusAsk(
           q,
           ctx,
           askZavaChat,
@@ -242,16 +246,36 @@ export default function NexusAsk({
             if (gen === askGen.current) setSlowHint(true);
           },
           history,
+          {
+            onPartial: (partial) => {
+              if (gen !== askGen.current) return;
+              upsertZavaChatTurn?.(partial);
+              setAnswer({ headline: partial, detail: '', buttons: [] });
+              setStatus('ok');
+              streamSpeaker.onText(partial);
+            },
+          },
         );
         if (gen !== askGen.current) return;
         setAnswer(answer);
         setStatus(timedOut ? 'error' : 'ok');
         if (timedOut) setCreateError(ASK_TIMEOUT_MESSAGE);
         const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
-        if (speakZava && speakLine) {
+        if (fromFastPath || timedOut) {
+          if (speakZava && speakLine) {
+            void speakZava(speakLine);
+          } else if (speakLine) {
+            appendChatTurn?.('zava', speakLine);
+            void speakFirstThenRest(speakLine);
+          }
+        } else if (streamSpeaker.spokeAny) {
+          streamSpeaker.flush(speakLine);
+          upsertZavaChatTurn?.(speakLine);
+          void streamSpeaker.wait();
+        } else if (speakZava && speakLine) {
           void speakZava(speakLine);
         } else if (speakLine) {
-          appendChatTurn?.('zava', speakLine);
+          upsertZavaChatTurn?.(speakLine);
           void speakFirstThenRest(speakLine);
         }
       } catch {
@@ -260,7 +284,16 @@ export default function NexusAsk({
         setStatus('error');
       }
     },
-    [appendChatTurn, askFastContext, chatTurns, promptAddCustomer, resetCustomerFlow, speakZava, startCreateFlow],
+    [
+      appendChatTurn,
+      askFastContext,
+      chatTurns,
+      promptAddCustomer,
+      resetCustomerFlow,
+      speakZava,
+      startCreateFlow,
+      upsertZavaChatTurn,
+    ],
   );
 
   useEffect(() => {
