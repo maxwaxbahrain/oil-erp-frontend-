@@ -39,6 +39,7 @@ import {
   NEXUS_POST_TTS_LISTEN_DELAY_MS,
   NEXUS_SILENCE_BEFORE_SUBMIT_MS,
   historyBeforeCurrentQuestion,
+  cleanSpokenQuestion, isSmallTalk, SMALL_TALK_REPLY
 } from './nexusVoiceCapture';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
 import { createStreamSentenceSpeaker } from './nexusAskStreamSpeech';
@@ -223,7 +224,9 @@ export function useNexusVoice(opts: Opts) {
     done?.();
   }, []);
 
+  const listenGenRef = useRef(0);
   const cancelListening = useCallback(() => {
+    listenGenRef.current += 1;
     webSpeechSessionRef.current?.cancel();
     webSpeechSessionRef.current = null;
     const recorder = recorderRef.current;
@@ -584,7 +587,12 @@ export function useNexusVoice(opts: Opts) {
         logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
         return;
       }
-      await runIntent(t);
+      if (isSmallTalk(t)) {
+        // "hey", "hello Zava", "how are you" — reply instantly, no AI call.
+        await speakText(SMALL_TALK_REPLY);
+      } else {
+        await runIntent(cleanSpokenQuestion(t) || t);
+      }
       if (parseVoiceIntent(t).type !== 'stop') {
         setConversationFollowUp(true);
         window.setTimeout(() => {
@@ -593,7 +601,7 @@ export function useNexusVoice(opts: Opts) {
       }
       logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
     },
-    [onLiveTranscript, pushChatTurn, runIntent],
+    [onLiveTranscript, pushChatTurn, runIntent, speakText],
   );
 
   const sendClip = useCallback(
@@ -692,20 +700,18 @@ export function useNexusVoice(opts: Opts) {
       setFallbackChips(null);
       uploadFallbackRef.current = false;
       transcriptHandledRef.current = false;
-      try {
-        await api.get('/api/agent/voice');
-      } catch (error) {
-        const message = failureFromError(error);
-        if (message === ERRORS.limit) {
-          setCapReached(true);
-          setVoiceNotice(VOICE.cap);
-        } else {
-          setVoiceNotice(message);
-        }
+      const myGen = ++listenGenRef.current;
+      const isCurrent = () => myGen === listenGenRef.current;
+
+      // Start listening at once; the voice-limit check runs alongside it
+      // (a slow or cold backend must not block the mic).
+      void api.get('/api/agent/voice').catch((error) => {
+        if (failureFromError(error) !== ERRORS.limit || !isCurrent()) return;
+        cancelListening();
+        setCapReached(true);
+        setVoiceNotice(VOICE.cap);
         setVoiceState('idle');
-        setConversationFollowUp(false);
-        return;
-      }
+      });
 
       claimMicSession(NEXUS_MIC_OWNER);
 
@@ -717,14 +723,16 @@ export function useNexusVoice(opts: Opts) {
           const session = startWebSpeechListen(
             {
               onTranscript: (text) => {
+                if (!isCurrent()) return;
                 setLiveTranscript(text);
                 onLiveTranscript?.(text);
               },
               onUtteranceReady: (text) => {
+                if (!isCurrent()) return;
                 void processTranscript(text);
               },
               onNoSpeech: () => {
-                if (transcriptHandledRef.current) return;
+                if (!isCurrent() || transcriptHandledRef.current) return;
                 transcriptHandledRef.current = true;
                 setConversationFollowUp(false);
                 setVoiceState('idle');
@@ -734,7 +742,7 @@ export function useNexusVoice(opts: Opts) {
                 }
               },
               onError: (code, ctx) => {
-                if (isIgnorableAborted(code, ctx)) return;
+                if (!isCurrent() || isIgnorableAborted(code, ctx)) return;
                 if (shouldFallbackToUpload(code, ctx) && !uploadFallbackRef.current) {
                   uploadFallbackRef.current = true;
                   setVoiceNotice(plainSpeechError(code));
@@ -750,6 +758,7 @@ export function useNexusVoice(opts: Opts) {
                 setConversationFollowUp(false);
               },
               onEnd: () => {
+                if (!isCurrent()) return;
                 webSpeechSessionRef.current = null;
                 if (uploadFallbackRef.current) return;
                 setVoiceState((s) => (s === 'listening' ? 'idle' : s));
