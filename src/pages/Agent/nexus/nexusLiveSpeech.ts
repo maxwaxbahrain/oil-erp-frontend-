@@ -65,6 +65,11 @@ export function startWebSpeechListen(
   rec.continuous = true;
   rec.interimResults = true;
   rec.lang = opts?.lang || 'en-US';
+  const log = (...a: unknown[]) => console.info('[ZavaMic]', ...a);
+  const recAny = rec as unknown as Record<string, unknown>;
+  recAny.onstart = () => log('start');
+  recAny.onaudiostart = () => log('audio start (mic is sending sound)');
+  recAny.onspeechstart = () => log('speech detected');
 
   const silenceMs = opts?.silenceMs ?? NEXUS_SILENCE_BEFORE_SUBMIT_MS;
   const noSpeechMs = opts?.noSpeechMs ?? NEXUS_NO_SPEECH_MS;
@@ -149,6 +154,7 @@ export function startWebSpeechListen(
       }
     }
     currentInterim = interim.trim();
+    log('result', fullText());
     const combined = fullText();
     if (combined) {
       markHeard(combined);
@@ -159,6 +165,7 @@ export function startWebSpeechListen(
 
   rec.onerror = (e) => {
     const code = e.error || 'error';
+    log('error', code);
     if (cancelled || (String(code).toLowerCase() === 'aborted' && stoppedByUs)) {
       finishEnd();
       return;
@@ -175,6 +182,7 @@ export function startWebSpeechListen(
   };
 
   rec.onend = () => {
+    log('end', { heardAny, delivered: utteranceDelivered });
     if (!ended && !cancelled) {
       // Chrome can end the session on its own before our silence timer fires.
       // Never drop words that were already heard.
@@ -193,6 +201,7 @@ export function startWebSpeechListen(
 
   noSpeechTimer = window.setTimeout(() => {
     if (heardAny || ended) return;
+    log('no speech after', noSpeechMs, 'ms');
     handlers.onNoSpeech?.();
     stopRecogniser();
   }, noSpeechMs);
