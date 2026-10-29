@@ -25,6 +25,7 @@ import {
 } from './nexusAskCreateCustomer';
 import type { AskFastContext } from './nexusAskFastPath';
 import { queryNexusAsk, ASK_TIMEOUT_MESSAGE } from './nexusAskQuery';
+import { createStreamSentenceSpeaker } from './nexusAskStreamSpeech';
 import { speakFirstThenRest } from './nexusSpeechOut';
 import { voiceLinesToHistory } from './nexusVoiceCapture';
 import { writeNexusCustomerFormDraft } from './nexusCustomerFormBridge';
@@ -67,6 +68,7 @@ type Props = {
   voiceNavFromIntent?: boolean;
   chatTurns?: { who: 'zava' | 'you'; text: string }[];
   appendChatTurn?: (who: 'zava' | 'you', text: string) => void;
+  upsertZavaChatTurn?: (text: string) => void;
   conversationFollowUp?: boolean;
 };
 
@@ -88,6 +90,7 @@ export default function NexusAsk({
   voiceNavFromIntent = false,
   chatTurns = [],
   appendChatTurn,
+  upsertZavaChatTurn,
   conversationFollowUp = false,
 }: Props) {
   const [query, setQuery] = useState('');
@@ -97,6 +100,8 @@ export default function NexusAsk({
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [lastQuestion, setLastQuestion] = useState('');
   const askGen = useRef(0);
+  const streamSpeakerRef = useRef<ReturnType<typeof createStreamSentenceSpeaker> | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const [customerPhase, setCustomerPhase] = useState<CustomerPhase>('idle');
   const [draft, setDraft] = useState<CustomerDraftView | null>(null);
@@ -219,6 +224,12 @@ export default function NexusAsk({
         return;
       }
       const gen = ++askGen.current;
+      streamSpeakerRef.current?.cancel();
+      streamAbortRef.current?.abort();
+      const streamAbort = new AbortController();
+      streamAbortRef.current = streamAbort;
+      const streamSpeaker = createStreamSentenceSpeaker();
+      streamSpeakerRef.current = streamSpeaker;
       resetCustomerFlow();
       setLastQuestion(q);
       setQuery(q);
@@ -234,7 +245,7 @@ export default function NexusAsk({
       appendChatTurn?.('you', q);
       const history = voiceLinesToHistory(chatTurns);
       try {
-        const { answer, timedOut } = await queryNexusAsk(
+        const { answer, timedOut, fromFastPath } = await queryNexusAsk(
           q,
           ctx,
           askZavaChat,
@@ -242,17 +253,33 @@ export default function NexusAsk({
             if (gen === askGen.current) setSlowHint(true);
           },
           history,
+          {
+            onPartial: (partial) => {
+              if (gen !== askGen.current) return;
+              upsertZavaChatTurn?.(partial);
+              setAnswer({ headline: partial, detail: '', buttons: [] });
+              setStatus('ok');
+              streamSpeaker.onText(partial);
+            },
+          },
+          streamAbort.signal,
         );
         if (gen !== askGen.current) return;
         setAnswer(answer);
         setStatus(timedOut ? 'error' : 'ok');
         if (timedOut) setCreateError(ASK_TIMEOUT_MESSAGE);
         const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
-        if (speakZava && speakLine) {
-          void speakZava(speakLine);
-        } else if (speakLine) {
-          appendChatTurn?.('zava', speakLine);
-          void speakFirstThenRest(speakLine);
+        if (fromFastPath || timedOut) {
+          if (speakZava && speakLine) {
+            void speakZava(speakLine);
+          } else if (speakLine) {
+            appendChatTurn?.('zava', speakLine);
+            void speakFirstThenRest(speakLine);
+          }
+        } else {
+          streamSpeaker.flush(speakLine);
+          upsertZavaChatTurn?.(speakLine);
+          void streamSpeaker.wait();
         }
       } catch {
         if (gen !== askGen.current) return;
@@ -260,7 +287,16 @@ export default function NexusAsk({
         setStatus('error');
       }
     },
-    [appendChatTurn, askFastContext, chatTurns, promptAddCustomer, resetCustomerFlow, speakZava, startCreateFlow],
+    [
+      appendChatTurn,
+      askFastContext,
+      chatTurns,
+      promptAddCustomer,
+      resetCustomerFlow,
+      speakZava,
+      startCreateFlow,
+      upsertZavaChatTurn,
+    ],
   );
 
   useEffect(() => {
