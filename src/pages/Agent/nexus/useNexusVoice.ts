@@ -39,6 +39,7 @@ import {
   NEXUS_POST_TTS_LISTEN_DELAY_MS,
   NEXUS_SILENCE_BEFORE_SUBMIT_MS,
   historyBeforeCurrentQuestion,
+  cleanSpokenQuestion, isSmallTalk, SMALL_TALK_REPLY
 } from './nexusVoiceCapture';
 import { cancelSynth, speakFirstThenRest, speakWithSynth, synthAvailable } from './nexusSpeechOut';
 import { playMicAck } from './nexusMicAck';
@@ -559,7 +560,12 @@ export function useNexusVoice(opts: Opts) {
         logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
         return;
       }
-      await runIntent(t);
+      if (isSmallTalk(t)) {
+        // "hey", "hello Zava", "how are you" — reply instantly, no AI call.
+        await speakText(SMALL_TALK_REPLY);
+      } else {
+        await runIntent(cleanSpokenQuestion(t) || t);
+      }
       if (parseVoiceIntent(t).type !== 'stop') {
         setConversationFollowUp(true);
         window.setTimeout(() => {
@@ -568,7 +574,7 @@ export function useNexusVoice(opts: Opts) {
       }
       logVoiceTiming('speech end→answer shown', Date.now() - speechEndAtRef.current);
     },
-    [onLiveTranscript, pushChatTurn, runIntent],
+    [onLiveTranscript, pushChatTurn, runIntent, speakText],
   );
 
   const sendClip = useCallback(

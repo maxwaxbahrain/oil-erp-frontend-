@@ -527,10 +527,11 @@ export default function NexusAsk({
             </button>
           </div>
         )}
-        {customerPhase === 'idle' && status === 'ok' && answer && (
+        {customerPhase === 'idle' && status === 'ok' && answer && (chatTurns.length === 0 || answer.buttons.length > 0) && (
           <div style={answerCard} data-testid="ask-ok">
-            <div style={headline}>{answer.headline}</div>
-            {answer.detail ? <p style={detail}>{answer.detail}</p> : null}
+            {/* In a conversation the answer is already in the chat bubbles — don't repeat it. */}
+            {chatTurns.length === 0 ? <div style={headline}>{answer.headline}</div> : null}
+            {chatTurns.length === 0 && answer.detail ? <p style={detail}>{answer.detail}</p> : null}
             {answer.buttons.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
                 {answer.buttons.map((b) => (
