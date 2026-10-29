@@ -13,9 +13,12 @@ export type AskQueryResult = {
   timedOut: boolean;
 };
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   return new Promise((resolve, reject) => {
-    const t = window.setTimeout(() => reject(new Error('timeout')), ms);
+    const t = window.setTimeout(() => {
+      onTimeout?.();
+      reject(new Error('timeout'));
+    }, ms);
     promise
       .then((v) => {
         window.clearTimeout(t);
@@ -35,6 +38,7 @@ export async function queryNexusAsk(
   onSlowHint?: () => void,
   history?: ChatTurn[],
   streamHooks?: AskZavaStreamHooks,
+  signal?: AbortSignal,
 ): Promise<AskQueryResult> {
   const fast = tryAskFastPath(message, ctx);
   if (fast) {
@@ -55,14 +59,29 @@ export async function queryNexusAsk(
     onSlowHint?.();
   }, ASK_SLOW_HINT_MS);
 
+  const ac = new AbortController();
+  const forwardAbort = () => ac.abort();
+  if (signal?.aborted) ac.abort();
+  else signal?.addEventListener('abort', forwardAbort, { once: true });
+
+  const guardedHooks: AskZavaStreamHooks | undefined = streamHooks
+    ? {
+        onPartial: (text) => {
+          if (ac.signal.aborted) return;
+          streamHooks.onPartial?.(text);
+        },
+        onSentence: streamHooks.onSentence,
+      }
+    : undefined;
+
   try {
-    const runChat = streamHooks
-      ? () => askZavaChatPreferStream(message, history, streamHooks)
+    const runChat = guardedHooks
+      ? () => askZavaChatPreferStream(message, history, guardedHooks, ac.signal)
       : () => chat(message, history);
-    const answer = await withTimeout(runChat(), ASK_CHAT_TIMEOUT_MS);
+    const answer = await withTimeout(runChat(), ASK_CHAT_TIMEOUT_MS, () => ac.abort());
     return { answer, fromFastPath: false, timedOut: false };
   } catch (e) {
-    if ((e as Error)?.message === 'timeout' || slowFired) {
+    if ((e as Error)?.message === 'timeout' || (e as Error)?.message === 'aborted' || slowFired) {
       return {
         fromFastPath: false,
         timedOut: true,
@@ -71,6 +90,7 @@ export async function queryNexusAsk(
     }
     throw e;
   } finally {
+    signal?.removeEventListener('abort', forwardAbort);
     window.clearTimeout(slowTimer);
   }
 }

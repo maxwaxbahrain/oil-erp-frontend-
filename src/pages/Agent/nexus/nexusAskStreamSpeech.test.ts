@@ -3,6 +3,7 @@ import { createStreamSentenceSpeaker } from './nexusAskStreamSpeech';
 
 vi.mock('./nexusSpeechOut', () => ({
   speakWithSynth: vi.fn(() => Promise.resolve()),
+  cancelSynth: vi.fn(),
 }));
 
 describe('createStreamSentenceSpeaker', () => {
@@ -16,5 +17,29 @@ describe('createStreamSentenceSpeaker', () => {
     speaker.flush('Hello there. Still typing more.');
     await speaker.wait();
     expect(speakWithSynth).toHaveBeenCalledWith('Still typing more.');
+  });
+
+  it('does not speak a money sentence early', async () => {
+    const { speakWithSynth } = await import('./nexusSpeechOut');
+    vi.mocked(speakWithSynth).mockClear();
+    const speaker = createStreamSentenceSpeaker();
+    speaker.onText('You have $4,200 overdue.');
+    await Promise.resolve();
+    expect(speakWithSynth).not.toHaveBeenCalled();
+    expect(speaker.spokeAny).toBe(false);
+    speaker.flush('You have $4,200 overdue.');
+    await speaker.wait();
+    expect(speakWithSynth).toHaveBeenCalledWith('You have $4,200 overdue.');
+  });
+
+  it('skips queued sentences after cancel()', async () => {
+    const { speakWithSynth, cancelSynth } = await import('./nexusSpeechOut');
+    vi.mocked(speakWithSynth).mockClear();
+    const speaker = createStreamSentenceSpeaker();
+    speaker.onText('Hello there. More to come.');
+    speaker.cancel();
+    expect(cancelSynth).toHaveBeenCalled();
+    await speaker.wait();
+    expect(speakWithSynth).not.toHaveBeenCalled();
   });
 });

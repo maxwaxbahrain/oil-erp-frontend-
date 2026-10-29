@@ -172,6 +172,9 @@ export function useNexusVoice(opts: Opts) {
   /** Bumped on interrupt so an in-flight first-mic speak does not start listening. */
   const micGenRef = useRef(0);
   const startListeningRef = useRef<(opts?: { followUp?: boolean }) => Promise<void>>(() => Promise.resolve());
+  const streamAskGenRef = useRef(0);
+  const streamSpeakerRef = useRef<ReturnType<typeof createStreamSentenceSpeaker> | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     pendingConfirmRef.current = pendingConfirm;
@@ -320,7 +323,13 @@ export function useNexusVoice(opts: Opts) {
       }
       setVoiceState('thinking');
       const t0 = speechEndAtRef.current || Date.now();
+      streamSpeakerRef.current?.cancel();
+      streamAbortRef.current?.abort();
+      const streamGen = ++streamAskGenRef.current;
+      const streamAbort = new AbortController();
+      streamAbortRef.current = streamAbort;
       const streamSpeaker = createStreamSentenceSpeaker();
+      streamSpeakerRef.current = streamSpeaker;
       try {
         const history = historyBeforeCurrentQuestion(chatTurnsRef.current, q);
         const { answer, fromFastPath } = await queryNexusAsk(
@@ -331,12 +340,15 @@ export function useNexusVoice(opts: Opts) {
           history,
           {
             onPartial: (partial) => {
+              if (streamGen !== streamAskGenRef.current) return;
               upsertZavaChatTurn(partial);
               setZavaLine(partial);
               streamSpeaker.onText(partial);
             },
           },
+          streamAbort.signal,
         );
+        if (streamGen !== streamAskGenRef.current) return;
         setZavaLine(answer.headline);
         const btn = answer.buttons[0];
         setVoiceNavIntent(Boolean(btn?.href));
@@ -344,8 +356,8 @@ export function useNexusVoice(opts: Opts) {
         setVoiceNavLabel(btn?.label ?? null);
         logVoiceTiming('speech end→answer shown', Date.now() - t0);
         const speakLine = [answer.headline, answer.detail].filter(Boolean).join(' ');
-        if (fromFastPath || !streamSpeaker.spokeAny) {
-          await speakText(speakLine, fromFastPath ? 'local' : 'split');
+        if (fromFastPath) {
+          await speakText(speakLine, 'local');
         } else {
           streamSpeaker.flush(speakLine);
           await streamSpeaker.wait();
@@ -797,6 +809,9 @@ export function useNexusVoice(opts: Opts) {
    * Tap while speaking: stop speaking and start listening.
    */
   const onMicTap = useCallback(() => {
+    streamSpeakerRef.current?.cancel();
+    streamAbortRef.current?.abort();
+    streamAskGenRef.current += 1;
     if (voiceState === 'speaking') {
       micGenRef.current += 1;
       setConversationFollowUp(false);

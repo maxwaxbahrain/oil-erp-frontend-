@@ -86,13 +86,19 @@ export function parseSseDataLines(frame: string): ChatResponse[] {
 
 type StreamReadResult = { ok: true; answer: AskAnswer } | { ok: false };
 
+function aborted(signal?: AbortSignal): boolean {
+  return Boolean(signal?.aborted);
+}
+
 /**
  * POST /api/agent/chat with stream:true. Returns ok:false when caller should fall back to JSON.
+ * Only a `done` event (without `error`) is success — idle cancel or tokens-only is not.
  */
 export async function readAgentChatSse(
   payload: Record<string, unknown>,
   hooks: AskZavaStreamHooks,
   idleMs = STREAM_IDLE_MS,
+  signal?: AbortSignal,
 ): Promise<StreamReadResult> {
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : null;
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
@@ -104,6 +110,7 @@ export async function readAgentChatSse(
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      signal,
     });
   } catch {
     return { ok: false };
@@ -122,14 +129,21 @@ export async function readAgentChatSse(
   const decoder = new TextDecoder();
   let buffer = '';
   let accumulated = '';
-  let gotEvent = false;
   let donePayload: ChatResponse | undefined;
   let idleTimer = 0;
   let sentenceCursor = 0;
+  let idleCancelled = false;
+  let sawError = false;
+
+  const emitPartial = (text: string) => {
+    if (aborted(signal)) return;
+    hooks.onPartial?.(text);
+  };
 
   const bumpIdle = () => {
     window.clearTimeout(idleTimer);
     idleTimer = window.setTimeout(() => {
+      idleCancelled = true;
       try {
         void reader.cancel();
       } catch {
@@ -139,15 +153,15 @@ export async function readAgentChatSse(
   };
 
   const handlePayload = (evt: ChatResponse) => {
-    gotEvent = true;
     bumpIdle();
+    if (evt.error) {
+      sawError = true;
+      return;
+    }
     if (typeof evt.token === 'string' && evt.token) {
       accumulated += evt.token;
-      hooks.onPartial?.(accumulated);
+      emitPartial(accumulated);
       sentenceCursor = drainNewSentences(accumulated, sentenceCursor, hooks);
-    }
-    if (evt.error && evt.done) {
-      donePayload = { answer: evt.error, headline: evt.error };
     }
     if (evt.done && !evt.token) {
       donePayload = evt;
@@ -158,6 +172,7 @@ export async function readAgentChatSse(
 
   try {
     while (true) {
+      if (aborted(signal) || sawError) break;
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -167,10 +182,11 @@ export async function readAgentChatSse(
         buffer = buffer.slice(sep + 2);
         for (const evt of parseSseDataLines(frame)) {
           handlePayload(evt);
+          if (sawError) break;
         }
       }
     }
-    if (buffer.trim()) {
+    if (!sawError && buffer.trim()) {
       for (const evt of parseSseDataLines(buffer)) {
         handlePayload(evt);
       }
@@ -182,35 +198,25 @@ export async function readAgentChatSse(
 
   window.clearTimeout(idleTimer);
 
-  if (!gotEvent) return { ok: false };
+  if (aborted(signal) || idleCancelled || sawError || !donePayload) return { ok: false };
 
   try {
-    if (donePayload != null) {
-      const done = donePayload;
-      const merged: ChatResponse = {
-        ...done,
-        answer: done.answer || accumulated || done.headline,
-        headline: done.headline || accumulated || done.answer,
-      };
-      const answer = payloadToAskAnswer(merged);
-      flushTailSentences(
-        [answer.headline, answer.detail].filter(Boolean).join(' '),
-        sentenceCursor,
-        hooks,
-      );
-      return { ok: true, answer };
-    }
-    if (accumulated.trim()) {
-      flushTailSentences(accumulated, sentenceCursor, hooks);
-      return {
-        ok: true,
-        answer: payloadToAskAnswer({ answer: accumulated, headline: accumulated }),
-      };
-    }
+    const done = donePayload;
+    const merged: ChatResponse = {
+      ...done,
+      answer: done.answer || accumulated || done.headline,
+      headline: done.headline || accumulated || done.answer,
+    };
+    const answer = payloadToAskAnswer(merged);
+    flushTailSentences(
+      [answer.headline, answer.detail].filter(Boolean).join(' '),
+      sentenceCursor,
+      hooks,
+    );
+    return { ok: true, answer };
   } catch {
     return { ok: false };
   }
-  return { ok: false };
 }
 
 function drainNewSentences(full: string, cursor: number, hooks: AskZavaStreamHooks): number {
@@ -238,13 +244,17 @@ export async function askZavaChatStream(
   message: string,
   history?: ChatTurn[],
   hooks?: AskZavaStreamHooks,
+  signal?: AbortSignal,
 ): Promise<AskAnswer | null> {
   const payload = buildChatPayload(message, history);
   const streamHooks: AskZavaStreamHooks = {
-    onPartial: hooks?.onPartial,
+    onPartial: (text) => {
+      if (aborted(signal)) return;
+      hooks?.onPartial?.(text);
+    },
     onSentence: hooks?.onSentence,
   };
-  const result = await readAgentChatSse(payload, streamHooks);
+  const result = await readAgentChatSse(payload, streamHooks, STREAM_IDLE_MS, signal);
   if (!result.ok) return null;
   return result.answer;
 }
@@ -253,9 +263,11 @@ export async function askZavaChatPreferStream(
   message: string,
   history?: ChatTurn[],
   hooks?: AskZavaStreamHooks,
+  signal?: AbortSignal,
 ): Promise<AskAnswer> {
-  const streamed = await askZavaChatStream(message, history, hooks);
+  const streamed = await askZavaChatStream(message, history, hooks, signal);
   if (streamed) return streamed;
+  if (aborted(signal)) throw new Error('aborted');
   return askZavaChat(message, history);
 }
 

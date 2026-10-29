@@ -100,6 +100,8 @@ export default function NexusAsk({
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [lastQuestion, setLastQuestion] = useState('');
   const askGen = useRef(0);
+  const streamSpeakerRef = useRef<ReturnType<typeof createStreamSentenceSpeaker> | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const [customerPhase, setCustomerPhase] = useState<CustomerPhase>('idle');
   const [draft, setDraft] = useState<CustomerDraftView | null>(null);
@@ -222,6 +224,12 @@ export default function NexusAsk({
         return;
       }
       const gen = ++askGen.current;
+      streamSpeakerRef.current?.cancel();
+      streamAbortRef.current?.abort();
+      const streamAbort = new AbortController();
+      streamAbortRef.current = streamAbort;
+      const streamSpeaker = createStreamSentenceSpeaker();
+      streamSpeakerRef.current = streamSpeaker;
       resetCustomerFlow();
       setLastQuestion(q);
       setQuery(q);
@@ -236,7 +244,6 @@ export default function NexusAsk({
       };
       appendChatTurn?.('you', q);
       const history = voiceLinesToHistory(chatTurns);
-      const streamSpeaker = createStreamSentenceSpeaker();
       try {
         const { answer, timedOut, fromFastPath } = await queryNexusAsk(
           q,
@@ -255,6 +262,7 @@ export default function NexusAsk({
               streamSpeaker.onText(partial);
             },
           },
+          streamAbort.signal,
         );
         if (gen !== askGen.current) return;
         setAnswer(answer);
@@ -268,15 +276,10 @@ export default function NexusAsk({
             appendChatTurn?.('zava', speakLine);
             void speakFirstThenRest(speakLine);
           }
-        } else if (streamSpeaker.spokeAny) {
+        } else {
           streamSpeaker.flush(speakLine);
           upsertZavaChatTurn?.(speakLine);
           void streamSpeaker.wait();
-        } else if (speakZava && speakLine) {
-          void speakZava(speakLine);
-        } else if (speakLine) {
-          upsertZavaChatTurn?.(speakLine);
-          void speakFirstThenRest(speakLine);
         }
       } catch {
         if (gen !== askGen.current) return;

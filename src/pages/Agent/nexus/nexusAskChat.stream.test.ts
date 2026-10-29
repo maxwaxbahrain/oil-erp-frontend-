@@ -86,6 +86,81 @@ describe('readAgentChatSse', () => {
     expect(result.ok).toBe(false);
     vi.useRealTimers();
   });
+
+  it('returns ok:false on error event and never uses error as headline', async () => {
+    const encoder = new TextEncoder();
+    let reads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              reads += 1;
+              if (reads === 1) {
+                return {
+                  done: false,
+                  value: encoder.encode('data: {"error":"cap exceeded","done":true}\n\n'),
+                };
+              }
+              return { done: true, value: undefined };
+            },
+            cancel: vi.fn(),
+          }),
+        },
+      }),
+    );
+    const onPartial = vi.fn();
+    const result = await readAgentChatSse(
+      { message: 'hi', mode: 'voice', stream: true },
+      { onPartial },
+      60_000,
+    );
+    expect(result.ok).toBe(false);
+    expect(onPartial).not.toHaveBeenCalled();
+  });
+
+  it('returns ok:false when idle fires after partial tokens without done', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    const encoder = new TextEncoder();
+    let reads = 0;
+    let rejectRead: ((e: Error) => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: () => {
+              reads += 1;
+              if (reads === 1) {
+                return Promise.resolve({
+                  done: false,
+                  value: encoder.encode('data: {"token":"Hi there "}\n\n'),
+                });
+              }
+              return new Promise((_resolve, reject) => {
+                rejectRead = reject;
+              });
+            },
+            cancel: () => rejectRead?.(new Error('cancelled')),
+          }),
+        },
+      }),
+    );
+    const pending = readAgentChatSse(
+      { message: 'hi', mode: 'voice', stream: true },
+      { onPartial: vi.fn() },
+      100,
+    );
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(150);
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    vi.useRealTimers();
+  });
 });
 
 describe('askZavaChatPreferStream fallback', () => {
@@ -114,5 +189,44 @@ describe('askZavaChatPreferStream fallback', () => {
     const answer = await askZavaChatPreferStream('hello');
     expect(answer.headline).toBe('JSON answer.');
     expect(api.post).toHaveBeenCalledWith('/api/agent/chat', { message: 'hello' }, expect.any(Object));
+  });
+
+  it('falls back to JSON when the stream sends an error event', async () => {
+    const encoder = new TextEncoder();
+    let reads = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              reads += 1;
+              if (reads === 1) {
+                return {
+                  done: false,
+                  value: encoder.encode('data: {"error":"tool failed","done":true}\n\n'),
+                };
+              }
+              return { done: true, value: undefined };
+            },
+            cancel: vi.fn(),
+          }),
+        },
+      }),
+    );
+    vi.doMock('../../../api/axios', () => ({
+      default: {
+        post: vi.fn().mockResolvedValue({
+          data: { headline: 'JSON after error.', answer: 'JSON after error.' },
+        }),
+      },
+      ACCESS_TOKEN_KEY: 'access_token',
+    }));
+    const { askZavaChatPreferStream } = await import('./nexusAskChat');
+    const api = (await import('../../../api/axios')).default;
+    const answer = await askZavaChatPreferStream('hello');
+    expect(answer.headline).toBe('JSON after error.');
+    expect(api.post).toHaveBeenCalled();
   });
 });
