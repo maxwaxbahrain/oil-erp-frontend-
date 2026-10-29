@@ -359,6 +359,10 @@ export function useNexusVoice(opts: Opts) {
         if (fromFastPath) {
           await speakText(speakLine, 'local');
         } else {
+          // Show Zava's final answer in chat/history even when streaming fell back to JSON.
+          upsertZavaChatTurn(speakLine);
+          // Mark as speaking so the mic tap can interrupt (onMicTap ignores 'thinking').
+          setVoiceState('speaking');
           streamSpeaker.flush(speakLine);
           await streamSpeaker.wait();
         }
