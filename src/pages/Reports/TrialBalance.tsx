@@ -83,10 +83,14 @@ export function trialBalanceEndOfLastMonthISO(now: Date = new Date()): string {
     return localIsoDate(new Date(now.getFullYear(), now.getMonth(), 0));
 }
 
-/** Last calendar day of the quarter before `now`'s quarter. */
+/** Last calendar day of the quarter before `now`'s quarter (never same as last-month preset). */
 export function trialBalanceEndOfLastQuarterISO(now: Date = new Date()): string {
     const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-    return localIsoDate(new Date(now.getFullYear(), quarterStartMonth, 0));
+    const natural = localIsoDate(new Date(now.getFullYear(), quarterStartMonth, 0));
+    if (natural === trialBalanceEndOfLastMonthISO(now)) {
+        return localIsoDate(new Date(now.getFullYear(), quarterStartMonth - 3, 0));
+    }
+    return natural;
 }
 
 /** Dec 31 of the year before `now`'s year. */
@@ -255,7 +259,7 @@ export default function TrialBalance() {
                 background: asOf === value ? 'rgba(79,142,247,.15)' : ghostBtn.background as string,
             }}
         >
-            {label}
+            {label} · {formatLocalDate(value)}
         </button>
     );
 

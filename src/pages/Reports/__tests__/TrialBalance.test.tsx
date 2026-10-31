@@ -27,7 +27,11 @@ vi.mock('react-router-dom', async (importOriginal) => {
     return { ...actual, useNavigate: () => vi.fn() };
 });
 
-import TrialBalance from '../TrialBalance';
+import TrialBalance, {
+    trialBalanceEndOfLastMonthISO,
+    trialBalanceEndOfLastQuarterISO,
+    trialBalanceEndOfLastYearISO,
+} from '../TrialBalance';
 import type { GLTrialBalance, GLTrialBalanceRow } from '../../../services/glService';
 
 function row(partial: Partial<GLTrialBalanceRow> & Pick<GLTrialBalanceRow, 'code' | 'name' | 'type' | 'debit' | 'credit'>): GLTrialBalanceRow {
@@ -194,7 +198,7 @@ describe('TrialBalance', () => {
         for (let i = 0; i < 4; i += 1) {
             await act(async () => { await Promise.resolve(); });
         }
-        expect(getGLTrialBalance).toHaveBeenLastCalledWith('2026-09-30');
+        expect(getGLTrialBalance).toHaveBeenLastCalledWith('2026-06-30');
 
         clickButton('End of last year');
         for (let i = 0; i < 4; i += 1) {
@@ -210,6 +214,14 @@ describe('TrialBalance', () => {
         expect(getGLTrialBalance).toHaveBeenLastCalledWith('2026-06-15');
     });
 
+    it('preset buttons show resolved dates on their labels', async () => {
+        await renderPage();
+        const body = text();
+        expect(body).toContain('Sep 30');
+        expect(body).toContain('Jun 30');
+        expect(body).toContain('Dec 31');
+    });
+
     it('heading reflects chosen as_of from API response', async () => {
         getGLTrialBalance.mockImplementation(async () => tbPayload('2026-06-15'));
         await renderPage();
@@ -220,5 +232,23 @@ describe('TrialBalance', () => {
         expect(text()).toContain('Jun 15');
         const input = container.querySelector('input[type="date"][aria-label="As of"]') as HTMLInputElement;
         expect(input.value).toBe('2026-06-15');
+    });
+});
+
+describe('trial balance date presets (pure)', () => {
+    it('resolves month, quarter, and year end dates', () => {
+        const cases: { now: string; month: string; quarter: string; year: string }[] = [
+            { now: '2026-10-30', month: '2026-09-30', quarter: '2026-06-30', year: '2025-12-31' },
+            { now: '2026-11-15', month: '2026-10-31', quarter: '2026-09-30', year: '2025-12-31' },
+            { now: '2026-08-10', month: '2026-07-31', quarter: '2026-06-30', year: '2025-12-31' },
+            { now: '2027-01-15', month: '2026-12-31', quarter: '2026-09-30', year: '2026-12-31' },
+            { now: '2027-04-05', month: '2027-03-31', quarter: '2026-12-31', year: '2026-12-31' },
+        ];
+        for (const { now, month, quarter, year } of cases) {
+            const d = new Date(`${now}T12:00:00`);
+            expect(trialBalanceEndOfLastMonthISO(d), now).toBe(month);
+            expect(trialBalanceEndOfLastQuarterISO(d), now).toBe(quarter);
+            expect(trialBalanceEndOfLastYearISO(d), now).toBe(year);
+        }
     });
 });
