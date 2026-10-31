@@ -70,6 +70,7 @@ const ADJUSTMENT_SOURCE_TYPES = new Set([
 ]);
 
 type VelocityLabel = 'Fast' | 'Medium' | 'Slow' | 'Dead';
+type OverstockRisk = 'High' | 'Medium' | 'Low';
 
 export type LedgerMovementProductRow = {
     productId: number;
@@ -83,6 +84,8 @@ export type LedgerMovementProductRow = {
     openingValue: number;
     closingValue: number;
     velocity: VelocityLabel;
+    daysOfCover: number;
+    overstockRisk: OverstockRisk;
     turnoverRate: number | null;
     ledgerGap: boolean;
 };
@@ -94,6 +97,7 @@ type DemandForecastModalRow = DemandSummaryRow & {
 
 type ProductTableMetrics = {
     velocity: VelocityLabel;
+    overstockRisk: OverstockRisk;
     marginPct: number | null;
     daysLeft: number | null;
     onHand: number;
@@ -107,23 +111,24 @@ type QueryMode = 'nl' | 'sql';
 
 type LedgerDeadStockRow = OnHandRow & { daysIdle: number; action: string };
 
-const C = {
-    bg: '#0b1120',
-    surface: '#161e2d',
-    blue: '#4F8EF7',
-    green: '#22C55E',
-    red: '#EF4444',
-    amber: '#F59E0B',
-    purple: '#9B6FE4',
-    text: '#EEF2FF',
-    muted: '#8BA3C7',
-    dim: '#3E5678',
+const pageRootStyle: CSSProperties = {
+    padding: 12,
+    maxWidth: 1280,
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    paddingBottom: 40,
+    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    fontSize: 12,
+    color: 'var(--color-redwood-text-main)',
 };
 
 const panel: CSSProperties = {
-    background: C.surface,
-    border: '1px solid rgba(255,255,255,.07)',
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
     borderRadius: 10,
+    padding: '10px 12px',
 };
 
 const ghostBtn: CSSProperties = {
@@ -135,11 +140,142 @@ const ghostBtn: CSSProperties = {
     fontSize: 10,
     fontWeight: 500,
     cursor: 'pointer',
-    border: '1px solid rgba(255,255,255,.12)',
+    border: '1px solid var(--color-redwood-border)',
     background: 'rgba(255,255,255,.04)',
-    color: C.muted,
+    color: 'var(--color-redwood-text-muted)',
     fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
 };
+
+const thStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--color-redwood-border)',
+    textAlign: 'left',
+};
+
+const thRight: CSSProperties = {
+    ...thStyle,
+    textAlign: 'right',
+};
+
+const tdStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 11,
+    color: 'var(--color-redwood-text-main)',
+    verticalAlign: 'middle',
+    borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const tdMonoRight: CSSProperties = {
+    ...tdStyle,
+    textAlign: 'right',
+    fontFamily: 'ui-monospace,monospace',
+    fontWeight: 600,
+};
+
+const searchInputStyle: CSSProperties = {
+    padding: '8px 10px',
+    borderRadius: 8,
+    border: '1px solid var(--color-redwood-border)',
+    background: 'var(--color-redwood-row-bg)',
+    color: 'var(--color-redwood-text-main)',
+    fontSize: 10,
+    fontFamily: 'inherit',
+    outline: 'none',
+    width: '100%',
+};
+
+const kpiLabelStyle: CSSProperties = {
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    marginBottom: 8,
+};
+
+const kpiValueStyle: CSSProperties = {
+    fontSize: 22,
+    fontWeight: 700,
+    fontFamily: 'ui-monospace,monospace',
+};
+
+function velocityBadgeStyle(velocity: VelocityLabel): CSSProperties {
+    const base: CSSProperties = {
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '.3px',
+    };
+    switch (velocity) {
+        case 'Fast':
+            return { ...base, background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)' };
+        case 'Medium':
+            return { ...base, background: 'var(--color-badge-blue-bg)', color: 'var(--color-brand-blue-tint)' };
+        case 'Slow':
+            return { ...base, background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)' };
+        case 'Dead':
+            return { ...base, background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)' };
+    }
+}
+
+function overstockBadgeStyle(risk: OverstockRisk): CSSProperties {
+    const base: CSSProperties = {
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '.3px',
+    };
+    switch (risk) {
+        case 'High':
+            return { ...base, background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)' };
+        case 'Medium':
+            return { ...base, background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)' };
+        case 'Low':
+            return { ...base, background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)' };
+    }
+}
+
+function periodPillStyle(active: boolean): CSSProperties {
+    return {
+        padding: '4px 10px',
+        borderRadius: 999,
+        fontSize: 9,
+        fontWeight: 600,
+        cursor: 'pointer',
+        border: '1px solid',
+        borderColor: active ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+        background: active ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+        color: active ? 'var(--color-redwood-text-main)' : 'var(--color-redwood-text-muted)',
+        fontFamily: 'inherit',
+    };
+}
+
+function chipGhostStyle(selected: boolean): CSSProperties {
+    return {
+        ...ghostBtn,
+        padding: '4px 10px',
+        borderRadius: 999,
+        fontSize: 9,
+        fontWeight: 600,
+        borderColor: selected ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+        background: selected ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+        color: selected ? 'var(--color-redwood-text-main)' : 'var(--color-redwood-text-muted)',
+    };
+}
 
 const PAGE_TABS: { id: PageTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -206,13 +342,33 @@ function glDifferenceLabel(difference: number | null): { text: string; ok: boole
         : { text: `Difference ${globalFormatCurrency(difference)}`, ok: false };
 }
 
-function velocityFromDaysOfCover(daysOfCover: number, salesUnitsInWindow: number): VelocityLabel {
+function velocityFromAvgDailySales(avgDailySales: number, salesUnitsInWindow: number): VelocityLabel {
     if (salesUnitsInWindow <= 0) return 'Dead';
-    if (!Number.isFinite(daysOfCover) || daysOfCover > 180) return 'Dead';
-    if (daysOfCover < 30) return 'Fast';
-    if (daysOfCover <= 90) return 'Medium';
-    if (daysOfCover <= 180) return 'Slow';
-    return 'Dead';
+    if (avgDailySales >= 5) return 'Fast';
+    if (avgDailySales >= 1) return 'Medium';
+    return 'Slow';
+}
+
+function overstockRiskFromDaysOfCover(daysOfCover: number): OverstockRisk {
+    if (!Number.isFinite(daysOfCover) || daysOfCover > 365) return 'High';
+    if (daysOfCover >= 180) return 'Medium';
+    return 'Low';
+}
+
+function formatDaysOfCoverDisplay(daysOfCover: number): string {
+    if (!Number.isFinite(daysOfCover)) return '—';
+    if (daysOfCover > 9999) return '∞';
+    return Math.round(daysOfCover).toLocaleString();
+}
+
+function formatForecastUnits(units: number | null | undefined): string {
+    if (units == null) return '—';
+    return String(Math.round(units));
+}
+
+function formatAvgDailySales(avg: number): string {
+    if (!(avg > 0)) return '—';
+    return (Math.round(avg * 10) / 10).toFixed(1);
 }
 
 function productUnitCost(product: Product | undefined, fallback: number): number {
@@ -309,7 +465,8 @@ function buildLedgerMovementRows(params: {
             const avgDaily = demand?.avg_daily ?? 0;
             daysOfCover = avgDaily > 0 ? closing / avgDaily : Infinity;
         }
-        const velocity = velocityFromDaysOfCover(daysOfCover, d.sales);
+        const velocity = velocityFromAvgDailySales(avgDailyFromSales, d.sales);
+        const overstockRisk = overstockRiskFromDaysOfCover(daysOfCover);
 
         const product = productById.get(pid);
         rows.push({
@@ -324,6 +481,8 @@ function buildLedgerMovementRows(params: {
             openingValue: opening * cost,
             closingValue: closing * cost,
             velocity,
+            daysOfCover,
+            overstockRisk,
             turnoverRate,
             ledgerGap,
         });
@@ -334,7 +493,7 @@ function buildLedgerMovementRows(params: {
 
 function CostMethodReport({ data }: { data: CostMethodValuation }) {
     const formatCurr = (v: number) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const accent = data.method === 'FIFO' ? C.blue : data.method === 'LIFO' ? C.purple : C.amber;
+    const accent = data.method === 'FIFO' ? 'var(--color-brand-blue-tint)' : data.method === 'LIFO' ? 'var(--color-brand-blue-tint)' : 'var(--color-brand-amber-tint)';
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-3 gap-4">
@@ -344,13 +503,13 @@ function CostMethodReport({ data }: { data: CostMethodValuation }) {
                     { label: 'Total Units', value: data.totalUnits.toLocaleString() },
                 ].map((s, i) => (
                     <div key={i} style={{ ...panel, padding: '16px 18px', borderColor: `${accent}33` }}>
-                        <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{s.label}</p>
-                        <p style={{ fontSize: 22, fontWeight: 700, color: C.text }}>{s.value}</p>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{s.label}</p>
+                        <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-redwood-text-main)' }}>{s.value}</p>
                     </div>
                 ))}
             </div>
             <div style={{ ...panel, padding: 14, background: 'rgba(255,255,255,.03)' }}>
-                <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
                     {data.method === 'FIFO' && 'FIFO — First In, First Out: Oldest purchased stock is valued first. Higher profits during inflation.'}
                     {data.method === 'LIFO' && 'LIFO — Last In, First Out: Newest purchased stock is valued first. Lower profits during inflation (tax benefit).'}
                     {data.method === 'Average' && 'Average Cost: Stock is valued at the weighted average purchase price. Simple and most common.'}
@@ -358,33 +517,33 @@ function CostMethodReport({ data }: { data: CostMethodValuation }) {
             </div>
             <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
                 <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Product-wise {data.method} Valuation</p>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Product-wise {data.method} Valuation</p>
                 </div>
                 <table className="w-full">
                     <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,.07)' }}>
                             {['Product', 'SKU', 'Units', `Unit Cost (${data.method})`, 'Total Value'].map(h => (
-                                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                                <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {data.items.filter(it => it.units > 0).map((item, i) => (
                             <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
-                                <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 600, color: C.text }}>{item.name}</td>
-                                <td style={{ padding: '10px 16px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{item.sku || '—'}</td>
-                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: C.text }}>{item.units}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{item.name}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 11, fontFamily: 'monospace', color: 'var(--color-redwood-text-muted)' }}>{item.sku || '—'}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: 'var(--color-redwood-text-main)' }}>{item.units}</td>
                                 <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: accent }}>{formatCurr(item.unitCost)}</td>
-                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: C.text }}>{formatCurr(item.totalValue)}</td>
+                                <td style={{ padding: '10px 16px', fontSize: 12, fontFamily: 'monospace', color: 'var(--color-redwood-text-main)' }}>{formatCurr(item.totalValue)}</td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot>
-                        <tr style={{ background: C.bg, borderTop: '2px solid rgba(255,255,255,.12)' }}>
-                            <td colSpan={2} style={{ padding: '10px 16px', fontSize: 9, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Total</td>
-                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{data.totalUnits}</td>
-                            <td style={{ padding: '10px 16px', fontSize: 10, color: C.dim }}>Avg: {formatCurr(data.unitCost)}</td>
-                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: C.amber, fontFamily: 'monospace' }}>{formatCurr(data.totalValue)}</td>
+                        <tr style={{ background: 'var(--color-redwood-bg-surface)', borderTop: '2px solid rgba(255,255,255,.12)' }}>
+                            <td colSpan={2} style={{ padding: '10px 16px', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>Total</td>
+                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: 'var(--color-redwood-text-main)', fontFamily: 'monospace' }}>{data.totalUnits}</td>
+                            <td style={{ padding: '10px 16px', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Avg: {formatCurr(data.unitCost)}</td>
+                            <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: 'var(--color-brand-amber-tint)', fontFamily: 'monospace' }}>{formatCurr(data.totalValue)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -657,21 +816,29 @@ export default function InventoryReports() {
             const onHand = oh?.on_hand ?? getTotalStock(p);
             const movement = movementById.get(pid);
             const demand = demandByProductId.get(pid);
-            let velocity: VelocityLabel = movement?.velocity ?? 'Dead';
-            if (!movement && demand) {
-                const avg = demand.avg_daily ?? 0;
-                velocity = velocityFromDaysOfCover(avg > 0 ? onHand / avg : Infinity, avg > 0 ? 1 : 0);
+            const windowSales = movement?.sales ?? 0;
+            const days = periodDayCount(dateFrom, dateTo);
+            const avgDailyFromSales = days > 0 ? windowSales / days : 0;
+            let daysOfCover = avgDailyFromSales > 0 ? onHand / avgDailyFromSales : Infinity;
+            if (windowSales <= 0) {
+                const avgDailyDemand = demand?.avg_daily ?? 0;
+                daysOfCover = avgDailyDemand > 0 ? onHand / avgDailyDemand : Infinity;
             }
+            const velocity: VelocityLabel = movement?.velocity
+                ?? velocityFromAvgDailySales(avgDailyFromSales, windowSales);
+            const overstockRisk: OverstockRisk = movement?.overstockRisk
+                ?? overstockRiskFromDaysOfCover(daysOfCover);
             const avgDaily = demand?.avg_daily ?? 0;
             map.set(p.id, {
                 velocity,
+                overstockRisk,
                 marginPct: productMarginPercent(p),
                 daysLeft: avgDaily > 0 ? Math.round(onHand / avgDaily) : null,
                 onHand,
             });
         }
         return map;
-    }, [queryProducts, movementAnalysisRows, onHandRows, demandByProductId]);
+    }, [queryProducts, movementAnalysisRows, onHandRows, demandByProductId, dateFrom, dateTo]);
 
     const filteredQueryRows = useMemo(() => {
         let rows = queryProducts.filter(p => getTotalStock(p) >= 0);
@@ -684,16 +851,16 @@ export default function InventoryReports() {
             );
         }
         if (activeChip === 'Fast movers') rows = rows.filter(p => productMetricsMap.get(p.id)?.velocity === 'Fast');
-        else if (activeChip === 'Dead stock') rows = rows.filter(p => {
-            const v = productMetricsMap.get(p.id)?.velocity;
-            return v === 'Dead' || v === 'Slow';
-        });
+        else if (activeChip === 'Dead stock') rows = rows.filter(p => productMetricsMap.get(p.id)?.velocity === 'Dead');
         else if (activeChip === 'High margin') rows = rows.filter(p => (productMetricsMap.get(p.id)?.marginPct ?? 0) >= 30);
         else if (activeChip === 'Low turnover') rows = rows.filter(p => {
             const v = productMetricsMap.get(p.id)?.velocity;
             return v === 'Slow' || v === 'Dead';
         });
-        else if (activeChip === 'Overstock risk') rows = rows.filter(p => p.overstockRisk === 'High' || p.overstockRisk === 'Medium');
+        else if (activeChip === 'Overstock risk') rows = rows.filter(p => {
+            const risk = productMetricsMap.get(p.id)?.overstockRisk;
+            return risk === 'High' || risk === 'Medium';
+        });
         else if (activeChip === 'Reorder needed') rows = rows.filter(p => {
             const m = productMetricsMap.get(p.id);
             return p.reorderLevel > 0 && (m?.onHand ?? 0) <= p.reorderLevel;
@@ -702,15 +869,15 @@ export default function InventoryReports() {
     }, [queryProducts, queryText, activeChip, productMetricsMap]);
 
     const reports = [
-        { id: 'valuation' as ReportType, title: 'Inventory valuation', description: 'Financial audit using weighted average cost method.', icon: DollarSign, iconColor: C.green, iconBg: 'rgba(34,197,94,.12)' },
-        { id: 'fifo' as ReportType, title: 'FIFO valuation', description: 'First In First Out — oldest purchase costs used first.', icon: Layers, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
-        { id: 'lifo' as ReportType, title: 'LIFO valuation', description: 'Last In First Out — newest purchase costs used first.', icon: Layers, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
-        { id: 'movement' as ReportType, title: 'Stock movement', description: 'Current stock with received and sold quantities where available.', icon: Activity, iconColor: C.blue, iconBg: 'rgba(79,142,247,.12)' },
-        { id: 'deadstock' as ReportType, title: 'Dead stock audit', description: 'Identifying capital locked in non-moving SKUs.', icon: Package, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
-        { id: 'supplier' as ReportType, title: 'Supplier accuracy', description: 'Lead time and quality performance audit.', icon: TrendingUp, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
-        { id: 'loss' as ReportType, title: 'Loss & leakage', description: 'Tracking field sales discrepancies and damages.', icon: BarChart3, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
-        { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
-        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'Demand engine forecast per product — same engine as Reports › Demand Forecast.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
+        { id: 'valuation' as ReportType, title: 'Inventory valuation', description: 'Financial audit using weighted average cost method.', icon: DollarSign, iconColor: 'var(--color-brand-green-tint)', iconBg: 'rgba(34,197,94,.12)' },
+        { id: 'fifo' as ReportType, title: 'FIFO valuation', description: 'First In First Out — oldest purchase costs used first.', icon: Layers, iconColor: 'var(--color-brand-blue-tint)', iconBg: 'rgba(79,142,247,.12)' },
+        { id: 'lifo' as ReportType, title: 'LIFO valuation', description: 'Last In First Out — newest purchase costs used first.', icon: Layers, iconColor: 'var(--color-brand-blue-tint)', iconBg: 'rgba(124,58,237,.12)' },
+        { id: 'movement' as ReportType, title: 'Stock movement', description: 'Current stock with received and sold quantities where available.', icon: Activity, iconColor: 'var(--color-brand-blue-tint)', iconBg: 'rgba(79,142,247,.12)' },
+        { id: 'deadstock' as ReportType, title: 'Dead stock audit', description: 'Identifying capital locked in non-moving SKUs.', icon: Package, iconColor: 'var(--color-brand-red-tint)', iconBg: 'rgba(239,68,68,.12)' },
+        { id: 'supplier' as ReportType, title: 'Supplier accuracy', description: 'Lead time and quality performance audit.', icon: TrendingUp, iconColor: 'var(--color-brand-amber-tint)', iconBg: 'rgba(245,158,11,.12)' },
+        { id: 'loss' as ReportType, title: 'Loss & leakage', description: 'Tracking field sales discrepancies and damages.', icon: BarChart3, iconColor: 'var(--color-brand-red-tint)', iconBg: 'rgba(239,68,68,.12)' },
+        { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: 'var(--color-brand-amber-tint)', iconBg: 'rgba(245,158,11,.12)' },
+        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'Demand engine forecast per product — same engine as Reports › Demand Forecast.', icon: PieChart, iconColor: 'var(--color-brand-blue-tint)', iconBg: 'rgba(124,58,237,.12)' },
     ];
 
     const visibleReports = reports.filter(r => {
@@ -729,36 +896,26 @@ export default function InventoryReports() {
         border: '1px solid',
         borderColor: active ? (activeStyle?.border ?? 'rgba(79,142,247,.45)') : 'rgba(255,255,255,.08)',
         background: active ? (activeStyle?.bg ?? 'rgba(79,142,247,.15)') : 'rgba(255,255,255,.04)',
-        color: active ? (activeStyle?.color ?? C.blue) : C.muted,
+        color: active ? (activeStyle?.color ?? 'var(--color-brand-blue-tint)') : 'var(--color-redwood-text-muted)',
         fontFamily: 'inherit',
     } as CSSProperties);
 
     const showMaterialAudit = activeTab === 'material-audit';
 
     return (
-        <div
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                paddingBottom: 40,
-                fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-                fontSize: 12,
-                color: C.text,
-            }}
-        >
+        <div style={pageRootStyle}>
             {/* Header */}
             <div style={{ ...panel, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(79,142,247,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <BarChart3 size={20} style={{ color: '#93C5FD' }} />
+                            <BarChart3 size={20} style={{ color: 'var(--color-brand-blue-tint)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 18, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>
-                                Enterprise material audit & reporting
+                            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                                Material audit & reporting
                             </div>
-                            <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.45 }}>
+                            <div style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', marginTop: 3, lineHeight: 1.45 }}>
                                 Inventory valuation · movement · dead stock · supplier accuracy · forecasting · USD ($)
                             </div>
                         </div>
@@ -767,18 +924,7 @@ export default function InventoryReports() {
                         <button type="button" onClick={exportAllPdfs} style={ghostBtn}>
                             <Download size={13} /> Export all PDFs
                         </button>
-                        <button
-                            type="button"
-                            onClick={generateGlobalAudit}
-                            style={{
-                                ...ghostBtn,
-                                border: 'none',
-                                background: `linear-gradient(135deg, ${C.purple} 0%, #7C3AED 100%)`,
-                                color: '#fff',
-                                fontWeight: 600,
-                                boxShadow: '0 4px 14px rgba(155,111,228,.35)',
-                            }}
-                        >
+                        <button type="button" onClick={generateGlobalAudit} style={ghostBtn}>
                             <Sparkles size={13} /> Generate global audit
                         </button>
                     </div>
@@ -794,9 +940,7 @@ export default function InventoryReports() {
                                 key={p.key}
                                 type="button"
                                 onClick={() => applyPeriod(p.key)}
-                                style={pillBtn(period === p.key, p.key === 'ytd'
-                                    ? { border: 'rgba(34,197,94,.45)', bg: 'rgba(34,197,94,.15)', color: C.green }
-                                    : undefined)}
+                                style={periodPillStyle(period === p.key)}
                             >
                                 {p.label}
                             </button>
@@ -804,7 +948,7 @@ export default function InventoryReports() {
                         <button
                             type="button"
                             onClick={() => applyPeriod(PERIOD_PRESET_CUSTOM)}
-                            style={pillBtn(period === PERIOD_PRESET_CUSTOM)}
+                            style={periodPillStyle(period === PERIOD_PRESET_CUSTOM)}
                         >
                             Custom
                         </button>
@@ -816,18 +960,18 @@ export default function InventoryReports() {
                                     type="date"
                                     value={dateFrom}
                                     onChange={e => setDateFrom(e.target.value)}
-                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: C.text, fontSize: 9, fontFamily: 'inherit' }}
+                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: 'var(--color-redwood-text-main)', fontSize: 9, fontFamily: 'inherit' }}
                                 />
-                                <span style={{ fontSize: 9, color: C.dim }}>→</span>
+                                <span style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>→</span>
                                 <input
                                     type="date"
                                     value={dateTo}
                                     onChange={e => setDateTo(e.target.value)}
-                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: C.text, fontSize: 9, fontFamily: 'inherit' }}
+                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: 'var(--color-redwood-text-main)', fontSize: 9, fontFamily: 'inherit' }}
                                 />
                             </>
                         )}
-                        <span style={{ fontSize: 9, color: C.muted }}>{rangeLabel}</span>
+                        <span style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>{rangeLabel}</span>
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
@@ -845,7 +989,7 @@ export default function InventoryReports() {
                                 border: '1px solid',
                                 borderColor: activeTab === tab.id ? 'rgba(155,111,228,.45)' : 'transparent',
                                 background: activeTab === tab.id ? 'rgba(155,111,228,.15)' : 'transparent',
-                                color: activeTab === tab.id ? '#C4B5FD' : C.muted,
+                                color: activeTab === tab.id ? 'var(--color-redwood-text-main)' : 'var(--color-redwood-text-muted)',
                                 fontFamily: 'inherit',
                             }}
                         >
@@ -856,7 +1000,7 @@ export default function InventoryReports() {
             </div>
 
             {/* KPI row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 10 }}>
                 {[
                     {
                         label: 'Total Asset Valuation',
@@ -866,39 +1010,35 @@ export default function InventoryReports() {
                             : ledgerValuation
                                 ? `${ledgerValuation.totals.units.toLocaleString()} units · GL 1200 ${globalFormatCurrency(ledgerValuation.gl_inventory)} · ${valuationGlSub.text}`
                                 : '—',
-                        subColor: valuationError ? C.red : valuationGlSub.ok ? C.muted : C.red,
-                        valueColor: valuationError ? C.muted : C.green,
-                        stripe: C.green,
+                        subColor: valuationError ? 'var(--color-brand-red-tint)' : valuationGlSub.ok ? 'var(--color-redwood-text-muted)' : 'var(--color-brand-red-tint)',
+                        valueColor: valuationError ? 'var(--color-redwood-text-muted)' : 'var(--color-brand-green-tint)',
                     },
                     {
                         label: 'Avg Inventory Turnover',
                         value: loading ? '…' : (turnoverRatio == null ? '—' : `${turnoverRatio.toFixed(2)}x`),
                         sub: turnoverSubline,
-                        subColor: C.muted,
-                        valueColor: C.text,
-                        stripe: C.blue,
+                        subColor: 'var(--color-redwood-text-muted)',
+                        valueColor: 'var(--color-brand-blue-tint)',
                     },
                     {
                         label: 'Stock Record Accuracy',
                         value: loading ? '…' : '—',
                         sub: 'Needs cycle counts',
-                        subColor: C.muted,
-                        valueColor: C.text,
-                        stripe: C.green,
+                        subColor: 'var(--color-redwood-text-muted)',
+                        valueColor: 'var(--color-redwood-text-main)',
                     },
                     {
                         label: 'Locked Capital',
                         value: loading ? '…' : valuationError ? '—' : globalFormatCurrency(lockedCapitalDead),
                         sub: 'In slow / dead stocks',
-                        subColor: C.red,
-                        valueColor: C.red,
-                        stripe: C.red,
+                        subColor: 'var(--color-brand-red-tint)',
+                        valueColor: 'var(--color-brand-red-tint)',
                     },
                 ].map(kpi => (
-                    <div key={kpi.label} style={{ ...panel, padding: '14px 16px', borderLeft: `3px solid ${kpi.stripe}` }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{kpi.label}</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: kpi.valueColor, fontFamily: "'Syne',sans-serif" }}>{kpi.value}</div>
-                        <div style={{ fontSize: 9, fontWeight: 600, color: kpi.subColor, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{kpi.sub}</div>
+                    <div key={kpi.label} style={{ ...panel, padding: '14px 16px' }}>
+                        <div style={kpiLabelStyle}>{kpi.label}</div>
+                        <div style={{ ...kpiValueStyle, color: kpi.valueColor }}>{kpi.value}</div>
+                        <div style={{ fontSize: 8.5, fontWeight: 600, color: kpi.subColor, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{kpi.sub}</div>
                     </div>
                 ))}
             </div>
@@ -907,7 +1047,7 @@ export default function InventoryReports() {
                 <>
                     {SHOW_LEGACY_ESTIMATE_REPORTS && (
                     <div style={{ ...panel, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Valuation method</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Valuation method</div>
                         <div style={{ display: 'flex', gap: 4 }}>
                             {(['Average', 'FIFO', 'LIFO'] as ValuationMethod[]).map(method => (
                                 <button
@@ -921,7 +1061,7 @@ export default function InventoryReports() {
                                     style={pillBtn(valuationMethod === method, {
                                         border: valuationMethod === method ? 'rgba(245,158,11,.45)' : 'rgba(255,255,255,.08)',
                                         bg: valuationMethod === method ? 'rgba(245,158,11,.15)' : 'rgba(255,255,255,.04)',
-                                        color: valuationMethod === method ? C.amber : C.muted,
+                                        color: valuationMethod === method ? 'var(--color-brand-amber-tint)' : 'var(--color-redwood-text-muted)',
                                     })}
                                 >
                                     {method === 'Average' ? 'Average cost' : method}
@@ -934,8 +1074,8 @@ export default function InventoryReports() {
                     {/* Inventory Audit Reports */}
                     <div style={{ ...panel, padding: '12px 14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                            <Sparkles size={15} style={{ color: '#C4B5FD' }} />
-                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Inventory Audit Reports</div>
+                            <Sparkles size={15} style={{ color: 'var(--color-redwood-text-main)' }} />
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>Inventory Audit Reports</div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
                             {visibleReports.map(report => (
@@ -951,9 +1091,7 @@ export default function InventoryReports() {
                                         }
                                     }}
                                     style={{
-                                        background: 'rgba(11,17,32,.65)',
-                                        border: '1px solid rgba(255,255,255,.07)',
-                                        borderRadius: 10,
+                                        ...panel,
                                         padding: '14px 14px 12px',
                                         display: 'flex',
                                         flexDirection: 'column',
@@ -968,25 +1106,18 @@ export default function InventoryReports() {
                                         </div>
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text, marginBottom: 4 }}>{report.title}</div>
-                                        <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.45 }}>{report.description}</div>
+                                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 4 }}>{report.title}</div>
+                                        <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', lineHeight: 1.45 }}>{report.description}</div>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
-                                        <span style={{ fontSize: 8, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Run on demand</span>
+                                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Run on demand</span>
                                         <button
                                             type="button"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 void runReport(report.id);
                                             }}
-                                            style={{
-                                                ...ghostBtn,
-                                                padding: '5px 10px',
-                                                fontSize: 9,
-                                                color: '#C4B5FD',
-                                                borderColor: 'rgba(155,111,228,.35)',
-                                                background: 'rgba(155,111,228,.12)',
-                                            }}
+                                            style={{ ...ghostBtn, padding: '5px 10px', fontSize: 9 }}
                                         >
                                             Run report <ArrowRight size={11} />
                                         </button>
@@ -997,22 +1128,19 @@ export default function InventoryReports() {
                     </div>
 
                     {/* Universal Material Filter */}
-                    <div style={{ ...panel, padding: '14px 16px', background: C.bg, border: '1px solid rgba(79,142,247,.15)' }}>
+                    <div style={{ ...panel, padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                            <Search size={16} style={{ color: C.blue }} />
-                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Material Filter</div>
+                            <Search size={16} style={{ color: 'var(--color-brand-blue-tint)' }} />
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>Material Filter</div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                            <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 999, background: C.surface, border: '1px solid rgba(255,255,255,.08)' }}>
-                                <Search size={14} style={{ color: C.dim, flexShrink: 0 }} />
-                                <input
-                                    type="text"
-                                    value={queryText}
-                                    onChange={e => setQueryText(e.target.value)}
-                                    placeholder={queryMode === 'nl' ? 'Filter products… e.g. fast movers with margin above 30%' : "SQL-style filter text… e.g. velocity='Fast' AND margin > 30"}
-                                    style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: C.text, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
-                                />
-                            </div>
+                            <input
+                                type="text"
+                                value={queryText}
+                                onChange={e => setQueryText(e.target.value)}
+                                placeholder={queryMode === 'nl' ? 'Filter products… e.g. fast movers with margin above 30%' : "SQL-style filter text… e.g. velocity='Fast' AND margin > 30"}
+                                style={{ ...searchInputStyle, flex: 1, minWidth: 220, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
+                            />
                             {SHOW_LEGACY_ESTIMATE_REPORTS && (
                             <div style={{ display: 'flex', gap: 4 }}>
                                 <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Text filter</button>
@@ -1026,7 +1154,7 @@ export default function InventoryReports() {
                                     key={chip}
                                     type="button"
                                     onClick={() => setActiveChip(activeChip === chip ? null : chip)}
-                                    style={pillBtn(activeChip === chip, { border: 'rgba(79,142,247,.45)', bg: 'rgba(79,142,247,.15)', color: '#93C5FD' })}
+                                    style={chipGhostStyle(activeChip === chip)}
                                 >
                                     {chip}
                                 </button>
@@ -1036,40 +1164,35 @@ export default function InventoryReports() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: 'rgba(255,255,255,.03)' }}>
-                                        {['Product', 'Stock', 'Velocity', 'Margin', 'Days Left'].map(h => (
-                                            <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                                        {['Product', 'Stock', 'Velocity', 'Overstock', 'Margin', 'Days Left'].map(h => (
+                                            <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                                         ))}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredQueryRows.length === 0 ? (
                                         <tr>
-                                            <td colSpan={5} style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.dim }}>No products match your query.</td>
+                                            <td colSpan={6} style={{ padding: 24, textAlign: 'center', fontSize: 11, color: 'var(--color-redwood-text-muted)' }}>No products match your query.</td>
                                         </tr>
                                     ) : (
                                         filteredQueryRows.map(p => {
                                             const m = productMetricsMap.get(p.id);
                                             const velocity = m?.velocity ?? 'Dead';
+                                            const overstock = m?.overstockRisk ?? 'Low';
                                             return (
                                             <tr key={p.id} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, color: C.text }}>{p.name}</td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{m?.onHand ?? getTotalStock(p)}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{p.name}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: 'var(--color-redwood-text-muted)' }}>{m?.onHand ?? getTotalStock(p)}</td>
                                                 <td style={{ padding: '8px 12px' }}>
-                                                    <span style={{
-                                                        fontSize: 8,
-                                                        fontWeight: 700,
-                                                        padding: '2px 7px',
-                                                        borderRadius: 999,
-                                                        background: velocity === 'Fast' ? 'rgba(34,197,94,.15)' : velocity === 'Dead' ? 'rgba(239,68,68,.15)' : 'rgba(79,142,247,.12)',
-                                                        color: velocity === 'Fast' ? C.green : velocity === 'Dead' ? C.red : C.blue,
-                                                    }}>
-                                                        {velocity}
-                                                    </span>
+                                                    <span style={velocityBadgeStyle(velocity)}>{velocity}</span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.marginPct ?? 0) > 0 ? C.green : C.muted }}>
+                                                <td style={{ padding: '8px 12px' }}>
+                                                    <span style={overstockBadgeStyle(overstock)}>{overstock}</span>
+                                                </td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.marginPct ?? 0) > 0 ? 'var(--color-brand-green-tint)' : 'var(--color-redwood-text-muted)' }}>
                                                     {m?.marginPct != null ? `${m.marginPct.toFixed(1)}%` : '—'}
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.daysLeft ?? 0) > 0 ? C.text : C.muted }}>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.daysLeft ?? 0) > 0 ? 'var(--color-redwood-text-main)' : 'var(--color-redwood-text-muted)' }}>
                                                     {m?.daysLeft != null && m.daysLeft > 0 ? m.daysLeft : '—'}
                                                 </td>
                                             </tr>
@@ -1084,18 +1207,18 @@ export default function InventoryReports() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(239,68,68,.04)', border: '1px solid rgba(239,68,68,.12)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                <Brain size={15} style={{ color: C.red }} />
-                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Material Audit Insights</div>
+                                <Brain size={15} style={{ color: 'var(--color-brand-red-tint)' }} />
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Material Audit Insights</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 {AI_INSIGHTS.length === 0 ? (
-                                    <div style={{ fontSize: 10, color: C.muted }}>No insights</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No insights</div>
                                 ) : AI_INSIGHTS.map((insight, i) => (
                                     <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: insight.color, marginTop: 4, flexShrink: 0 }} />
                                         <div>
-                                            <div style={{ fontSize: 10, fontWeight: 600, color: C.text, marginBottom: 2 }}>{insight.title}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, lineHeight: 1.45 }}>{insight.body}</div>
+                                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 2 }}>{insight.title}</div>
+                                            <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', lineHeight: 1.45 }}>{insight.body}</div>
                                         </div>
                                     </div>
                                 ))}
@@ -1103,26 +1226,26 @@ export default function InventoryReports() {
                         </div>
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(155,111,228,.05)', border: '1px solid rgba(155,111,228,.15)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                <Bot size={15} style={{ color: '#C4B5FD' }} />
-                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Suggested Actions</div>
+                                <Bot size={15} style={{ color: 'var(--color-redwood-text-main)' }} />
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Suggested Actions</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 {AI_ACTIONS.length === 0 ? (
-                                    <div style={{ fontSize: 10, color: C.muted }}>No actions</div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>No actions</div>
                                 ) : AI_ACTIONS.map((action, i) => (
                                     <div key={i} style={{ ...panel, padding: '10px 12px', background: 'rgba(11,17,32,.5)' }}>
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: action.color, marginTop: 5, flexShrink: 0 }} />
                                             <div style={{ flex: 1 }}>
-                                                <div style={{ fontSize: 10, fontWeight: 600, color: C.text }}>{action.title}</div>
-                                                <div style={{ fontSize: 9, color: C.muted, marginTop: 2, lineHeight: 1.4 }}>{action.detail}</div>
+                                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>{action.title}</div>
+                                                <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', marginTop: 2, lineHeight: 1.4 }}>{action.detail}</div>
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: 6 }}>
                                             <button
                                                 type="button"
                                                 onClick={() => void runReport(action.report)}
-                                                style={{ ...ghostBtn, fontSize: 9, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                                                style={{ ...ghostBtn, fontSize: 9, color: 'var(--color-redwood-text-main)', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
                                             >
                                                 <Play size={10} /> Run
                                             </button>
@@ -1141,7 +1264,7 @@ export default function InventoryReports() {
                     </div>
                     )}
 
-                    <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: C.dim, lineHeight: 1.5 }}>
+                    <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
                         Valuation and dead-stock figures use the warehouse ledger (GL 1200 tie-out). Verify before filing or sharing externally. USD ($).
                     </div>
                 </>
@@ -1149,11 +1272,11 @@ export default function InventoryReports() {
 
             {activeTab === 'overview' && (
                 <div style={{ ...panel, padding: '14px 16px' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>Inventory overview</div>
-                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>Inventory overview</div>
+                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
                         High-level KPIs for {periodPresets().find(p => p.key === period)?.label ?? 'Custom'} ({rangeLabel}). Switch to Material audit for the report grid and query engine.
                     </div>
-                    <button type="button" onClick={() => setActiveTab('material-audit')} style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}>
+                    <button type="button" onClick={() => setActiveTab('material-audit')} style={{ ...ghostBtn, color: 'var(--color-redwood-text-main)', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}>
                         Open material audit <ChevronRight size={12} />
                     </button>
                 </div>
@@ -1162,16 +1285,16 @@ export default function InventoryReports() {
             {activeTab === 'forecasting' && (
                 <div style={{ ...panel, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <PieChart size={16} style={{ color: C.purple }} />
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Demand forecasting</div>
+                        <PieChart size={16} style={{ color: 'var(--color-brand-blue-tint)' }} />
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Demand forecasting</div>
                     </div>
-                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
                         30/60/90-day demand projections and reorder recommendations from live inventory calculations. Opens in the report viewer when you run it.
                     </div>
                     <button
                         type="button"
                         onClick={() => void runReport('forecast')}
-                        style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                        style={{ ...ghostBtn, color: 'var(--color-redwood-text-main)', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
                     >
                         Run forecasting report <ArrowRight size={12} />
                     </button>
@@ -1181,16 +1304,16 @@ export default function InventoryReports() {
             {activeTab === 'supplier-accuracy' && (
                 <div style={{ ...panel, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <TrendingUp size={16} style={{ color: C.amber }} />
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Supplier accuracy</div>
+                        <TrendingUp size={16} style={{ color: 'var(--color-brand-amber-tint)' }} />
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>Supplier accuracy</div>
                     </div>
-                    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5, marginBottom: 12 }}>
                         Lead-time, on-time delivery, and quality performance audit across suppliers. Opens in the report viewer when you run it.
                     </div>
                     <button
                         type="button"
                         onClick={() => void runReport('supplier')}
-                        style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
+                        style={{ ...ghostBtn, color: 'var(--color-redwood-text-main)', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}
                     >
                         Run supplier accuracy report <ArrowRight size={12} />
                     </button>
@@ -1239,27 +1362,30 @@ function ReportModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div style={{ background: C.surface, borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,.5)', maxWidth: 960, width: '100%', maxHeight: '90vh', overflow: 'hidden', border: '1px solid rgba(255,255,255,.08)' }}>
-                <div style={{ background: `linear-gradient(135deg, ${C.bg} 0%, ${C.surface} 100%)`, padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
+        <div
+            className="z-50 flex items-center justify-center p-4 animate-in fade-in duration-300"
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)' }}
+        >
+            <div style={{ background: 'var(--color-redwood-bg-surface)', borderRadius: 16, boxShadow: '0 24px 60px rgba(0,0,0,.35)', maxWidth: 960, width: '100%', maxHeight: '90vh', overflow: 'hidden', border: '1px solid var(--color-redwood-border)' }}>
+                <div style={{ background: 'var(--color-redwood-bg-surface)', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--color-redwood-border)', gap: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <FileText style={{ color: C.purple }} size={28} />
+                        <FileText style={{ color: 'var(--color-brand-blue-tint)' }} size={28} />
                         <div>
-                            <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{getReportTitle()}</h2>
-                            <p style={{ fontSize: 9, fontWeight: 600, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
+                            <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-redwood-text-main)' }}>{getReportTitle()}</h2>
+                            <p style={{ fontSize: 9, fontWeight: 600, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
                                 Generated: {new Date().toLocaleString()} · USD ($)
                             </p>
                         </div>
                     </div>
                     <button type="button" onClick={onClose} style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,.08)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <X style={{ color: C.text }} size={18} />
+                        <X style={{ color: 'var(--color-redwood-text-main)' }} size={18} />
                     </button>
                 </div>
 
-                <div style={{ padding: 24, overflowY: 'auto', maxHeight: 'calc(90vh - 130px)', background: C.bg }}>
+                <div style={{ padding: 24, overflowY: 'auto', maxHeight: 'calc(90vh - 130px)', background: 'var(--color-redwood-bg-surface)' }}>
                     {loading ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0' }}>
-                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" style={{ borderColor: C.purple, borderTopColor: 'transparent' }} />
+                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" style={{ borderColor: 'var(--color-brand-blue-tint)', borderTopColor: 'transparent' }} />
                         </div>
                     ) : (
                         <>
@@ -1292,14 +1418,14 @@ function ReportModal({
                     )}
                 </div>
 
-                <div style={{ background: C.surface, padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.07)' }}>
-                    <p style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <div style={{ background: 'var(--color-redwood-bg-surface)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         SOLTOL ONE · Inventory Intelligence
                     </p>
                     <button
                         type="button"
                         onClick={() => window.print()}
-                        style={{ ...ghostBtn, border: 'none', background: C.purple, color: '#fff', fontWeight: 600 }}
+                        style={{ ...ghostBtn, marginLeft: 'auto' }}
                     >
                         <Download size={14} /> Export PDF
                     </button>
@@ -1323,7 +1449,7 @@ function LedgerValuationReport({
 
     const card = (label: string, value: string, color: string) => (
         <div style={{ ...panel, padding: '16px 18px', borderColor: `${color}33` }}>
-            <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</p>
+            <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</p>
             <p style={{ fontSize: 22, fontWeight: 700, color }}>{value}</p>
         </div>
     );
@@ -1331,11 +1457,11 @@ function LedgerValuationReport({
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-3 gap-4">
-                {card('Total Asset Value', formatCurrency(data.totals.value), C.green)}
-                {card('Total Units', data.totals.units.toLocaleString(), C.blue)}
-                {card('Avg Unit Cost', formatCurrency(avgUnitCost), C.purple)}
+                {card('Total Asset Value', formatCurrency(data.totals.value), 'var(--color-brand-green-tint)')}
+                {card('Total Units', data.totals.units.toLocaleString(), 'var(--color-brand-blue-tint)')}
+                {card('Avg Unit Cost', formatCurrency(avgUnitCost), 'var(--color-brand-blue-tint)')}
             </div>
-            <div style={{ ...panel, padding: 12, fontSize: 11, color: glLine.ok ? C.green : C.red }}>
+            <div style={{ ...panel, padding: 12, fontSize: 11, color: glLine.ok ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)' }}>
                 GL 1200 {formatCurrency(data.gl_inventory)} · {glLine.text}
             </div>
             <ReportTable
@@ -1363,7 +1489,7 @@ function LedgerAvgCostReport({ data }: { data: InventoryValuationReport }) {
     return (
         <div className="space-y-6">
             <div style={{ ...panel, padding: 14, background: 'rgba(255,255,255,.03)' }}>
-                <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
                     Ledger on-hand × product cost (as of {data.as_of || 'today'}). Cost method per SKU from the catalog.
                 </p>
             </div>
@@ -1386,21 +1512,21 @@ function LedgerAvgCostReport({ data }: { data: InventoryValuationReport }) {
 function ReportTable({ title, headers, rows }: { title: string; headers: string[]; rows: string[][] }) {
     return (
         <div>
-            <h3 style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>{title}</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>{title}</h3>
             <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
                 <table className="w-full">
                     <thead>
-                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,.07)', background: 'rgba(255,255,255,.03)' }}>
-                            {headers.map(h => (
-                                <th key={h} style={{ padding: '10px 14px', textAlign: h === headers[0] ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase' }}>{h}</th>
+                        <tr>
+                            {headers.map((h, idx) => (
+                                <th key={h} style={idx === 0 ? thStyle : thRight}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map((row, i) => (
-                            <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
+                            <tr key={i}>
                                 {row.map((cell, j) => (
-                                    <td key={j} style={{ padding: '10px 14px', textAlign: j === 0 ? 'left' : 'right', fontSize: 12, fontWeight: j === 0 ? 600 : 500, color: C.text }}>{cell}</td>
+                                    <td key={j} style={j === 0 ? { ...tdStyle, fontWeight: 600 } : tdMonoRight}>{cell}</td>
                                 ))}
                             </tr>
                         ))}
@@ -1425,19 +1551,19 @@ function LedgerMovementReport({ rows, dateFrom, dateTo }: { rows: LedgerMovement
 
     return (
         <div className="space-y-6">
-            <p style={{ fontSize: 10, color: C.muted }}>Window: {windowLabel}</p>
+            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Window: {windowLabel}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(79,142,247,.25)' }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: C.blue, textTransform: 'uppercase', marginBottom: 4 }}>Opening Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.openingValue)}</p>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-brand-blue-tint)', textTransform: 'uppercase', marginBottom: 4 }}>Opening Value</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-redwood-text-main)', fontFamily: 'monospace' }}>{globalFormatCurrency(totals.openingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(34,197,94,.25)' }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: C.green, textTransform: 'uppercase', marginBottom: 4 }}>Closing Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.closingValue)}</p>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-brand-green-tint)', textTransform: 'uppercase', marginBottom: 4 }}>Closing Value</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-redwood-text-main)', fontFamily: 'monospace' }}>{globalFormatCurrency(totals.closingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: valueDelta >= 0 ? 'rgba(245,158,11,.25)' : 'rgba(239,68,68,.25)' }}>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: valueDelta >= 0 ? C.amber : C.red, textTransform: 'uppercase', marginBottom: 4 }}>Net Movement</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: valueDelta >= 0 ? 'var(--color-brand-amber-tint)' : 'var(--color-brand-red-tint)', textTransform: 'uppercase', marginBottom: 4 }}>Net Movement</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-redwood-text-main)', fontFamily: 'monospace' }}>
                         {`${valueDelta >= 0 ? '+' : ''}${globalFormatCurrency(valueDelta)}${deltaPct == null ? ' (n/a %)' : ` (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}`}
                     </p>
                 </div>
@@ -1446,30 +1572,31 @@ function LedgerMovementReport({ rows, dateFrom, dateTo }: { rows: LedgerMovement
                 <table className="w-full text-sm">
                     <thead>
                         <tr style={{ background: 'rgba(255,255,255,.03)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-                            {['Product', 'SKU', 'Opening', 'Purchases', 'Sales', 'Adjustments', 'Closing', 'Velocity', 'Turnover'].map(h => (
-                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' || h === 'SKU' ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase' }}>{h}</th>
+                            {['Product', 'SKU', 'Opening', 'Purchases', 'Sales', 'Adjustments', 'Closing', 'Velocity', 'Days of cover', 'Turnover'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' || h === 'SKU' ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: C.dim }}>No ledger movement in this window.</td></tr>
+                            <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--color-redwood-text-muted)' }}>No ledger movement in this window.</td></tr>
                         ) : rows.map((item, i) => (
                             <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: C.text }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
                                     {item.productName}
-                                    {item.ledgerGap && <span style={{ marginLeft: 6, fontSize: 8, color: C.amber }}>ledger gap</span>}
+                                    {item.ledgerGap && <span style={{ marginLeft: 6, fontSize: 8, color: 'var(--color-brand-amber-tint)' }}>ledger gap</span>}
                                 </td>
-                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: C.muted, fontSize: 11 }}>{item.sku}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.opening}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.green }}>+{item.purchases}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.red }}>-{item.sales}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.adjustments >= 0 ? `+${item.adjustments}` : item.adjustments}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.closing}</td>
+                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: 'var(--color-redwood-text-muted)', fontSize: 11 }}>{item.sku}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-redwood-text-muted)' }}>{item.opening}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-brand-green-tint)' }}>+{item.purchases}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-brand-red-tint)' }}>-{item.sales}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-redwood-text-muted)' }}>{item.adjustments >= 0 ? `+${item.adjustments}` : item.adjustments}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-redwood-text-main)' }}>{item.closing}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                    <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(79,142,247,.12)', color: C.blue }}>{item.velocity}</span>
+                                    <span style={velocityBadgeStyle(item.velocity)}>{item.velocity}</span>
                                 </td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.turnoverRate == null ? '—' : `${item.turnoverRate.toFixed(1)}x`}</td>
+                                <td style={{ ...tdMonoRight, padding: '8px 12px' }}>{formatDaysOfCoverDisplay(item.daysOfCover)}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--color-redwood-text-main)' }}>{item.turnoverRate == null ? '—' : `${item.turnoverRate.toFixed(1)}x`}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -1486,10 +1613,10 @@ function LedgerDeadStockReport({ data }: { data: LedgerDeadStockRow[] }) {
         <div className="space-y-6">
             <div style={{ ...panel, padding: 16, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.2)' }}>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <AlertTriangle style={{ color: C.red, flexShrink: 0 }} size={22} />
+                    <AlertTriangle style={{ color: 'var(--color-brand-red-tint)', flexShrink: 0 }} size={22} />
                     <div>
-                        <h3 style={{ fontWeight: 700, color: C.red, fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
-                        <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                        <h3 style={{ fontWeight: 700, color: 'var(--color-brand-red-tint)', fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
+                        <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
                             {data.length} products with no ledger movement in 90+ days. Total locked capital: {formatCurrency(locked)}
                         </p>
                     </div>
@@ -1514,7 +1641,7 @@ function LedgerDeadStockReport({ data }: { data: LedgerDeadStockRow[] }) {
 function SupplierReport({ data }: { data: SupplierAccuracy[] }) {
     return (
         <div className="space-y-4">
-            <p style={{ fontSize: 10, color: C.muted }} title="Based on PO expected date, not GRN receipt date">
+            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }} title="Based on PO expected date, not GRN receipt date">
                 On time = received within {SUPPLIER_ON_TIME_DAYS} days (PO order date → expected date). Expected lead time column uses PO expected date.
             </p>
             <ReportTable
@@ -1532,8 +1659,8 @@ function LossReport({ data }: { data: LossLeakage[] }) {
     return (
         <div className="space-y-6">
             <div style={{ ...panel, padding: 16, background: 'rgba(245,158,11,.08)', borderColor: 'rgba(245,158,11,.2)' }}>
-                <h3 style={{ fontWeight: 700, color: C.amber, fontSize: 12, marginBottom: 4 }}>Total Estimated Loss</h3>
-                <p style={{ fontSize: 24, fontWeight: 700, color: C.amber }}>{formatCurrency(totalLoss)}</p>
+                <h3 style={{ fontWeight: 700, color: 'var(--color-brand-amber-tint)', fontSize: 12, marginBottom: 4 }}>Total Estimated Loss</h3>
+                <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--color-brand-amber-tint)' }}>{formatCurrency(totalLoss)}</p>
             </div>
             <ReportTable
                 title="Loss & Leakage Detail"
@@ -1553,8 +1680,8 @@ function DemandEngineReport({ rows, horizon }: { rows: DemandForecastModalRow[];
                 item.name,
                 item.sku || '—',
                 String(item.on_hand_units ?? '—'),
-                item.avg_daily > 0 ? item.avg_daily.toFixed(1) : '—',
-                item.forecast_units == null ? '—' : String(item.forecast_units),
+                formatAvgDailySales(item.avg_daily),
+                formatForecastUnits(item.forecast_units),
                 String(item.method || '—'),
                 item.accuracy_wape == null ? '—' : `${Math.round(Number(item.accuracy_wape) * 100)}%`,
                 item.reorderLabel,
