@@ -26,23 +26,22 @@ import { getProducts, type Product } from '../../services/productService';
 import {
     calculateFIFOValuation,
     calculateLIFOValuation,
-    calculateStockMovement,
     calculateSupplierAccuracy,
     calculateLossLeakage,
-    generateForecastingData,
-    type StockMovement,
     type SupplierAccuracy,
     type LossLeakage,
-    type ForecastingData,
     type CostMethodValuation,
 } from '../../services/inventoryService';
 import {
     getInventoryValuation,
     getInventoryOnHand,
+    getAllMovements,
     type InventoryValuationReport,
     type InventoryValuationRow,
     type OnHandRow,
+    type MovementRow,
 } from '../../services/inventoryLedgerService';
+import { getDemandSummary, type DemandSummaryRow } from '../../services/demandService';
 import { getGLProfitLoss } from '../../services/glService';
 import {
     PERIOD_PRESET_CUSTOM,
@@ -50,8 +49,55 @@ import {
     type PeriodPresetKey,
 } from '../../utils/periodPresets';
 
-/** Phase 2/3: enable when backend data exists for FIFO/LIFO, loss, forecast, SQL filter, AI panels. */
-const SHOW_ESTIMATE_REPORTS = false;
+/** Phase 2/3: enable when backend data exists for FIFO/LIFO, loss, SQL filter, AI panels. */
+const SHOW_LEGACY_ESTIMATE_REPORTS = false;
+
+const SUPPLIER_ON_TIME_DAYS = 7;
+
+const RECEIPT_SOURCE_TYPES = new Set(['grn', 'opening']);
+const ISSUE_SOURCE_TYPES = new Set(['invoice']);
+const ADJUSTMENT_SOURCE_TYPES = new Set([
+    'adjustment',
+    'inventory_adjustment',
+    'cost_revaluation',
+    'sales_return',
+    'purchase_return',
+    'purchase_return_cancel',
+    'bin_transfer',
+    'van_closing',
+    'invoice_void',
+    'purge',
+]);
+
+type VelocityLabel = 'Fast' | 'Medium' | 'Slow' | 'Dead';
+
+export type LedgerMovementProductRow = {
+    productId: number;
+    productName: string;
+    sku: string;
+    opening: number;
+    purchases: number;
+    sales: number;
+    adjustments: number;
+    closing: number;
+    openingValue: number;
+    closingValue: number;
+    velocity: VelocityLabel;
+    turnoverRate: number | null;
+    ledgerGap: boolean;
+};
+
+type DemandForecastModalRow = DemandSummaryRow & {
+    reorderLabel: string;
+    confidenceLabel: string;
+};
+
+type ProductTableMetrics = {
+    velocity: VelocityLabel;
+    marginPct: number | null;
+    daysLeft: number | null;
+    onHand: number;
+};
 
 type ReportType = 'valuation' | 'fifo' | 'lifo' | 'avgcost' | 'movement' | 'deadstock' | 'supplier' | 'loss' | 'forecast' | null;
 type PageTab = 'overview' | 'material-audit' | 'stock-adjustment' | 'forecasting' | 'supplier-accuracy';
@@ -108,10 +154,6 @@ const QUERY_CHIPS = ['Fast movers', 'Dead stock', 'High margin', 'Low turnover',
 const AI_INSIGHTS: Array<{ color: string; title: string; body: string }> = [];
 const AI_ACTIONS: Array<{ color: string; title: string; detail: string; report: ReportType }> = [];
 
-function fmtOptionalNumber(value: number | null | undefined, suffix = ''): string {
-    return value == null ? '—' : `${value}${suffix}`;
-}
-
 function getTotalStock(p: Product): number {
     return p.locations?.reduce((a, b) => a + (b.currentStock ?? 0), 0) ?? 0;
 }
@@ -162,6 +204,132 @@ function glDifferenceLabel(difference: number | null): { text: string; ok: boole
     return ok
         ? { text: 'Ties to GL', ok: true }
         : { text: `Difference ${globalFormatCurrency(difference)}`, ok: false };
+}
+
+function velocityFromDaysOfCover(daysOfCover: number, salesUnitsInWindow: number): VelocityLabel {
+    if (salesUnitsInWindow <= 0) return 'Dead';
+    if (!Number.isFinite(daysOfCover) || daysOfCover > 180) return 'Dead';
+    if (daysOfCover < 30) return 'Fast';
+    if (daysOfCover <= 90) return 'Medium';
+    if (daysOfCover <= 180) return 'Slow';
+    return 'Dead';
+}
+
+function productUnitCost(product: Product | undefined, fallback: number): number {
+    if (!product) return fallback;
+    const cost = product.pricing?.landedCost ?? product.pricing?.purchasePriceExWorks ?? 0;
+    return cost > 0 ? cost : fallback;
+}
+
+function productMarginPercent(product: Product): number | null {
+    const price = product.pricing?.sellingPrice ?? 0;
+    const cost = product.pricing?.landedCost ?? product.pricing?.purchasePriceExWorks ?? 0;
+    if (price <= 0) return null;
+    return ((price - cost) / price) * 100;
+}
+
+function wapeConfidence(wape: number | null | undefined): string {
+    if (wape == null || Number.isNaN(Number(wape))) return '—';
+    const pct = Number(wape) * 100;
+    if (pct < 20) return 'High';
+    if (pct < 40) return 'Medium';
+    return 'Low';
+}
+
+function buildLedgerMovementRows(params: {
+    movements: MovementRow[];
+    onHandRows: OnHandRow[];
+    products: Product[];
+    dateFrom: string;
+    dateTo: string;
+    demandByProduct: Map<number, DemandSummaryRow>;
+}): LedgerMovementProductRow[] {
+    const { movements, onHandRows, products, dateFrom, dateTo, demandByProduct } = params;
+    const days = periodDayCount(dateFrom, dateTo);
+    const productById = new Map<number, Product>();
+    for (const p of products) {
+        const pid = Number(p.id);
+        if (Number.isFinite(pid)) productById.set(pid, p);
+    }
+    const onHandByProduct = new Map<number, OnHandRow>();
+    for (const row of onHandRows) onHandByProduct.set(row.product_id, row);
+
+    const deltasByProduct = new Map<number, { purchases: number; sales: number; adjustments: number; purchaseValue: number; salesValue: number; adjValue: number }>();
+    const ensure = (pid: number) => {
+        if (!deltasByProduct.has(pid)) {
+            deltasByProduct.set(pid, { purchases: 0, sales: 0, adjustments: 0, purchaseValue: 0, salesValue: 0, adjValue: 0 });
+        }
+        return deltasByProduct.get(pid)!;
+    };
+
+    for (const m of movements) {
+        const pid = m.product_id;
+        const bucket = ensure(pid);
+        const delta = Number(m.quantity_delta) || 0;
+        const unitCost = Number(m.unit_cost) || productUnitCost(productById.get(pid), 0);
+        const st = m.source_type || '';
+        if (delta > 0 && RECEIPT_SOURCE_TYPES.has(st)) {
+            bucket.purchases += delta;
+            bucket.purchaseValue += delta * unitCost;
+        } else if (delta < 0 && ISSUE_SOURCE_TYPES.has(st)) {
+            bucket.sales += Math.abs(delta);
+            bucket.salesValue += Math.abs(delta) * unitCost;
+        } else if (ADJUSTMENT_SOURCE_TYPES.has(st)) {
+            bucket.adjustments += delta;
+            bucket.adjValue += delta * unitCost;
+        }
+    }
+
+    const productIds = new Set<number>([
+        ...onHandByProduct.keys(),
+        ...deltasByProduct.keys(),
+    ]);
+
+    const rows: LedgerMovementProductRow[] = [];
+    for (const pid of productIds) {
+        const onHand = onHandByProduct.get(pid);
+        const closing = onHand ? Number(onHand.on_hand) || 0 : 0;
+        const cost = onHand ? Number(onHand.cost) || productUnitCost(productById.get(pid), 0) : productUnitCost(productById.get(pid), 0);
+        const d = deltasByProduct.get(pid) ?? { purchases: 0, sales: 0, adjustments: 0, purchaseValue: 0, salesValue: 0, adjValue: 0 };
+        const net = d.purchases - d.sales + d.adjustments;
+        let opening = closing - net;
+        let ledgerGap = false;
+        if (opening < 0) {
+            opening = 0;
+            ledgerGap = true;
+        }
+        const avgStock = (opening + closing) / 2;
+        let turnoverRate: number | null = avgStock > 0 ? d.sales / avgStock : null;
+        if (turnoverRate != null && days > 0 && days < 365) turnoverRate *= 365 / days;
+
+        const avgDailyFromSales = days > 0 ? d.sales / days : 0;
+        let daysOfCover = avgDailyFromSales > 0 ? closing / avgDailyFromSales : Infinity;
+        if (d.sales <= 0) {
+            const demand = demandByProduct.get(pid);
+            const avgDaily = demand?.avg_daily ?? 0;
+            daysOfCover = avgDaily > 0 ? closing / avgDaily : Infinity;
+        }
+        const velocity = velocityFromDaysOfCover(daysOfCover, d.sales);
+
+        const product = productById.get(pid);
+        rows.push({
+            productId: pid,
+            productName: product?.name ?? onHand?.name ?? `Product ${pid}`,
+            sku: product?.sku ?? onHand?.sku ?? '',
+            opening,
+            purchases: d.purchases,
+            sales: d.sales,
+            adjustments: d.adjustments,
+            closing,
+            openingValue: opening * cost,
+            closingValue: closing * cost,
+            velocity,
+            turnoverRate,
+            ledgerGap,
+        });
+    }
+
+    return rows.sort((a, b) => b.sales - a.sales);
 }
 
 function CostMethodReport({ data }: { data: CostMethodValuation }) {
@@ -238,6 +406,9 @@ export default function InventoryReports() {
     const [ledgerValuation, setLedgerValuation] = useState<InventoryValuationReport | null>(null);
     const [valuationError, setValuationError] = useState<string | null>(null);
     const [onHandRows, setOnHandRows] = useState<OnHandRow[]>([]);
+    const [ledgerMovements, setLedgerMovements] = useState<MovementRow[]>([]);
+    const [demandSummary, setDemandSummary] = useState<DemandSummaryRow[]>([]);
+    const [demandHorizonDays, setDemandHorizonDays] = useState(30);
     const [turnoverRatio, setTurnoverRatio] = useState<number | null>(null);
     const [turnoverSubline, setTurnoverSubline] = useState('No movement history');
     const [categoryByProductId, setCategoryByProductId] = useState<Map<number, string>>(new Map());
@@ -266,16 +437,23 @@ export default function InventoryReports() {
         setLoading(true);
         setValuationError(null);
         try {
-            const [valuation, onHand, pl, valuationStart] = await Promise.all([
+            const windowDays = Math.min(365, Math.max(7, periodDayCount(dateFrom, dateTo)));
+            const horizon = 30;
+            const [valuation, onHand, pl, valuationStart, movements, demand] = await Promise.all([
                 getInventoryValuation({ as_of: dateTo }),
                 getInventoryOnHand({ limit: 1000 }),
                 getGLProfitLoss(dateFrom, dateTo),
                 dateFrom !== dateTo
                     ? getInventoryValuation({ as_of: dateFrom })
                     : Promise.resolve(null as InventoryValuationReport | null),
+                getAllMovements({ date_from: dateFrom, date_to: dateTo }),
+                getDemandSummary({ windowDays, horizon, asOf: dateTo }),
             ]);
             setLedgerValuation(valuation);
             setOnHandRows(onHand.rows ?? []);
+            setLedgerMovements(movements);
+            setDemandSummary(demand);
+            setDemandHorizonDays(horizon);
 
             const cogs = Number(pl.cogs) || 0;
             const endStock = valuation.totals.value;
@@ -298,6 +476,8 @@ export default function InventoryReports() {
             console.error('Failed to load ledger metrics:', error);
             setLedgerValuation(null);
             setOnHandRows([]);
+            setLedgerMovements([]);
+            setDemandSummary([]);
             setTurnoverRatio(null);
             setTurnoverSubline('No movement history');
             setValuationError(error instanceof Error ? error.message : 'Failed to load inventory valuation');
@@ -342,9 +522,22 @@ export default function InventoryReports() {
                 case 'avgcost':
                     data = await getInventoryValuation({ as_of: dateTo });
                     break;
-                case 'movement':
-                    data = await calculateStockMovement();
+                case 'movement': {
+                    const demandMap = new Map(demandSummary.map(d => [d.product_id, d]));
+                    data = {
+                        rows: buildLedgerMovementRows({
+                            movements: ledgerMovements,
+                            onHandRows,
+                            products: queryProducts,
+                            dateFrom,
+                            dateTo,
+                            demandByProduct: demandMap,
+                        }),
+                        dateFrom,
+                        dateTo,
+                    };
                     break;
+                }
                 case 'deadstock': {
                     const onHand = await getInventoryOnHand({ limit: 1000 });
                     data = (onHand.rows ?? [])
@@ -362,9 +555,30 @@ export default function InventoryReports() {
                 case 'loss':
                     data = await calculateLossLeakage();
                     break;
-                case 'forecast':
-                    data = await generateForecastingData();
+                case 'forecast': {
+                    const windowDays = Math.min(365, Math.max(7, periodDayCount(dateFrom, dateTo)));
+                    const demand = await getDemandSummary({ windowDays, horizon: demandHorizonDays, asOf: dateTo });
+                    const productById = new Map<number, Product>();
+                    for (const p of queryProducts) {
+                        const pid = Number(p.id);
+                        if (Number.isFinite(pid)) productById.set(pid, p);
+                    }
+                    data = {
+                        horizon: demandHorizonDays,
+                        rows: demand.map((row): DemandForecastModalRow => {
+                            const product = productById.get(row.product_id);
+                            const reorderLevel = product?.reorderLevel ?? 0;
+                            const projected = (row.on_hand_units ?? 0) - (row.forecast_units ?? 0);
+                            const reorderLabel = reorderLevel > 0 && projected < reorderLevel ? 'Reorder now' : 'OK';
+                            return {
+                                ...row,
+                                reorderLabel,
+                                confidenceLabel: wapeConfidence(row.accuracy_wape),
+                            };
+                        }),
+                    };
                     break;
+                }
                 case 'fifo':
                     data = await calculateFIFOValuation();
                     break;
@@ -416,6 +630,49 @@ export default function InventoryReports() {
         ? glDifferenceLabel(ledgerValuation.difference)
         : { text: '', ok: true };
 
+    const demandByProductId = useMemo(
+        () => new Map(demandSummary.map(d => [d.product_id, d])),
+        [demandSummary],
+    );
+
+    const movementAnalysisRows = useMemo(
+        () => buildLedgerMovementRows({
+            movements: ledgerMovements,
+            onHandRows,
+            products: queryProducts,
+            dateFrom,
+            dateTo,
+            demandByProduct: demandByProductId,
+        }),
+        [ledgerMovements, onHandRows, queryProducts, dateFrom, dateTo, demandByProductId],
+    );
+
+    const productMetricsMap = useMemo(() => {
+        const map = new Map<string, ProductTableMetrics>();
+        const movementById = new Map(movementAnalysisRows.map(r => [r.productId, r]));
+        const onHandMap = new Map(onHandRows.map(r => [r.product_id, r]));
+        for (const p of queryProducts) {
+            const pid = Number(p.id);
+            const oh = onHandMap.get(pid);
+            const onHand = oh?.on_hand ?? getTotalStock(p);
+            const movement = movementById.get(pid);
+            const demand = demandByProductId.get(pid);
+            let velocity: VelocityLabel = movement?.velocity ?? 'Dead';
+            if (!movement && demand) {
+                const avg = demand.avg_daily ?? 0;
+                velocity = velocityFromDaysOfCover(avg > 0 ? onHand / avg : Infinity, avg > 0 ? 1 : 0);
+            }
+            const avgDaily = demand?.avg_daily ?? 0;
+            map.set(p.id, {
+                velocity,
+                marginPct: productMarginPercent(p),
+                daysLeft: avgDaily > 0 ? Math.round(onHand / avgDaily) : null,
+                onHand,
+            });
+        }
+        return map;
+    }, [queryProducts, movementAnalysisRows, onHandRows, demandByProductId]);
+
     const filteredQueryRows = useMemo(() => {
         let rows = queryProducts.filter(p => getTotalStock(p) >= 0);
         const q = queryText.trim().toLowerCase();
@@ -426,14 +683,23 @@ export default function InventoryReports() {
                 p.category.toLowerCase().includes(q),
             );
         }
-        if (activeChip === 'Fast movers') rows = rows.filter(p => p.velocityStatus === 'Fast');
-        else if (activeChip === 'Dead stock') rows = rows.filter(p => p.velocityStatus === 'Dead' || p.velocityStatus === 'Slow');
-        else if (activeChip === 'High margin') rows = rows.filter(p => (p.grossMarginPercent ?? 0) >= 30);
-        else if (activeChip === 'Low turnover') rows = rows.filter(p => p.velocityStatus === 'Slow' || p.velocityStatus === 'Dead');
+        if (activeChip === 'Fast movers') rows = rows.filter(p => productMetricsMap.get(p.id)?.velocity === 'Fast');
+        else if (activeChip === 'Dead stock') rows = rows.filter(p => {
+            const v = productMetricsMap.get(p.id)?.velocity;
+            return v === 'Dead' || v === 'Slow';
+        });
+        else if (activeChip === 'High margin') rows = rows.filter(p => (productMetricsMap.get(p.id)?.marginPct ?? 0) >= 30);
+        else if (activeChip === 'Low turnover') rows = rows.filter(p => {
+            const v = productMetricsMap.get(p.id)?.velocity;
+            return v === 'Slow' || v === 'Dead';
+        });
         else if (activeChip === 'Overstock risk') rows = rows.filter(p => p.overstockRisk === 'High' || p.overstockRisk === 'Medium');
-        else if (activeChip === 'Reorder needed') rows = rows.filter(p => p.reorderLevel > 0 && getTotalStock(p) <= p.reorderLevel);
+        else if (activeChip === 'Reorder needed') rows = rows.filter(p => {
+            const m = productMetricsMap.get(p.id);
+            return p.reorderLevel > 0 && (m?.onHand ?? 0) <= p.reorderLevel;
+        });
         return rows.slice(0, 12);
-    }, [queryProducts, queryText, activeChip]);
+    }, [queryProducts, queryText, activeChip, productMetricsMap]);
 
     const reports = [
         { id: 'valuation' as ReportType, title: 'Inventory valuation', description: 'Financial audit using weighted average cost method.', icon: DollarSign, iconColor: C.green, iconBg: 'rgba(34,197,94,.12)' },
@@ -444,11 +710,11 @@ export default function InventoryReports() {
         { id: 'supplier' as ReportType, title: 'Supplier accuracy', description: 'Lead time and quality performance audit.', icon: TrendingUp, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
         { id: 'loss' as ReportType, title: 'Loss & leakage', description: 'Tracking field sales discrepancies and damages.', icon: BarChart3, iconColor: C.red, iconBg: 'rgba(239,68,68,.12)' },
         { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
-        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'No forecast source connected; projected demand is blank.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
+        { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'Demand engine forecast per product — same engine as Reports › Demand Forecast.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
     ];
 
     const visibleReports = reports.filter(r => {
-        if (!SHOW_ESTIMATE_REPORTS && (r.id === 'fifo' || r.id === 'lifo' || r.id === 'loss' || r.id === 'forecast')) {
+        if (!SHOW_LEGACY_ESTIMATE_REPORTS && (r.id === 'fifo' || r.id === 'lifo' || r.id === 'loss')) {
             return false;
         }
         return true;
@@ -639,7 +905,7 @@ export default function InventoryReports() {
 
             {showMaterialAudit && (
                 <>
-                    {SHOW_ESTIMATE_REPORTS && (
+                    {SHOW_LEGACY_ESTIMATE_REPORTS && (
                     <div style={{ ...panel, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                         <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Valuation method</div>
                         <div style={{ display: 'flex', gap: 4 }}>
@@ -747,7 +1013,7 @@ export default function InventoryReports() {
                                     style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: C.text, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
                                 />
                             </div>
-                            {SHOW_ESTIMATE_REPORTS && (
+                            {SHOW_LEGACY_ESTIMATE_REPORTS && (
                             <div style={{ display: 'flex', gap: 4 }}>
                                 <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Text filter</button>
                                 <button type="button" onClick={() => setQueryMode('sql')} style={pillBtn(queryMode === 'sql')}>SQL</button>
@@ -781,37 +1047,40 @@ export default function InventoryReports() {
                                             <td colSpan={5} style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.dim }}>No products match your query.</td>
                                         </tr>
                                     ) : (
-                                        filteredQueryRows.map(p => (
+                                        filteredQueryRows.map(p => {
+                                            const m = productMetricsMap.get(p.id);
+                                            const velocity = m?.velocity ?? 'Dead';
+                                            return (
                                             <tr key={p.id} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
                                                 <td style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, color: C.text }}>{p.name}</td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{getTotalStock(p)}</td>
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: C.muted }}>{m?.onHand ?? getTotalStock(p)}</td>
                                                 <td style={{ padding: '8px 12px' }}>
                                                     <span style={{
                                                         fontSize: 8,
                                                         fontWeight: 700,
                                                         padding: '2px 7px',
                                                         borderRadius: 999,
-                                                        background: p.velocityStatus === 'Fast' ? 'rgba(34,197,94,.15)' : p.velocityStatus === 'Dead' ? 'rgba(239,68,68,.15)' : 'rgba(79,142,247,.12)',
-                                                        color: p.velocityStatus === 'Fast' ? C.green : p.velocityStatus === 'Dead' ? C.red : C.blue,
+                                                        background: velocity === 'Fast' ? 'rgba(34,197,94,.15)' : velocity === 'Dead' ? 'rgba(239,68,68,.15)' : 'rgba(79,142,247,.12)',
+                                                        color: velocity === 'Fast' ? C.green : velocity === 'Dead' ? C.red : C.blue,
                                                     }}>
-                                                        {p.velocityStatus}
+                                                        {velocity}
                                                     </span>
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: p.grossMarginPercent > 0 ? C.green : C.muted }}>
-                                                    {p.grossMarginPercent > 0 ? `${p.grossMarginPercent.toFixed(1)}%` : '—'}
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.marginPct ?? 0) > 0 ? C.green : C.muted }}>
+                                                    {m?.marginPct != null ? `${m.marginPct.toFixed(1)}%` : '—'}
                                                 </td>
-                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: p.daysStockRemaining > 0 ? C.text : C.muted }}>
-                                                    {p.daysStockRemaining > 0 ? Math.round(p.daysStockRemaining) : '—'}
+                                                <td style={{ padding: '8px 12px', fontSize: 11, fontFamily: 'monospace', color: (m?.daysLeft ?? 0) > 0 ? C.text : C.muted }}>
+                                                    {m?.daysLeft != null && m.daysLeft > 0 ? m.daysLeft : '—'}
                                                 </td>
                                             </tr>
-                                        ))
+                                        ); })
                                     )}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    {SHOW_ESTIMATE_REPORTS && (
+                    {SHOW_LEGACY_ESTIMATE_REPORTS && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(239,68,68,.04)', border: '1px solid rgba(239,68,68,.12)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1003,11 +1272,22 @@ function ReportModal({
                             {type === 'avgcost' && data && (
                                 <LedgerAvgCostReport data={data as InventoryValuationReport} />
                             )}
-                            {type === 'movement' && <MovementReport data={data as StockMovement[]} />}
+                            {type === 'movement' && data && (
+                                <LedgerMovementReport
+                                    rows={(data as { rows: LedgerMovementProductRow[] }).rows}
+                                    dateFrom={(data as { dateFrom: string }).dateFrom}
+                                    dateTo={(data as { dateTo: string }).dateTo}
+                                />
+                            )}
                             {type === 'deadstock' && <LedgerDeadStockReport data={data as LedgerDeadStockRow[]} />}
                             {type === 'supplier' && <SupplierReport data={data as SupplierAccuracy[]} />}
                             {type === 'loss' && <LossReport data={data as LossLeakage[]} />}
-                            {type === 'forecast' && <ForecastReport data={data as ForecastingData[]} />}
+                            {type === 'forecast' && data && (
+                                <DemandEngineReport
+                                    horizon={(data as { horizon: number }).horizon}
+                                    rows={(data as { rows: DemandForecastModalRow[] }).rows}
+                                />
+                            )}
                         </>
                     )}
                 </div>
@@ -1131,34 +1411,34 @@ function ReportTable({ title, headers, rows }: { title: string; headers: string[
     );
 }
 
-function MovementReport({ data }: { data: StockMovement[] }) {
-    const totals = data.reduce((acc: { openingStock: number; closingStock: number; purchases: number; sales: number; openingValue: number; closingValue: number; partial: boolean }, r) => ({
-        openingStock: acc.openingStock + (r.openingStock || 0),
-        closingStock: acc.closingStock + (r.closingStock || 0),
-        purchases: acc.purchases + (r.purchases || 0),
-        sales: acc.sales + (r.sales || 0),
-        openingValue: r.openingValue == null ? acc.openingValue : acc.openingValue + r.openingValue,
-        closingValue: r.closingValue == null ? acc.closingValue : acc.closingValue + r.closingValue,
-        partial: acc.partial || r.openingValue == null || r.closingValue == null,
-    }), { openingStock: 0, closingStock: 0, purchases: 0, sales: 0, openingValue: 0, closingValue: 0, partial: false });
+function LedgerMovementReport({ rows, dateFrom, dateTo }: { rows: LedgerMovementProductRow[]; dateFrom: string; dateTo: string }) {
+    const totals = rows.reduce(
+        (acc, r) => ({
+            openingValue: acc.openingValue + r.openingValue,
+            closingValue: acc.closingValue + r.closingValue,
+        }),
+        { openingValue: 0, closingValue: 0 },
+    );
     const valueDelta = totals.closingValue - totals.openingValue;
-    const deltaPct = totals.openingValue > 0 && !totals.partial ? (valueDelta / totals.openingValue) * 100 : null;
+    const deltaPct = totals.openingValue > 0 ? (valueDelta / totals.openingValue) * 100 : null;
+    const windowLabel = `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`;
 
     return (
         <div className="space-y-6">
+            <p style={{ fontSize: 10, color: C.muted }}>Window: {windowLabel}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(79,142,247,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: C.blue, textTransform: 'uppercase', marginBottom: 4 }}>Opening Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{totals.partial ? '—' : globalFormatCurrency(totals.openingValue)}</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.openingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: 'rgba(34,197,94,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: C.green, textTransform: 'uppercase', marginBottom: 4 }}>Closing Value</p>
-                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{totals.partial ? '—' : globalFormatCurrency(totals.closingValue)}</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>{globalFormatCurrency(totals.closingValue)}</p>
                 </div>
                 <div style={{ ...panel, padding: 16, borderColor: valueDelta >= 0 ? 'rgba(245,158,11,.25)' : 'rgba(239,68,68,.25)' }}>
                     <p style={{ fontSize: 10, fontWeight: 700, color: valueDelta >= 0 ? C.amber : C.red, textTransform: 'uppercase', marginBottom: 4 }}>Net Movement</p>
                     <p style={{ fontSize: 22, fontWeight: 700, color: C.text, fontFamily: 'monospace' }}>
-                        {totals.partial || deltaPct === null ? '—' : `${valueDelta >= 0 ? '+' : ''}${globalFormatCurrency(valueDelta)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}
+                        {`${valueDelta >= 0 ? '+' : ''}${globalFormatCurrency(valueDelta)}${deltaPct == null ? ' (n/a %)' : ` (${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)`}`}
                     </p>
                 </div>
             </div>
@@ -1166,22 +1446,26 @@ function MovementReport({ data }: { data: StockMovement[] }) {
                 <table className="w-full text-sm">
                     <thead>
                         <tr style={{ background: 'rgba(255,255,255,.03)', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-                            {['Product', 'SKU', 'Opening', 'Purchases', 'Sales', 'Closing', 'Velocity', 'Turnover'].map(h => (
+                            {['Product', 'SKU', 'Opening', 'Purchases', 'Sales', 'Adjustments', 'Closing', 'Velocity', 'Turnover'].map(h => (
                                 <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Product' || h === 'SKU' ? 'left' : 'right', fontSize: 9, fontWeight: 700, color: C.dim, textTransform: 'uppercase' }}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
-                        {data.length === 0 ? (
-                            <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: C.dim }}>No products in inventory yet.</td></tr>
-                        ) : data.map((item, i) => (
+                        {rows.length === 0 ? (
+                            <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: C.dim }}>No ledger movement in this window.</td></tr>
+                        ) : rows.map((item, i) => (
                             <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,.04)' }}>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: C.text }}>{item.productName}</td>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: C.text }}>
+                                    {item.productName}
+                                    {item.ledgerGap && <span style={{ marginLeft: 6, fontSize: 8, color: C.amber }}>ledger gap</span>}
+                                </td>
                                 <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: C.muted, fontSize: 11 }}>{item.sku}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.openingStock}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.opening}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', color: C.green }}>+{item.purchases}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', color: C.red }}>-{item.sales}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.closingStock}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.muted }}>{item.adjustments >= 0 ? `+${item.adjustments}` : item.adjustments}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: C.text }}>{item.closing}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                                     <span style={{ fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(79,142,247,.12)', color: C.blue }}>{item.velocity}</span>
                                 </td>
@@ -1229,11 +1513,16 @@ function LedgerDeadStockReport({ data }: { data: LedgerDeadStockRow[] }) {
 
 function SupplierReport({ data }: { data: SupplierAccuracy[] }) {
     return (
-        <ReportTable
-            title="Supplier Accuracy"
-            headers={['Supplier', 'Orders', 'On Time', 'Late', 'Accuracy', 'Avg Lead Time']}
-            rows={data.map(s => [s.supplierName, String(s.totalOrders), String(s.onTimeDeliveries), String(s.lateDeliveries), `${s.accuracyScore.toFixed(1)}%`, `${s.averageLeadTime.toFixed(1)} days`])}
-        />
+        <div className="space-y-4">
+            <p style={{ fontSize: 10, color: C.muted }} title="Based on PO expected date, not GRN receipt date">
+                On time = received within {SUPPLIER_ON_TIME_DAYS} days (PO order date → expected date). Expected lead time column uses PO expected date.
+            </p>
+            <ReportTable
+                title="Supplier Accuracy"
+                headers={['Supplier', 'Orders', 'On Time', 'Late', 'Accuracy', 'Expected lead time']}
+                rows={data.map(s => [s.supplierName, String(s.totalOrders), String(s.onTimeDeliveries), String(s.lateDeliveries), `${s.accuracyScore.toFixed(1)}%`, `${s.averageLeadTime.toFixed(1)} days`])}
+            />
+        </div>
     );
 }
 
@@ -1255,12 +1544,22 @@ function LossReport({ data }: { data: LossLeakage[] }) {
     );
 }
 
-function ForecastReport({ data }: { data: ForecastingData[] }) {
+function DemandEngineReport({ rows, horizon }: { rows: DemandForecastModalRow[]; horizon: number }) {
     return (
         <ReportTable
             title="Demand Forecast"
-            headers={['Product', 'SKU', 'Current Stock', 'Avg Daily Sales', '30-Day', '60-Day', '90-Day', 'Reorder', 'Confidence']}
-            rows={data.map(item => [item.productName, item.sku, String(item.currentStock), item.avgDailySales > 0 ? item.avgDailySales.toFixed(1) : '—', fmtOptionalNumber(item.forecast30Days), fmtOptionalNumber(item.forecast60Days), fmtOptionalNumber(item.forecast90Days), fmtOptionalNumber(item.recommendedReorder), item.confidenceLevel == null ? '—' : `${item.confidenceLevel}%`])}
+            headers={['Product', 'SKU', 'Current stock', 'Avg daily sales', `Forecast (${horizon} days)`, 'Method', 'Accuracy', 'Reorder', 'Confidence']}
+            rows={rows.map(item => [
+                item.name,
+                item.sku || '—',
+                String(item.on_hand_units ?? '—'),
+                item.avg_daily > 0 ? item.avg_daily.toFixed(1) : '—',
+                item.forecast_units == null ? '—' : String(item.forecast_units),
+                String(item.method || '—'),
+                item.accuracy_wape == null ? '—' : `${Math.round(Number(item.accuracy_wape) * 100)}%`,
+                item.reorderLabel,
+                item.confidenceLabel,
+            ])}
         />
     );
 }

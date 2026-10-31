@@ -17,7 +17,11 @@ vi.mock('../../../services/settingsService', () => ({
 vi.mock('../../../services/inventoryLedgerService', () => ({
   getInventoryValuation: vi.fn(),
   getInventoryOnHand: vi.fn(),
-  getInventorySummary: vi.fn(),
+  getAllMovements: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../../../services/demandService', () => ({
+  getDemandSummary: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../../../services/glService', () => ({
@@ -31,10 +35,8 @@ vi.mock('../../../services/productService', () => ({
 vi.mock('../../../services/inventoryService', () => ({
   calculateFIFOValuation: vi.fn(),
   calculateLIFOValuation: vi.fn(),
-  calculateStockMovement: vi.fn(),
   calculateSupplierAccuracy: vi.fn(),
   calculateLossLeakage: vi.fn(),
-  generateForecastingData: vi.fn(),
 }));
 
 const valuationFixture = {
@@ -103,7 +105,6 @@ describe('InventoryReports ledger Phase 1', () => {
       { id: '3', name: '0W-20', sku: 'P003', category: 'Imported' },
       { id: '5', name: '10W-40', sku: 'P005', category: 'Imported' },
     ] as never);
-    vi.mocked(inventoryService.calculateStockMovement).mockResolvedValue([]);
     vi.mocked(inventoryService.calculateSupplierAccuracy).mockResolvedValue([]);
   });
 
