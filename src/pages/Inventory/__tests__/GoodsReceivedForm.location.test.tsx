@@ -336,6 +336,387 @@ describe('GoodsReceivedForm location', () => {
     container.remove();
   });
 
+  function setSelectValue(el: HTMLSelectElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    setter?.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function setupPlainSingleLinePo() {
+    const po = {
+      id: 'PO-1',
+      poNumber: 'PO-1',
+      supplierId: '1',
+      supplierName: 'Supplier',
+      status: 'Approved',
+      date: '2026-06-01',
+      expectedDate: '2026-06-02',
+      items: [
+        { productId: '100', productName: 'Plain', quantity: 3, unitPrice: 4, uom: 'qt', taxRate: 0, discount: 0, total: 12 },
+      ],
+      grandTotal: 12,
+    };
+    vi.mocked(grnService.getPendingPurchaseOrders).mockResolvedValue([po] as never);
+    localStorage.setItem('purchase_orders', JSON.stringify([po]));
+    vi.mocked(grnService.createGRNFromPO).mockImplementation(async () => {
+      const draft = {
+        id: 'GRN-1',
+        grnNumber: 'GRN-1',
+        poReference: 'PO-1',
+        poId: 'PO-1',
+        warehouse: 'Main Warehouse',
+        receivedBy: 'tester',
+        receivedDate: '2026-06-01',
+        status: 'Draft' as const,
+        items: [
+          {
+            productId: '100',
+            productName: 'Plain',
+            sku: 'PLAIN-1',
+            uom: 'qt',
+            orderedQty: 3,
+            receivedQty: 3,
+            acceptedQty: 3,
+            rejectedQty: 0,
+            unitCost: 4,
+            totalCost: 12,
+          },
+        ],
+        goodsValue: 12,
+        freightCost: 0,
+        landedCost: 12,
+        createdAt: '2026-06-01',
+      };
+      localStorage.setItem('grns', JSON.stringify([draft]));
+      return draft;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('use local purchase_orders fallback'))
+      .mockResolvedValueOnce(okResponse({ lines_processed: 1, total_amount: 12 }))
+      .mockResolvedValueOnce(okResponse({ status: 'GRN' }));
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  async function confirmGoodsReceived(container: HTMLDivElement) {
+    const confirmBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      /confirm goods received/i.test(b.textContent || ''),
+    );
+    expect(confirmBtn).toBeTruthy();
+    await act(async () => {
+      confirmBtn!.click();
+      await Promise.resolve();
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+  }
+
+  function parseGrnReceiveBody() {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const grnReceiveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/grn-receive'));
+    expect(grnReceiveCall).toBeTruthy();
+    return JSON.parse(String((grnReceiveCall![1] as RequestInit).body));
+  }
+
+  async function flushLoaded(container: HTMLDivElement) {
+    for (let i = 0; i < 12; i += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      if (container.querySelector('[aria-label="Location for line 1"]')
+        || container.querySelector('[data-testid="grn-no-bins-putaway-hint"]')) {
+        break;
+      }
+    }
+  }
+
+  it('shows hint and no location select when only MAIN and vans exist', async () => {
+    vi.mocked(stockLocationService.getLocationsFlat).mockResolvedValue([
+      {
+        id: 1,
+        code: 'MAIN',
+        name: 'Main',
+        kind: 'warehouse',
+        vanId: null,
+        isActive: true,
+        parentId: null,
+        path: 'MAIN',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+      {
+        id: 8,
+        code: 'VAN-1',
+        name: 'Van 1',
+        kind: 'van',
+        vanId: 'van-1',
+        isActive: true,
+        parentId: null,
+        path: 'VAN-1',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+    ]);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    expect(container.querySelector('[data-testid="grn-no-bins-putaway-hint"]')?.textContent).toContain('Only the main warehouse exists');
+    expect(container.querySelector('[aria-label="Location for line 1"]')).toBeNull();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('shows location select and Suggest when MAIN and a bin exist, without hint', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    expect(container.querySelector('[aria-label="Location for line 1"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="grn-no-bins-putaway-hint"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Suggest all locations"]')).toBeTruthy();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('shows location select when MAIN and a second warehouse exist, without hint', async () => {
+    vi.mocked(stockLocationService.getLocationsFlat).mockResolvedValue([
+      {
+        id: 1,
+        code: 'MAIN',
+        name: 'Main',
+        kind: 'warehouse',
+        vanId: null,
+        isActive: true,
+        parentId: null,
+        path: 'MAIN',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+      {
+        id: 6,
+        code: 'WH2',
+        name: 'Secondary',
+        kind: 'warehouse',
+        vanId: null,
+        isActive: true,
+        parentId: null,
+        path: 'WH2',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+    ]);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    expect(container.querySelector('[aria-label="Location for line 1"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="grn-no-bins-putaway-hint"]')).toBeNull();
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('never lists van locations in the picker options', async () => {
+    vi.mocked(stockLocationService.getLocationsFlat).mockResolvedValue([
+      {
+        id: 1,
+        code: 'MAIN',
+        name: 'Main',
+        kind: 'warehouse',
+        vanId: null,
+        isActive: true,
+        parentId: null,
+        path: 'MAIN',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+      {
+        id: 5,
+        code: 'B-DEF',
+        name: 'Default bin',
+        kind: 'bin',
+        vanId: null,
+        isActive: true,
+        parentId: 1,
+        path: 'MAIN/B-DEF',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+      {
+        id: 8,
+        code: 'VAN-1',
+        name: 'Van 1',
+        kind: 'van',
+        vanId: 'van-1',
+        isActive: true,
+        parentId: null,
+        path: 'VAN-1',
+        sortOrder: null,
+        capacityUnits: null,
+        barcode: null,
+      },
+    ]);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    const select = container.querySelector('[aria-label="Location for line 1"]') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    const optionCodes = Array.from(select.options).map((opt) => opt.textContent);
+    expect(optionCodes).toContain('MAIN');
+    expect(optionCodes).toContain('B-DEF');
+    expect(optionCodes).not.toContain('VAN-1');
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('posts preview-picked location_id on confirm without draft GRN (PO-only)', async () => {
+    setupPlainSingleLinePo();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    const select = container.querySelector('[aria-label="Location for line 1"]') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    await act(async () => {
+      setSelectValue(select, '5');
+    });
+    await confirmGoodsReceived(container);
+    const body = parseGrnReceiveBody();
+    expect(body.lines[0]).toMatchObject({ productId: 100, location_id: 5 });
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('posts suggestPutaway location_id on PO-only confirm after Suggest', async () => {
+    setupPlainSingleLinePo();
+    vi.mocked(stockLocationService.suggestPutaway).mockResolvedValue({
+      locationId: 5,
+      code: 'B-DEF',
+      path: 'MAIN/B-DEF',
+      reason: 'default_bin',
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    const suggestBtn = container.querySelector('[aria-label="Suggest location line 1"]') as HTMLButtonElement;
+    expect(suggestBtn).toBeTruthy();
+    await act(async () => {
+      suggestBtn.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await confirmGoodsReceived(container);
+    const body = parseGrnReceiveBody();
+    expect(body.lines[0]).toMatchObject({ productId: 100, location_id: 5 });
+    expect(stockLocationService.suggestPutaway).toHaveBeenCalledWith(100, 3);
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('posts MAIN location_id when PO-only confirm with no preview touch and no product default bin', async () => {
+    setupPlainSingleLinePo();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/receiving/new']}>
+          <Routes>
+            <Route path="/receiving/new" element={<GoodsReceivedForm />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+    await flushLoaded(container);
+    await confirmGoodsReceived(container);
+    const body = parseGrnReceiveBody();
+    expect(body.lines[0]).toMatchObject({ productId: 100, location_id: 1 });
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
   it('Suggest all skips a line the user already changed', async () => {
     vi.mocked(stockLocationService.suggestPutaway).mockResolvedValue({
       locationId: 5,

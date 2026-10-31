@@ -68,6 +68,18 @@ const ghostBtn: CSSProperties = {
     fontFamily: 'inherit',
 };
 
+const NO_PUTAWAY_DESTINATIONS_HINT =
+    'Only the main warehouse exists — add bins (or another warehouse) under Warehouse › Locations to enable per-line put-away and Suggest.';
+
+function isMainWarehouseLocation(loc: StockLocationNode): boolean {
+    return loc.kind === 'warehouse' && loc.code === 'MAIN';
+}
+
+/** Active stock-holding location that is not MAIN and not a van (bin or extra warehouse). */
+function isPutawayPickerDestination(loc: StockLocationNode): boolean {
+    return loc.kind !== 'van' && !isMainWarehouseLocation(loc);
+}
+
 function formatPutawayReason(reason: string): string {
     const r = reason.toLowerCase().trim();
     if (r.includes('already')) return 'product already here';
@@ -220,10 +232,15 @@ export default function GoodsReceivedForm() {
     const [deliveryNote, setDeliveryNote] = useState('');
     const lineLocationTouched = useRef(new Set<number>());
     const [linePutawayCaptions, setLinePutawayCaptions] = useState<Record<number, string>>({});
+    const [previewLocationByProductId, setPreviewLocationByProductId] = useState<Record<string, number | null>>({});
 
     const resolveLineLocation = (productId: string, existing?: number | null) => {
         if (existing != null) return existing;
-        const def = catalogDefaults.get(String(productId));
+        const key = String(productId);
+        if (Object.prototype.hasOwnProperty.call(previewLocationByProductId, key)) {
+            return previewLocationByProductId[key];
+        }
+        const def = catalogDefaults.get(key);
         if (def != null) return def;
         return mainLocationId;
     };
@@ -239,6 +256,12 @@ export default function GoodsReceivedForm() {
     useEffect(() => {
         loadData();
     }, [id, poIdParam]);
+
+    useEffect(() => {
+        setPreviewLocationByProductId({});
+        lineLocationTouched.current.clear();
+        setLinePutawayCaptions({});
+    }, [selectedPOId]);
 
     const loadData = async () => {
         setLoading(true);
@@ -453,17 +476,30 @@ export default function GoodsReceivedForm() {
 
     const onLineLocation = (index: number, locationId: number | null) => {
         lineLocationTouched.current.add(index);
-        setItems((prev) => prev.map((item, i) => (i === index ? { ...item, locationId } : item)));
+        if (items.length > 0) {
+            setItems((prev) => prev.map((item, i) => (i === index ? { ...item, locationId } : item)));
+            return;
+        }
+        const productId = previewItems[index]?.productId;
+        if (!productId) return;
+        setPreviewLocationByProductId((prev) => ({ ...prev, [String(productId)]: locationId }));
     };
 
     const suggestLinePutaway = async (index: number) => {
-        const item = items[index];
-        if (!item?.productId) return;
-        const qty = Number(item.acceptedQty) || 0;
+        const line = (items.length > 0 ? items : previewItems)[index];
+        if (!line?.productId) return;
+        const qty = Number(line.acceptedQty ?? line.receivedQty) || 0;
         if (qty <= 0) return;
         try {
-            const suggestion = await suggestPutaway(Number(item.productId), qty);
-            setItems((prev) => prev.map((row, i) => (i === index ? { ...row, locationId: suggestion.locationId } : row)));
+            const suggestion = await suggestPutaway(Number(line.productId), qty);
+            if (items.length > 0) {
+                setItems((prev) => prev.map((row, i) => (i === index ? { ...row, locationId: suggestion.locationId } : row)));
+            } else {
+                setPreviewLocationByProductId((prev) => ({
+                    ...prev,
+                    [String(line.productId)]: suggestion.locationId,
+                }));
+            }
             setLinePutawayCaptions((prev) => ({ ...prev, [index]: formatPutawayReason(suggestion.reason) }));
         } catch {
             setLinePutawayCaptions((prev) => ({ ...prev, [index]: '—' }));
@@ -471,7 +507,8 @@ export default function GoodsReceivedForm() {
     };
 
     const suggestAllPutaway = async () => {
-        for (let index = 0; index < items.length; index += 1) {
+        const lines = items.length > 0 ? items : previewItems;
+        for (let index = 0; index < lines.length; index += 1) {
             if (lineLocationTouched.current.has(index)) continue;
             await suggestLinePutaway(index);
         }
@@ -712,12 +749,24 @@ export default function GoodsReceivedForm() {
             packQtySnapshot: item.pack_qty_snapshot,
             locationId: resolveLineLocation(String(item.productId), null),
         }));
-    }, [items, selectedPO, catalogDefaults, mainLocationId]);
+    }, [items, selectedPO, catalogDefaults, mainLocationId, previewLocationByProductId]);
+
+    const hasPutawayDestinations = useMemo(
+        () => holdingLocations.some(isPutawayPickerDestination),
+        [holdingLocations],
+    );
+
+    const putawayLocationOptions = useMemo(
+        () => holdingLocations.filter((loc) => loc.kind !== 'van'),
+        [holdingLocations],
+    );
 
     const allFullMatch = previewItems.length > 0 && previewItems.every((i) => i.receivedQty === i.orderedQty && i.receivedQty > 0);
     const hasMismatch = previewItems.some((i) => i.receivedQty !== i.orderedQty);
     const poSelected = Boolean(grn || selectedPOId);
     const isPosted = grn?.status === 'Posted';
+    const showLocationPicker = poSelected && !isPosted && hasPutawayDestinations;
+    const showNoBinsPutawayHint = poSelected && !isPosted && !hasPutawayDestinations;
 
     const lotProblem = (() => {
         if (!grn || isPosted) return null;
@@ -1090,7 +1139,7 @@ export default function GoodsReceivedForm() {
                                                         </td>
                                                         <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{formatUsd(item.unitCost)}</td>
                                                         <td style={tdStyle}>
-                                                            {editable ? (
+                                                            {showLocationPicker ? (
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                                     <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                                                                         <select
@@ -1102,7 +1151,7 @@ export default function GoodsReceivedForm() {
                                                                             )}
                                                                             style={{ fontSize: 10, maxWidth: 140 }}
                                                                         >
-                                                                            {holdingLocations.map((loc) => (
+                                                                            {putawayLocationOptions.map((loc) => (
                                                                                 <option key={loc.id} value={loc.id}>
                                                                                     {loc.code}
                                                                                 </option>
@@ -1128,7 +1177,7 @@ export default function GoodsReceivedForm() {
                                                                 </div>
                                                             ) : (
                                                                 <span style={{ fontSize: 10 }}>
-                                                                    {holdingLocations.find((loc) => loc.id === item.locationId)?.code || '—'}
+                                                                    {holdingLocations.find((loc) => loc.id === (item.locationId ?? mainLocationId))?.code || 'MAIN'}
                                                                 </span>
                                                             )}
                                                         </td>
@@ -1148,6 +1197,28 @@ export default function GoodsReceivedForm() {
                                     </table>
                                 </div>
 
+                                {showNoBinsPutawayHint && previewItems.length > 0 && (
+                                    <p
+                                        data-testid="grn-no-bins-putaway-hint"
+                                        style={{ margin: '10px 0 0', fontSize: 10, color: C.dim, lineHeight: 1.45 }}
+                                    >
+                                        {NO_PUTAWAY_DESTINATIONS_HINT}
+                                    </p>
+                                )}
+
+                                {showLocationPicker && previewItems.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                                        <button
+                                            type="button"
+                                            aria-label="Suggest all locations"
+                                            onClick={() => void suggestAllPutaway()}
+                                            style={{ ...ghostBtn, fontSize: 10, color: C.blue, borderColor: 'rgba(79,142,247,.3)' }}
+                                        >
+                                            Suggest all
+                                        </button>
+                                    </div>
+                                )}
+
                                 {grn && !isPosted && (
                                     <>
                                     <div style={{ marginTop: 10 }}>
@@ -1160,14 +1231,6 @@ export default function GoodsReceivedForm() {
                                         style={{ ...ghostBtn, fontSize: 10, color: C.green, borderColor: 'rgba(34,197,94,.3)' }}
                                     >
                                         Receive all quantities
-                                    </button>
-                                    <button
-                                        type="button"
-                                        aria-label="Suggest all locations"
-                                        onClick={() => void suggestAllPutaway()}
-                                        style={{ ...ghostBtn, fontSize: 10, color: C.blue, borderColor: 'rgba(79,142,247,.3)' }}
-                                    >
-                                        Suggest all
                                     </button>
                                     </div>
                                     </>
