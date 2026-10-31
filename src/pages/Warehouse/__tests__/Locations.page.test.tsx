@@ -300,4 +300,133 @@ describe('Locations page', () => {
     });
     container.remove();
   });
+
+  function addButton(container: HTMLElement) {
+    const form = container.querySelector('[data-testid="add-child-form"]') as HTMLFormElement;
+    return Array.from(form.querySelectorAll('button')).find((b) => b.textContent === 'Add') as HTMLButtonElement;
+  }
+
+  it('keeps Add disabled until kind, code, and name are set', async () => {
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(addButton(container).disabled).toBe(true);
+    expect(container.querySelector('[data-testid="add-child-kind-hint"]')?.textContent).toBe('Choose a kind');
+
+    const kind = container.querySelector('[aria-label="Child kind"]') as HTMLSelectElement;
+    const code = container.querySelector('[aria-label="Child code"]') as HTMLInputElement;
+    const name = container.querySelector('[aria-label="Child name"]') as HTMLInputElement;
+    await act(() => {
+      setValue(kind, 'zone');
+    });
+    expect(addButton(container).disabled).toBe(true);
+    expect(container.querySelector('[data-testid="add-child-kind-hint"]')).toBeNull();
+
+    await act(() => {
+      setValue(code, '   ');
+      setValue(name, 'Test Aisle');
+    });
+    expect(addButton(container).disabled).toBe(true);
+
+    await act(() => {
+      setValue(code, 'WH-A');
+    });
+    expect(addButton(container).disabled).toBe(false);
+
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('renders create error detail inline and keeps the typed values', async () => {
+    vi.mocked(stockLocationService.createLocation).mockRejectedValue(new Error('x'));
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const kind = container.querySelector('[aria-label="Child kind"]') as HTMLSelectElement;
+    const code = container.querySelector('[aria-label="Child code"]') as HTMLInputElement;
+    const name = container.querySelector('[aria-label="Child name"]') as HTMLInputElement;
+    await act(() => {
+      setValue(kind, 'zone');
+      setValue(code, 'WH-A');
+      setValue(name, 'Test Aisle');
+    });
+    const treeCalls = vi.mocked(stockLocationService.getLocationTree).mock.calls.length;
+    await act(async () => {
+      addButton(container).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="add-child-error"]')?.textContent).toBe('x');
+    expect(kind.value).toBe('zone');
+    expect(code.value).toBe('WH-A');
+    expect(name.value).toBe('Test Aisle');
+    expect(vi.mocked(stockLocationService.getLocationTree).mock.calls.length).toBe(treeCalls);
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it('re-fetches the tree and selects the new node after create', async () => {
+    const created = {
+      id: 42,
+      code: 'WH-A',
+      name: 'Test Aisle',
+      kind: 'zone',
+      vanId: null,
+      isActive: true,
+      parentId: 1,
+      path: 'MAIN/WH-A',
+      sortOrder: null,
+      capacityUnits: null,
+      barcode: null,
+      children: [],
+    };
+    const nextTree = [
+      {
+        ...tree[0],
+        children: [...(tree[0].children ?? []), created],
+      },
+    ];
+    vi.mocked(stockLocationService.createLocation).mockResolvedValue(created as never);
+    const { container, root } = mount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    vi.mocked(stockLocationService.getLocationTree).mockResolvedValue(nextTree as never);
+    const kind = container.querySelector('[aria-label="Child kind"]') as HTMLSelectElement;
+    const code = container.querySelector('[aria-label="Child code"]') as HTMLInputElement;
+    const name = container.querySelector('[aria-label="Child name"]') as HTMLInputElement;
+    await act(() => {
+      setValue(kind, 'zone');
+      setValue(code, ' WH-A ');
+      setValue(name, 'Test Aisle');
+    });
+    await act(async () => {
+      addButton(container).click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(stockLocationService.createLocation).toHaveBeenCalledWith({
+      code: 'WH-A',
+      name: 'Test Aisle',
+      kind: 'zone',
+      parentId: 1,
+    });
+    expect(vi.mocked(stockLocationService.getLocationTree).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(container.querySelector('[data-testid="loc-node-WH-A"]')).toBeTruthy();
+    expect(container.querySelector('h2')?.textContent).toBe('Test Aisle');
+    expect((container.querySelector('[aria-label="Child code"]') as HTMLInputElement).value).toBe('');
+    expect((container.querySelector('[aria-label="Child name"]') as HTMLInputElement).value).toBe('');
+    expect((container.querySelector('[aria-label="Child kind"]') as HTMLSelectElement).value).toBe('');
+    await act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
 });

@@ -156,6 +156,7 @@ export default function LocationsPage() {
   const [addKind, setAddKind] = useState('');
   const [addCode, setAddCode] = useState('');
   const [addName, setAddName] = useState('');
+  const [addChildError, setAddChildError] = useState<string | null>(null);
   const [transferOpen, setTransferOpen] = useState<LocationOnHandRow | null>(null);
   const [transferQty, setTransferQty] = useState('');
   const [transferDest, setTransferDest] = useState('');
@@ -172,15 +173,18 @@ export default function LocationsPage() {
   );
   const onlyMain = tree.length === 1 && tree[0]?.code === 'MAIN' && !(tree[0]?.children?.length);
 
-  const refreshTree = useCallback(async () => {
+  const refreshTree = useCallback(async (selectId?: number) => {
     setLoading(true);
     setError(null);
     try {
       const nodes = await getLocationTree();
       setTree(nodes);
       setSelected((prev) => {
-        if (!prev) return nodes[0] ?? null;
         const flatNodes = flattenLocationTree(nodes);
+        if (selectId != null) {
+          return flatNodes.find((n) => n.id === selectId) ?? prev ?? nodes[0] ?? null;
+        }
+        if (!prev) return nodes[0] ?? null;
         return flatNodes.find((n) => n.id === prev.id) ?? nodes[0] ?? null;
       });
     } catch (e) {
@@ -204,6 +208,7 @@ export default function LocationsPage() {
     setEditCapacity(selected.capacityUnits != null ? String(selected.capacityUnits) : '');
     setEditBarcode(selected.barcode ?? '');
     setActionError(null);
+    setAddChildError(null);
     if (!isStockHoldingKind(selected.kind)) {
       setOnHand([]);
       return;
@@ -216,6 +221,7 @@ export default function LocationsPage() {
   }, [selected?.id, selected?.kind, selected?.name, selected?.sortOrder, selected?.capacityUnits, selected?.barcode]);
 
   const childKinds = selected ? allowedChildKinds(selected.kind) : [];
+  const canAddChild = addKind.trim() !== '' && addCode.trim() !== '' && addName.trim() !== '';
 
   const handleSaveDetails = async (e: FormEvent) => {
     e.preventDefault();
@@ -240,11 +246,11 @@ export default function LocationsPage() {
 
   const handleAddChild = async (e: FormEvent) => {
     e.preventDefault();
-    if (!selected || !addKind) return;
+    if (!selected || !canAddChild) return;
     setSaving(true);
-    setActionError(null);
+    setAddChildError(null);
     try {
-      await createLocation({
+      const created = await createLocation({
         code: addCode.trim(),
         name: addName.trim(),
         kind: addKind,
@@ -253,9 +259,9 @@ export default function LocationsPage() {
       setAddCode('');
       setAddName('');
       setAddKind('');
-      await refreshTree();
+      await refreshTree(created.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setAddChildError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -467,19 +473,33 @@ export default function LocationsPage() {
               {childKinds.length > 0 && (
                 <form onSubmit={handleAddChild} style={{ marginBottom: 14 }} data-testid="add-child-form">
                   <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', margin: '0 0 6px' }}>Add child</p>
-                  <select aria-label="Child kind" value={addKind} onChange={(e) => setAddKind(e.target.value)} style={{ fontSize: 11, padding: 6, marginRight: 6 }}>
-                    <option value="">Kind</option>
-                    {childKinds.map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                  <input aria-label="Child code" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" style={{ fontSize: 11, padding: 6, marginRight: 6 }} />
-                  <input aria-label="Child name" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" style={{ fontSize: 11, padding: 6, marginRight: 6 }} />
-                  <button type="submit" disabled={saving || !addKind} style={btn}>
-                    Add
-                  </button>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 6 }}>
+                    <div>
+                      <select aria-label="Child kind" value={addKind} onChange={(e) => setAddKind(e.target.value)} style={{ fontSize: 11, padding: 6 }}>
+                        <option value="">Kind</option>
+                        {childKinds.map((k) => (
+                          <option key={k} value={k}>
+                            {k}
+                          </option>
+                        ))}
+                      </select>
+                      {!addKind && (
+                        <p data-testid="add-child-kind-hint" style={{ fontSize: 10, color: '#b91c1c', margin: '4px 0 0' }}>
+                          Choose a kind
+                        </p>
+                      )}
+                    </div>
+                    <input aria-label="Child code" value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="Code" style={{ fontSize: 11, padding: 6 }} />
+                    <input aria-label="Child name" value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="Name" style={{ fontSize: 11, padding: 6 }} />
+                    <button type="submit" disabled={saving || !canAddChild} style={btn}>
+                      Add
+                    </button>
+                  </div>
+                  {addChildError && (
+                    <p data-testid="add-child-error" style={{ color: '#b91c1c', fontSize: 11, margin: '6px 0 0' }}>
+                      {addChildError}
+                    </p>
+                  )}
                 </form>
               )}
 
