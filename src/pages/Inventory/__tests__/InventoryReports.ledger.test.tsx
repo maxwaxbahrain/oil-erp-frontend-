@@ -259,3 +259,111 @@ describe('InventoryReports ledger Phase 1', () => {
     root.unmount();
   });
 });
+
+const supplierAccuracyFixture = [
+  {
+    supplierId: '1',
+    supplierName: 'Erie Shore Petroleum Products',
+    totalOrders: 22,
+    onTimeDeliveries: 20,
+    lateDeliveries: 0,
+    qualityIssues: 0,
+    accuracyScore: 90.9,
+    averageLeadTime: 5.0,
+    expectedLeadTime: 7,
+  },
+  {
+    supplierId: '2',
+    supplierName: 'Lone Star Coolant Corp',
+    totalOrders: 20,
+    onTimeDeliveries: 20,
+    lateDeliveries: 0,
+    qualityIssues: 0,
+    accuracyScore: 100,
+    averageLeadTime: 4.0,
+    expectedLeadTime: 7,
+  },
+  {
+    supplierId: '3',
+    supplierName: 'New Vendor',
+    totalOrders: 1,
+    onTimeDeliveries: 0,
+    lateDeliveries: 0,
+    qualityIssues: 0,
+    accuracyScore: 0,
+    averageLeadTime: 0,
+    expectedLeadTime: 7,
+  },
+];
+
+describe('InventoryReports supplier accuracy open orders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-31T12:00:00'));
+
+    vi.mocked(inventoryLedgerService.getInventoryValuation).mockResolvedValue({
+      as_of: '2026-10-31',
+      totals: { products: 1, units: 1, value: 100 },
+      gl_inventory: 100,
+      difference: 0,
+      rows: [],
+    } as never);
+    vi.mocked(inventoryLedgerService.getInventoryOnHand).mockResolvedValue({ total: 0, totals: { products: 0, units: 0, value_at_cost: 0 }, rows: [] } as never);
+    vi.mocked(glService.getGLProfitLoss).mockResolvedValue({ cogs: 0 } as never);
+    vi.mocked(productService.getProducts).mockResolvedValue([]);
+    vi.mocked(inventoryService.calculateSupplierAccuracy).mockResolvedValue(supplierAccuracyFixture as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  it('shows Open column, caption, per-supplier counts and accuracy labels', async () => {
+    const { container, root } = mountPage();
+    await flush();
+    const supplierCard = Array.from(container.querySelectorAll('[role="button"]')).find(el => el.textContent?.includes('Supplier accuracy'));
+    await act(async () => {
+      supplierCard?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    const text = container.textContent ?? '';
+    expect(text).toContain('Open = ordered, not yet received');
+    const openHeaders = Array.from(container.querySelectorAll('thead th')).filter(th => th.textContent?.trim() === 'Open');
+    expect(openHeaders.length).toBe(1);
+
+    expect(text).toMatch(/Erie Shore Petroleum Products[\s\S]*22[\s\S]*20[\s\S]*0[\s\S]*2[\s\S]*100\.0%/);
+    expect(text).toMatch(/Lone Star Coolant Corp[\s\S]*20[\s\S]*20[\s\S]*0[\s\S]*0[\s\S]*100\.0%/);
+    expect(text).toMatch(/New Vendor[\s\S]*1[\s\S]*0[\s\S]*0[\s\S]*1[\s\S]*—/);
+
+    root.unmount();
+  });
+
+  it('export PDF autoTable head includes Open', async () => {
+    autoTableMock.mockClear();
+    pdfSave.mockClear();
+    const { container, root } = mountPage();
+    await flush();
+
+    const supplierCard = Array.from(container.querySelectorAll('[role="button"]')).find(el => el.textContent?.includes('Supplier accuracy'));
+    await act(async () => {
+      supplierCard?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    const exportBtn = Array.from(container.querySelectorAll('button')).find(b => (b.textContent ?? '').includes('Export PDF'));
+    await act(async () => {
+      exportBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    expect(pdfSave).toHaveBeenCalledTimes(1);
+    expect(autoTableMock).toHaveBeenCalledTimes(1);
+    const firstCall = autoTableMock.mock.calls[0]?.[1] as { head?: string[][] } | undefined;
+    expect(firstCall?.head?.[0]).toContain('Open');
+
+    root.unmount();
+  });
+});
