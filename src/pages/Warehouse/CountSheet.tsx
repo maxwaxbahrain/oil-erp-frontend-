@@ -66,6 +66,9 @@ export default function CountSheetPage() {
   const [lineError, setLineError] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [foundOpen, setFoundOpen] = useState(false);
+  const [completePromptOpen, setCompletePromptOpen] = useState(false);
+  const [footerError, setFooterError] = useState<string | null>(null);
+  const [footerSuccess, setFooterSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!Number.isFinite(countId)) return;
@@ -94,7 +97,6 @@ export default function CountSheetPage() {
     [count],
   );
   const groups = useMemo(() => groupByLocation(lines), [lines]);
-  const open = lines.filter((line) => line.status === 'pending' || line.status === 'recount').length;
   const editable = canCount && (count?.status === 'counting' || (count?.status === 'review' && canManage));
 
   async function run(action: () => Promise<CycleCountDetail>, lineId?: number): Promise<boolean> {
@@ -132,17 +134,56 @@ export default function CountSheetPage() {
     }
   }
 
-  async function onComplete() {
+  function uncountedLines(): CycleCountLine[] {
+    return lines.filter((line) => line.status === 'pending' || line.status === 'recount');
+  }
+
+  async function finishComplete() {
     setBusy(true);
-    setError(null);
+    setFooterError(null);
+    setFooterSuccess(null);
     try {
-      await completeCount(countId);
-      navigate('/warehouse/counts?status=review');
+      const updated = await completeCount(countId);
+      setCount(updated);
+      const refreshed = updated.status === 'review' ? updated : await getCount(countId);
+      setCount(refreshed);
+      if (refreshed.status === 'review') {
+        setFooterSuccess('Count moved to Review');
+        navigate('/warehouse/counts?status=review');
+      }
     } catch (err) {
-      setError(errorText(err));
+      setFooterError(errorText(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  function onCompleteClick() {
+    setFooterError(null);
+    setFooterSuccess(null);
+    if (uncountedLines().length > 0) {
+      setCompletePromptOpen(true);
+      return;
+    }
+    void finishComplete();
+  }
+
+  async function onSkipAllAndComplete() {
+    const pending = uncountedLines();
+    setCompletePromptOpen(false);
+    setFooterError(null);
+    setFooterSuccess(null);
+    setBusy(true);
+    try {
+      for (const line of pending) {
+        setCount(await skipLine(countId, line.id));
+      }
+    } catch (err) {
+      setFooterError(errorText(err));
+      setBusy(false);
+      return;
+    }
+    await finishComplete();
   }
 
   async function onScan(code: string) {
@@ -282,9 +323,35 @@ export default function CountSheetPage() {
 
       {count.status === 'counting' && canCount && (
         <footer style={{ display: 'grid', gap: 4 }}>
-          <button type="button" style={primary} disabled={open > 0 || busy} onClick={() => void onComplete()}>Complete</button>
-          {open > 0 && <span style={{ fontSize: 12 }}>{`${open} line(s) still need a count or a skip`}</span>}
+          <button type="button" style={primary} disabled={busy} onClick={() => onCompleteClick()}>Complete</button>
+          {footerError && (
+            <p role="alert" data-testid="count-footer-error" style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>
+              {footerError}
+            </p>
+          )}
+          {footerSuccess && (
+            <p data-testid="count-complete-success" style={{ color: '#16a34a', fontSize: 13, margin: 0 }}>
+              {footerSuccess}
+            </p>
+          )}
         </footer>
+      )}
+
+      {completePromptOpen && (
+        <div
+          role="dialog"
+          aria-label="Complete count"
+          data-testid="complete-skip-dialog"
+          style={{ ...card, position: 'fixed', inset: 24, overflow: 'auto', zIndex: 20, background: 'var(--color-redwood-bg-surface)' }}
+        >
+          <p style={{ fontSize: 14, margin: '0 0 12px' }}>
+            {`${uncountedLines().length} lines are not counted. Mark them Skipped and complete the count?`}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" style={btn} disabled={busy} onClick={() => setCompletePromptOpen(false)}>Cancel</button>
+            <button type="button" style={primary} disabled={busy} onClick={() => void onSkipAllAndComplete()}>Skip &amp; complete</button>
+          </div>
+        </div>
       )}
 
       {foundOpen && (
