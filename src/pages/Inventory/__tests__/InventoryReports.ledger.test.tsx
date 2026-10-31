@@ -3,6 +3,23 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { pdfSave, autoTableMock } = vi.hoisted(() => ({
+  pdfSave: vi.fn(),
+  autoTableMock: vi.fn(),
+}));
+
+vi.mock('jspdf', () => ({
+  default: vi.fn(function MockJsPDF(this: { setFontSize: ReturnType<typeof vi.fn>; text: ReturnType<typeof vi.fn>; save: typeof pdfSave }) {
+    this.setFontSize = vi.fn();
+    this.text = vi.fn();
+    this.save = pdfSave;
+  }),
+}));
+
+vi.mock('jspdf-autotable', () => ({
+  default: autoTableMock,
+}));
+
 import InventoryReports from '../InventoryReports';
 import * as inventoryLedgerService from '../../../services/inventoryLedgerService';
 import * as glService from '../../../services/glService';
@@ -56,12 +73,22 @@ valuationFixture.rows[1].value = 109898.53;
 valuationFixture.rows[2].value = 361683.18;
 
 const onHandFixture = {
-  total: 3,
-  totals: { products: 3, units: 14407, value_at_cost: 659883.98 },
+  total: 4,
+  totals: { products: 4, units: 14407, value_at_cost: 709883.98 },
   rows: [
     { product_id: 11, name: '0W-16', sku: 'P011', unit: 'ea', on_hand: 4827, stock_cached: 4827, cost: 39.01, value_at_cost: 188301.27, min_stock: 0, last_movement_date: '2026-10-20', days_since_movement: 12, drift: false },
     { product_id: 3, name: '0W-20', sku: 'P003', unit: 'ea', on_hand: 4193, stock_cached: 4193, cost: 26.21, value_at_cost: 109898.53, min_stock: 0, last_movement_date: '2026-07-01', days_since_movement: 95, drift: false },
     { product_id: 5, name: '10W-40', sku: 'P005', unit: 'ea', on_hand: 5387, stock_cached: 5387, cost: 67.14, value_at_cost: 361683.18, min_stock: 0, last_movement_date: '2026-04-01', days_since_movement: 200, drift: false },
+    { product_id: 8, name: '5W-30 Bulk', sku: 'P008', unit: 'ea', on_hand: 100, stock_cached: 100, cost: 500, value_at_cost: 50000.0, min_stock: 0, last_movement_date: '2026-08-22', days_since_movement: 70, drift: false },
+  ],
+};
+
+const onHandAllActiveFixture = {
+  total: 2,
+  totals: { products: 2, units: 9020, value_at_cost: 298199.8 },
+  rows: [
+    { product_id: 11, name: '0W-16', sku: 'P011', unit: 'ea', on_hand: 4827, stock_cached: 4827, cost: 39.01, value_at_cost: 188301.27, min_stock: 0, last_movement_date: '2026-10-20', days_since_movement: 12, drift: false },
+    { product_id: 3, name: '0W-20', sku: 'P003', unit: 'ea', on_hand: 4193, stock_cached: 4193, cost: 26.21, value_at_cost: 109898.53, min_stock: 0, last_movement_date: '2026-09-15', days_since_movement: 45, drift: false },
   ],
 };
 
@@ -140,10 +167,18 @@ describe('InventoryReports ledger Phase 1', () => {
     });
     await flush();
 
+    expect(container.textContent).toContain('2 product');
+    expect(container.textContent).toContain('$471,581.71');
+    expect(container.textContent).toContain('Slow movers');
+    expect(container.textContent).toContain('5W-30 Bulk');
+    expect(container.textContent).toContain('Monitor');
     expect(container.textContent).toContain('0W-20');
     expect(container.textContent).toContain('10W-40');
-    expect(container.textContent).not.toMatch(/0W-16[\s\S]*Days idle[\s\S]*12/);
-    expect(container.textContent).toContain('$471,581.71');
+    const modalTables = Array.from(container.querySelectorAll('table'));
+    const deadSlowTables = modalTables.filter(t => t.textContent?.includes('Days idle'));
+    deadSlowTables.forEach(table => {
+      expect(table.textContent).not.toContain('0W-16');
+    });
 
     expect(container.textContent).toMatch(/\d+\.\d+x/);
     expect(container.textContent).toContain('COGS');
@@ -176,6 +211,50 @@ describe('InventoryReports ledger Phase 1', () => {
     expect(container.textContent).toContain('—');
     expect(container.textContent).toContain('Network down');
     expect(container.textContent).not.toContain('$0.00');
+
+    root.unmount();
+  });
+
+  it('shows green dead-stock banner and zero locked capital when nothing idle 60+ days', async () => {
+    vi.mocked(inventoryLedgerService.getInventoryOnHand).mockResolvedValue(onHandAllActiveFixture as never);
+    const { container, root } = mountPage();
+    await flush();
+
+    expect(container.textContent).toContain('$0.00');
+
+    const deadCard = Array.from(container.querySelectorAll('[role="button"]')).find(el => el.textContent?.includes('Dead stock audit'));
+    await act(async () => {
+      deadCard?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    expect(container.textContent).toContain('No dead stock');
+    expect(container.textContent).not.toContain('Critical Alert');
+    expect(container.textContent).toContain('No slow movers.');
+
+    root.unmount();
+  });
+
+  it('export PDF calls jsPDF autoTable twice when dead and slow sections have rows', async () => {
+    autoTableMock.mockClear();
+    pdfSave.mockClear();
+    const { container, root } = mountPage();
+    await flush();
+
+    const deadCard = Array.from(container.querySelectorAll('[role="button"]')).find(el => el.textContent?.includes('Dead stock audit'));
+    await act(async () => {
+      deadCard?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    const exportBtn = Array.from(container.querySelectorAll('button')).find(b => (b.textContent ?? '').includes('Export PDF'));
+    await act(async () => {
+      exportBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flush();
+
+    expect(pdfSave).toHaveBeenCalledTimes(1);
+    expect(autoTableMock).toHaveBeenCalledTimes(2);
 
     root.unmount();
   });

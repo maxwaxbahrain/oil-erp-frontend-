@@ -14,6 +14,7 @@ import {
     X,
     FileText,
     AlertTriangle,
+    CheckCircle,
     Sparkles,
     Bot,
     Brain,
@@ -48,11 +49,15 @@ import {
     periodPresets,
     type PeriodPresetKey,
 } from '../../utils/periodPresets';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 /** Phase 2/3: enable when backend data exists for FIFO/LIFO, loss, SQL filter, AI panels. */
 const SHOW_LEGACY_ESTIMATE_REPORTS = false;
 
 const SUPPLIER_ON_TIME_DAYS = 7;
+const SLOW_STOCK_MIN_IDLE_DAYS = 60;
+const DEAD_STOCK_MIN_IDLE_DAYS = 90;
 
 const RECEIPT_SOURCE_TYPES = new Set(['grn', 'opening']);
 const ISSUE_SOURCE_TYPES = new Set(['invoice']);
@@ -110,6 +115,13 @@ type ValuationMethod = 'Average' | 'FIFO' | 'LIFO';
 type QueryMode = 'nl' | 'sql';
 
 type LedgerDeadStockRow = OnHandRow & { daysIdle: number; action: string };
+type LedgerSlowStockRow = OnHandRow & { daysIdle: number };
+
+export type LedgerDeadStockReportData = {
+    asOf: string;
+    dead: LedgerDeadStockRow[];
+    slow: LedgerSlowStockRow[];
+};
 
 const pageRootStyle: CSSProperties = {
     padding: 12,
@@ -311,6 +323,66 @@ function deadStockAction(days: number): string {
     if (days >= 180) return 'Write down';
     if (days >= 90) return 'Clear';
     return 'Monitor';
+}
+
+function buildLedgerDeadStockReportData(rows: OnHandRow[], asOf: string): LedgerDeadStockReportData {
+    const dead = rows
+        .filter(r => (r.days_since_movement ?? 0) >= DEAD_STOCK_MIN_IDLE_DAYS)
+        .map((r): LedgerDeadStockRow => ({
+            ...r,
+            daysIdle: r.days_since_movement ?? 0,
+            action: deadStockAction(r.days_since_movement ?? 0),
+        }));
+    const slow = rows
+        .filter(r => {
+            const d = r.days_since_movement ?? 0;
+            return d >= SLOW_STOCK_MIN_IDLE_DAYS && d < DEAD_STOCK_MIN_IDLE_DAYS;
+        })
+        .map((r): LedgerSlowStockRow => ({
+            ...r,
+            daysIdle: r.days_since_movement ?? 0,
+        }));
+    return { asOf, dead, slow };
+}
+
+export function exportLedgerDeadStockPdf(data: LedgerDeadStockReportData) {
+    const formatCurrency = globalFormatCurrency;
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Dead Stock Audit', 14, 16);
+    doc.setFontSize(10);
+    doc.text(`As of ${data.asOf}`, 14, 22);
+
+    doc.text('Dead Stock Detail', 14, 28);
+    autoTable(doc, {
+        startY: 32,
+        head: [['Product', 'SKU', 'Stock', 'Days idle', 'Locked capital', 'Action']],
+        body: data.dead.map(item => [
+            item.name,
+            item.sku || '—',
+            String(item.on_hand),
+            String(item.daysIdle),
+            formatCurrency(item.value_at_cost),
+            item.action,
+        ]),
+    });
+
+    const slowStartY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 40;
+    doc.text('Slow movers (60–89 days idle)', 14, slowStartY + 10);
+    autoTable(doc, {
+        startY: slowStartY + 14,
+        head: [['Product', 'SKU', 'Stock', 'Days idle', 'Value at cost', 'Action']],
+        body: data.slow.map(item => [
+            item.name,
+            item.sku || '—',
+            String(item.on_hand),
+            String(item.daysIdle),
+            formatCurrency(item.value_at_cost),
+            'Monitor',
+        ]),
+    });
+
+    doc.save(`DeadStock_${data.asOf}.pdf`);
 }
 
 function buildCategoryRollup(
@@ -699,13 +771,7 @@ export default function InventoryReports() {
                 }
                 case 'deadstock': {
                     const onHand = await getInventoryOnHand({ limit: 1000 });
-                    data = (onHand.rows ?? [])
-                        .filter(r => (r.days_since_movement ?? 0) >= 90)
-                        .map((r): LedgerDeadStockRow => ({
-                            ...r,
-                            daysIdle: r.days_since_movement ?? 0,
-                            action: deadStockAction(r.days_since_movement ?? 0),
-                        }));
+                    data = buildLedgerDeadStockReportData(onHand.rows ?? [], dateTo);
                     break;
                 }
                 case 'supplier':
@@ -1405,7 +1471,9 @@ function ReportModal({
                                     dateTo={(data as { dateTo: string }).dateTo}
                                 />
                             )}
-                            {type === 'deadstock' && <LedgerDeadStockReport data={data as LedgerDeadStockRow[]} />}
+                            {type === 'deadstock' && data && (
+                                <LedgerDeadStockReport data={data as LedgerDeadStockReportData} />
+                            )}
                             {type === 'supplier' && <SupplierReport data={data as SupplierAccuracy[]} />}
                             {type === 'loss' && <LossReport data={data as LossLeakage[]} />}
                             {type === 'forecast' && data && (
@@ -1424,7 +1492,13 @@ function ReportModal({
                     </p>
                     <button
                         type="button"
-                        onClick={() => window.print()}
+                        onClick={() => {
+                            if (type === 'deadstock' && data) {
+                                exportLedgerDeadStockPdf(data as LedgerDeadStockReportData);
+                            } else {
+                                window.print();
+                            }
+                        }}
                         style={{ ...ghostBtn, marginLeft: 'auto' }}
                     >
                         <Download size={14} /> Export PDF
@@ -1512,7 +1586,9 @@ function LedgerAvgCostReport({ data }: { data: InventoryValuationReport }) {
 function ReportTable({ title, headers, rows }: { title: string; headers: string[]; rows: string[][] }) {
     return (
         <div>
-            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>{title}</h3>
+            {title ? (
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-redwood-text-main)', marginBottom: 10 }}>{title}</h3>
+            ) : null}
             <div style={{ ...panel, overflow: 'hidden', padding: 0 }}>
                 <table className="w-full">
                     <thead>
@@ -1606,34 +1682,98 @@ function LedgerMovementReport({ rows, dateFrom, dateTo }: { rows: LedgerMovement
     );
 }
 
-function LedgerDeadStockReport({ data }: { data: LedgerDeadStockRow[] }) {
+function LedgerDeadStockReport({ data }: { data: LedgerDeadStockReportData }) {
     const formatCurrency = globalFormatCurrency;
-    const locked = data.reduce((sum, d) => sum + (d.value_at_cost || 0), 0);
+    const { dead, slow, asOf } = data;
+    const locked = dead.reduce((sum, d) => sum + (d.value_at_cost || 0), 0);
+    const asOfLabel = formatRangeDate(asOf);
+
     return (
         <div className="space-y-6">
-            <div style={{ ...panel, padding: 16, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.2)' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <AlertTriangle style={{ color: 'var(--color-brand-red-tint)', flexShrink: 0 }} size={22} />
-                    <div>
-                        <h3 style={{ fontWeight: 700, color: 'var(--color-brand-red-tint)', fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
-                        <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
-                            {data.length} products with no ledger movement in 90+ days. Total locked capital: {formatCurrency(locked)}
+            {dead.length === 0 ? (
+                <div
+                    style={{
+                        ...panel,
+                        padding: 16,
+                        background: 'var(--color-badge-green-bg)',
+                        borderColor: 'var(--color-redwood-border)',
+                    }}
+                >
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <CheckCircle style={{ color: 'var(--color-brand-green-tint)', flexShrink: 0 }} size={22} />
+                        <p style={{ fontSize: 11, color: 'var(--color-brand-green-tint)', lineHeight: 1.5, margin: 0 }}>
+                            No dead stock — no product has been idle 90+ days as of {asOfLabel}.
                         </p>
                     </div>
                 </div>
+            ) : (
+                <div
+                    style={{
+                        ...panel,
+                        padding: 16,
+                        background: 'var(--color-badge-red-bg)',
+                        borderColor: 'var(--color-redwood-border)',
+                    }}
+                >
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                        <AlertTriangle style={{ color: 'var(--color-brand-red-tint)', flexShrink: 0 }} size={22} />
+                        <div>
+                            <h3 style={{ fontWeight: 700, color: 'var(--color-brand-red-tint)', fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
+                            <p style={{ fontSize: 11, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5, margin: 0 }}>
+                                {dead.length} product{dead.length === 1 ? '' : 's'} with no ledger movement in 90+ days · locked capital {formatCurrency(locked)}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {dead.length > 0 && (
+                <ReportTable
+                    title="Dead Stock Detail"
+                    headers={['Product', 'SKU', 'Stock', 'Days idle', 'Locked capital', 'Action']}
+                    rows={dead.map(item => [
+                        item.name,
+                        item.sku || '—',
+                        String(item.on_hand),
+                        String(item.daysIdle),
+                        formatCurrency(item.value_at_cost),
+                        item.action,
+                    ])}
+                />
+            )}
+
+            <div>
+                <h3
+                    style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: 'var(--color-brand-amber-tint)',
+                        marginBottom: 10,
+                        padding: '8px 10px',
+                        background: 'var(--color-badge-amber-bg)',
+                        borderRadius: 8,
+                        border: '1px solid var(--color-redwood-border)',
+                    }}
+                >
+                    Slow movers (60–89 days idle)
+                </h3>
+                {slow.length === 0 ? (
+                    <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', margin: 0 }}>No slow movers.</p>
+                ) : (
+                    <ReportTable
+                        title=""
+                        headers={['Product', 'SKU', 'Stock', 'Days idle', 'Value at cost', 'Action']}
+                        rows={slow.map(item => [
+                            item.name,
+                            item.sku || '—',
+                            String(item.on_hand),
+                            String(item.daysIdle),
+                            formatCurrency(item.value_at_cost),
+                            'Monitor',
+                        ])}
+                    />
+                )}
             </div>
-            <ReportTable
-                title="Dead Stock Detail"
-                headers={['Product', 'SKU', 'Stock', 'Days idle', 'Locked capital', 'Action']}
-                rows={data.map(item => [
-                    item.name,
-                    item.sku || '—',
-                    String(item.on_hand),
-                    String(item.daysIdle),
-                    formatCurrency(item.value_at_cost),
-                    item.action,
-                ])}
-            />
         </div>
     );
 }
