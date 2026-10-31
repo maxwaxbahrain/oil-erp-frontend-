@@ -85,6 +85,7 @@ function mapTree(nodes: RawLocation[]): StockLocationNode[] {
 }
 
 export function allowedChildKinds(parentKind: string): string[] {
+  // Mirrors _PARENT_KINDS in app/services/stock_locations.py create_location.
   switch (parentKind) {
     case 'warehouse':
       return ['zone'];
