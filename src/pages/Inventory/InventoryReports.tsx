@@ -24,31 +24,42 @@ import {
 } from 'lucide-react';
 import { getProducts, type Product } from '../../services/productService';
 import {
-    getInventoryMetrics,
-    calculateInventoryValuation,
     calculateFIFOValuation,
     calculateLIFOValuation,
-    calculateAvgCostValuation,
     calculateStockMovement,
-    identifyDeadStock,
     calculateSupplierAccuracy,
     calculateLossLeakage,
     generateForecastingData,
-    type InventoryValuation,
     type StockMovement,
-    type DeadStock,
     type SupplierAccuracy,
     type LossLeakage,
     type ForecastingData,
-    type InventoryMetrics,
     type CostMethodValuation,
 } from '../../services/inventoryService';
+import {
+    getInventoryValuation,
+    getInventoryOnHand,
+    type InventoryValuationReport,
+    type InventoryValuationRow,
+    type OnHandRow,
+} from '../../services/inventoryLedgerService';
+import { getGLProfitLoss } from '../../services/glService';
+import {
+    PERIOD_PRESET_CUSTOM,
+    periodPresets,
+    type PeriodPresetKey,
+} from '../../utils/periodPresets';
+
+/** Phase 2/3: enable when backend data exists for FIFO/LIFO, loss, forecast, SQL filter, AI panels. */
+const SHOW_ESTIMATE_REPORTS = false;
 
 type ReportType = 'valuation' | 'fifo' | 'lifo' | 'avgcost' | 'movement' | 'deadstock' | 'supplier' | 'loss' | 'forecast' | null;
 type PageTab = 'overview' | 'material-audit' | 'stock-adjustment' | 'forecasting' | 'supplier-accuracy';
-type PeriodKey = 'may' | 'q2' | 'ytd' | 'fy' | 'custom';
+type PeriodKey = PeriodPresetKey | typeof PERIOD_PRESET_CUSTOM;
 type ValuationMethod = 'Average' | 'FIFO' | 'LIFO';
 type QueryMode = 'nl' | 'sql';
+
+type LedgerDeadStockRow = OnHandRow & { daysIdle: number; action: string };
 
 const C = {
     bg: '#0b1120',
@@ -84,14 +95,6 @@ const ghostBtn: CSSProperties = {
     fontFamily: 'inherit',
 };
 
-const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
-    { key: 'may', label: 'May 2026' },
-    { key: 'q2', label: 'Q2 2026' },
-    { key: 'ytd', label: 'YTD 2026' },
-    { key: 'fy', label: 'FY 2025' },
-    { key: 'custom', label: 'Custom' },
-];
-
 const PAGE_TABS: { id: PageTab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'material-audit', label: 'Material audit' },
@@ -105,22 +108,60 @@ const QUERY_CHIPS = ['Fast movers', 'Dead stock', 'High margin', 'Low turnover',
 const AI_INSIGHTS: Array<{ color: string; title: string; body: string }> = [];
 const AI_ACTIONS: Array<{ color: string; title: string; detail: string; report: ReportType }> = [];
 
-function fmtCompactUsd(value: number): string {
-    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-    if (value >= 1000) return `$${Math.round(value / 1000)}K`;
-    return `$${value.toFixed(0)}`;
-}
-
-function fmtOptionalPct(value: number | null | undefined, decimals = 1): string {
-    return value == null ? '—' : `${value.toFixed(decimals)}%`;
-}
-
 function fmtOptionalNumber(value: number | null | undefined, suffix = ''): string {
     return value == null ? '—' : `${value}${suffix}`;
 }
 
 function getTotalStock(p: Product): number {
     return p.locations?.reduce((a, b) => a + (b.currentStock ?? 0), 0) ?? 0;
+}
+
+function periodDayCount(from: string, to: string): number {
+    const start = new Date(`${from}T12:00:00`);
+    const end = new Date(`${to}T12:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / (86400000)) + 1);
+}
+
+function formatRangeDate(iso: string): string {
+    const d = new Date(`${iso}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function deadStockAction(days: number): string {
+    if (days >= 180) return 'Write down';
+    if (days >= 90) return 'Clear';
+    return 'Monitor';
+}
+
+function buildCategoryRollup(
+    rows: InventoryValuationRow[],
+    categoryByProductId: Map<number, string>,
+    totalValue: number,
+) {
+    const map = new Map<string, { value: number; units: number }>();
+    for (const row of rows) {
+        const cat = categoryByProductId.get(row.product_id) || 'Uncategorised';
+        const cur = map.get(cat) || { value: 0, units: 0 };
+        cur.value += row.value;
+        cur.units += row.on_hand;
+        map.set(cat, cur);
+    }
+    return Array.from(map.entries()).map(([category, data]) => ({
+        category,
+        value: data.value,
+        units: data.units,
+        percentage: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+    }));
+}
+
+function glDifferenceLabel(difference: number | null): { text: string; ok: boolean } {
+    if (difference == null) return { text: 'Ties to GL', ok: true };
+    const ok = Math.abs(difference) < 0.005;
+    return ok
+        ? { text: 'Ties to GL', ok: true }
+        : { text: `Difference ${globalFormatCurrency(difference)}`, ok: false };
 }
 
 function CostMethodReport({ data }: { data: CostMethodValuation }) {
@@ -186,12 +227,20 @@ function CostMethodReport({ data }: { data: CostMethodValuation }) {
 
 export default function InventoryReports() {
     const navigate = useNavigate();
-    const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
+    const defaultYtd = periodPresets().find(p => p.key === 'ytd') ?? periodPresets()[1];
     const [loading, setLoading] = useState(true);
     const [activeReport, setActiveReport] = useState<ReportType>(null);
     const [reportData, setReportData] = useState<any>(null);
     const [activeTab, setActiveTab] = useState<PageTab>('material-audit');
-    const [activePeriod, setActivePeriod] = useState<PeriodKey>('may');
+    const [period, setPeriod] = useState<PeriodKey>('ytd');
+    const [dateFrom, setDateFrom] = useState(defaultYtd.from);
+    const [dateTo, setDateTo] = useState(defaultYtd.to);
+    const [ledgerValuation, setLedgerValuation] = useState<InventoryValuationReport | null>(null);
+    const [valuationError, setValuationError] = useState<string | null>(null);
+    const [onHandRows, setOnHandRows] = useState<OnHandRow[]>([]);
+    const [turnoverRatio, setTurnoverRatio] = useState<number | null>(null);
+    const [turnoverSubline, setTurnoverSubline] = useState('No movement history');
+    const [categoryByProductId, setCategoryByProductId] = useState<Map<number, string>>(new Map());
     const [valuationMethod, setValuationMethod] = useState<ValuationMethod>(() => {
         const m = getSystemSettings().valuationMethod || 'Average Cost';
         if (m === 'FIFO') return 'FIFO';
@@ -203,18 +252,55 @@ export default function InventoryReports() {
     const [activeChip, setActiveChip] = useState<string | null>(null);
     const [queryProducts, setQueryProducts] = useState<Product[]>([]);
 
-    useEffect(() => {
-        void loadMetrics();
-        void loadQueryProducts();
-    }, []);
+    const applyPeriod = (key: PeriodKey) => {
+        setPeriod(key);
+        if (key === PERIOD_PRESET_CUSTOM) return;
+        const preset = periodPresets().find(p => p.key === key);
+        if (preset) {
+            setDateFrom(preset.from);
+            setDateTo(preset.to);
+        }
+    };
 
-    const loadMetrics = async () => {
+    const loadLedgerMetrics = async () => {
         setLoading(true);
+        setValuationError(null);
         try {
-            const data = await getInventoryMetrics();
-            setMetrics(data);
+            const [valuation, onHand, pl, valuationStart] = await Promise.all([
+                getInventoryValuation({ as_of: dateTo }),
+                getInventoryOnHand({ limit: 1000 }),
+                getGLProfitLoss(dateFrom, dateTo),
+                dateFrom !== dateTo
+                    ? getInventoryValuation({ as_of: dateFrom })
+                    : Promise.resolve(null as InventoryValuationReport | null),
+            ]);
+            setLedgerValuation(valuation);
+            setOnHandRows(onHand.rows ?? []);
+
+            const cogs = Number(pl.cogs) || 0;
+            const endStock = valuation.totals.value;
+            const startStock = valuationStart?.totals.value ?? endStock;
+            const avgStock = (startStock + endStock) / 2;
+            let ratio = avgStock > 0 ? cogs / avgStock : null;
+            const days = periodDayCount(dateFrom, dateTo);
+            let annualNote = '';
+            if (ratio != null && days > 0 && days < 365) {
+                ratio *= 365 / days;
+                annualNote = ` (annualised × ${(365 / days).toFixed(2)})`;
+            }
+            setTurnoverRatio(ratio);
+            setTurnoverSubline(
+                ratio == null
+                    ? 'No movement history'
+                    : `COGS ${globalFormatCurrency(cogs)} ÷ avg stock ${globalFormatCurrency(avgStock)}${annualNote}`,
+            );
         } catch (error) {
-            console.error('Failed to load metrics:', error);
+            console.error('Failed to load ledger metrics:', error);
+            setLedgerValuation(null);
+            setOnHandRows([]);
+            setTurnoverRatio(null);
+            setTurnoverSubline('No movement history');
+            setValuationError(error instanceof Error ? error.message : 'Failed to load inventory valuation');
         } finally {
             setLoading(false);
         }
@@ -224,10 +310,26 @@ export default function InventoryReports() {
         try {
             const products = await getProducts();
             setQueryProducts(products);
+            const catMap = new Map<number, string>();
+            for (const p of products) {
+                const pid = Number(p.id);
+                if (Number.isFinite(pid)) {
+                    catMap.set(pid, p.category || p.categoryName || 'Uncategorised');
+                }
+            }
+            setCategoryByProductId(catMap);
         } catch (error) {
             console.error('Failed to load products for query engine:', error);
         }
     };
+
+    useEffect(() => {
+        void loadQueryProducts();
+    }, []);
+
+    useEffect(() => {
+        void loadLedgerMetrics();
+    }, [dateFrom, dateTo]);
 
     const runReport = async (type: ReportType) => {
         setActiveReport(type);
@@ -237,14 +339,23 @@ export default function InventoryReports() {
             let data;
             switch (type) {
                 case 'valuation':
-                    data = await calculateInventoryValuation();
+                case 'avgcost':
+                    data = await getInventoryValuation({ as_of: dateTo });
                     break;
                 case 'movement':
                     data = await calculateStockMovement();
                     break;
-                case 'deadstock':
-                    data = await identifyDeadStock();
+                case 'deadstock': {
+                    const onHand = await getInventoryOnHand({ limit: 1000 });
+                    data = (onHand.rows ?? [])
+                        .filter(r => (r.days_since_movement ?? 0) >= 90)
+                        .map((r): LedgerDeadStockRow => ({
+                            ...r,
+                            daysIdle: r.days_since_movement ?? 0,
+                            action: deadStockAction(r.days_since_movement ?? 0),
+                        }));
                     break;
+                }
                 case 'supplier':
                     data = await calculateSupplierAccuracy();
                     break;
@@ -259,9 +370,6 @@ export default function InventoryReports() {
                     break;
                 case 'lifo':
                     data = await calculateLIFOValuation();
-                    break;
-                case 'avgcost':
-                    data = await calculateAvgCostValuation();
                     break;
             }
             setReportData(data);
@@ -292,9 +400,21 @@ export default function InventoryReports() {
     };
 
     const generateGlobalAudit = () => {
-        void loadMetrics();
+        void loadLedgerMetrics();
         void runReport('valuation');
     };
+
+    const lockedCapitalDead = useMemo(
+        () => onHandRows
+            .filter(r => (r.days_since_movement ?? 0) >= 90)
+            .reduce((sum, r) => sum + (r.value_at_cost || 0), 0),
+        [onHandRows],
+    );
+
+    const rangeLabel = `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`;
+    const valuationGlSub = ledgerValuation
+        ? glDifferenceLabel(ledgerValuation.difference)
+        : { text: '', ok: true };
 
     const filteredQueryRows = useMemo(() => {
         let rows = queryProducts.filter(p => getTotalStock(p) >= 0);
@@ -326,6 +446,13 @@ export default function InventoryReports() {
         { id: 'avgcost' as ReportType, title: 'Average cost detail', description: 'Weighted average cost valuation per product.', icon: DollarSign, iconColor: C.amber, iconBg: 'rgba(245,158,11,.12)' },
         { id: 'forecast' as ReportType, title: 'Demand forecasting', description: 'No forecast source connected; projected demand is blank.', icon: PieChart, iconColor: C.purple, iconBg: 'rgba(155,111,228,.12)' },
     ];
+
+    const visibleReports = reports.filter(r => {
+        if (!SHOW_ESTIMATE_REPORTS && (r.id === 'fifo' || r.id === 'lifo' || r.id === 'loss' || r.id === 'forecast')) {
+            return false;
+        }
+        return true;
+    });
 
     const pillBtn = (active: boolean, activeStyle?: { border: string; bg: string; color: string }) => ({
         padding: '4px 11px',
@@ -394,24 +521,48 @@ export default function InventoryReports() {
 
             {/* Period pills + Tabs */}
             <div style={{ ...panel, padding: '12px 14px' }}>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
-                    {PERIOD_PILLS.map(p => (
-                        <button
-                            key={p.key}
-                            type="button"
-                            onClick={() => { setActivePeriod(p.key); void loadMetrics(); }}
-                            style={pillBtn(
-                                activePeriod === p.key,
-                                p.key === 'ytd'
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {periodPresets().map(p => (
+                            <button
+                                key={p.key}
+                                type="button"
+                                onClick={() => applyPeriod(p.key)}
+                                style={pillBtn(period === p.key, p.key === 'ytd'
                                     ? { border: 'rgba(34,197,94,.45)', bg: 'rgba(34,197,94,.15)', color: C.green }
-                                    : p.key === 'may'
-                                        ? { border: 'rgba(155,111,228,.45)', bg: 'rgba(155,111,228,.18)', color: '#C4B5FD' }
-                                        : undefined,
-                            )}
+                                    : undefined)}
+                            >
+                                {p.label}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            onClick={() => applyPeriod(PERIOD_PRESET_CUSTOM)}
+                            style={pillBtn(period === PERIOD_PRESET_CUSTOM)}
                         >
-                            {p.label}
+                            Custom
                         </button>
-                    ))}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {period === PERIOD_PRESET_CUSTOM && (
+                            <>
+                                <input
+                                    type="date"
+                                    value={dateFrom}
+                                    onChange={e => setDateFrom(e.target.value)}
+                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: C.text, fontSize: 9, fontFamily: 'inherit' }}
+                                />
+                                <span style={{ fontSize: 9, color: C.dim }}>→</span>
+                                <input
+                                    type="date"
+                                    value={dateTo}
+                                    onChange={e => setDateTo(e.target.value)}
+                                    style={{ padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(255,255,255,.04)', color: C.text, fontSize: 9, fontFamily: 'inherit' }}
+                                />
+                            </>
+                        )}
+                        <span style={{ fontSize: 9, color: C.muted }}>{rangeLabel}</span>
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 10 }}>
                     {PAGE_TABS.map(tab => (
@@ -443,23 +594,27 @@ export default function InventoryReports() {
                 {[
                     {
                         label: 'Total Asset Valuation',
-                        value: loading ? '…' : fmtCompactUsd(metrics?.totalAssetValuation || 0),
-                        sub: metrics?.growthRate == null ? '—' : `+${metrics.growthRate.toFixed(1)}%`,
-                        subColor: C.muted,
-                        valueColor: C.green,
+                        value: loading ? '…' : valuationError ? '—' : ledgerValuation ? globalFormatCurrency(ledgerValuation.totals.value) : '—',
+                        sub: valuationError
+                            ? valuationError
+                            : ledgerValuation
+                                ? `${ledgerValuation.totals.units.toLocaleString()} units · GL 1200 ${globalFormatCurrency(ledgerValuation.gl_inventory)} · ${valuationGlSub.text}`
+                                : '—',
+                        subColor: valuationError ? C.red : valuationGlSub.ok ? C.muted : C.red,
+                        valueColor: valuationError ? C.muted : C.green,
                         stripe: C.green,
                     },
                     {
                         label: 'Avg Inventory Turnover',
-                        value: loading ? '…' : (metrics?.avgTurnover == null ? '—' : `${metrics.avgTurnover.toFixed(2)}x`),
-                        sub: 'No movement history',
+                        value: loading ? '…' : (turnoverRatio == null ? '—' : `${turnoverRatio.toFixed(2)}x`),
+                        sub: turnoverSubline,
                         subColor: C.muted,
                         valueColor: C.text,
                         stripe: C.blue,
                     },
                     {
                         label: 'Stock Record Accuracy',
-                        value: loading ? '…' : fmtOptionalPct(metrics?.stockAccuracy),
+                        value: loading ? '…' : '—',
                         sub: 'Needs cycle counts',
                         subColor: C.muted,
                         valueColor: C.text,
@@ -467,7 +622,7 @@ export default function InventoryReports() {
                     },
                     {
                         label: 'Locked Capital',
-                        value: loading ? '…' : fmtCompactUsd(metrics?.lockedCapital || 0),
+                        value: loading ? '…' : valuationError ? '—' : globalFormatCurrency(lockedCapitalDead),
                         sub: 'In slow / dead stocks',
                         subColor: C.red,
                         valueColor: C.red,
@@ -484,7 +639,7 @@ export default function InventoryReports() {
 
             {showMaterialAudit && (
                 <>
-                    {/* Valuation method toggle */}
+                    {SHOW_ESTIMATE_REPORTS && (
                     <div style={{ ...panel, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                         <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>Valuation method</div>
                         <div style={{ display: 'flex', gap: 4 }}>
@@ -508,6 +663,7 @@ export default function InventoryReports() {
                             ))}
                         </div>
                     </div>
+                    )}
 
                     {/* Inventory Audit Reports */}
                     <div style={{ ...panel, padding: '12px 14px' }}>
@@ -516,7 +672,7 @@ export default function InventoryReports() {
                             <div style={{ fontSize: 12, fontWeight: 600, color: C.text, fontFamily: "'Syne',sans-serif" }}>Inventory Audit Reports</div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-                            {reports.map(report => (
+                            {visibleReports.map(report => (
                                 <div
                                     key={report.id}
                                     role="button"
@@ -591,10 +747,12 @@ export default function InventoryReports() {
                                     style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 10, color: C.text, fontFamily: queryMode === 'sql' ? 'monospace' : 'inherit' }}
                                 />
                             </div>
+                            {SHOW_ESTIMATE_REPORTS && (
                             <div style={{ display: 'flex', gap: 4 }}>
                                 <button type="button" onClick={() => setQueryMode('nl')} style={pillBtn(queryMode === 'nl')}>Text filter</button>
                                 <button type="button" onClick={() => setQueryMode('sql')} style={pillBtn(queryMode === 'sql')}>SQL</button>
                             </div>
+                            )}
                         </div>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
                             {QUERY_CHIPS.map(chip => (
@@ -653,7 +811,7 @@ export default function InventoryReports() {
                         </div>
                     </div>
 
-                    {/* Insights + Suggested Actions */}
+                    {SHOW_ESTIMATE_REPORTS && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
                         <div style={{ ...panel, padding: '14px 16px', background: 'rgba(239,68,68,.04)', border: '1px solid rgba(239,68,68,.12)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -712,9 +870,10 @@ export default function InventoryReports() {
                             </div>
                         </div>
                     </div>
+                    )}
 
                     <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: C.dim, lineHeight: 1.5 }}>
-                        These filters and insights are based on local inventory calculations. Verify figures against source systems before filing or sharing externally. All monetary values are shown in USD ($).
+                        Valuation and dead-stock figures use the warehouse ledger (GL 1200 tie-out). Verify before filing or sharing externally. USD ($).
                     </div>
                 </>
             )}
@@ -723,7 +882,7 @@ export default function InventoryReports() {
                 <div style={{ ...panel, padding: '14px 16px' }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 8 }}>Inventory overview</div>
                     <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.5, marginBottom: 12 }}>
-                        High-level KPIs for {PERIOD_PILLS.find(p => p.key === activePeriod)?.label}. Switch to Material audit for the full 9-report grid and query engine.
+                        High-level KPIs for {periodPresets().find(p => p.key === period)?.label ?? 'Custom'} ({rangeLabel}). Switch to Material audit for the report grid and query engine.
                     </div>
                     <button type="button" onClick={() => setActiveTab('material-audit')} style={{ ...ghostBtn, color: '#C4B5FD', borderColor: 'rgba(155,111,228,.35)', background: 'rgba(155,111,228,.12)' }}>
                         Open material audit <ChevronRight size={12} />
@@ -775,13 +934,26 @@ export default function InventoryReports() {
                     data={reportData}
                     onClose={closeReport}
                     loading={loading}
+                    categoryByProductId={categoryByProductId}
                 />
             )}
         </div>
     );
 }
 
-function ReportModal({ type, data, onClose, loading }: { type: ReportType; data: any; onClose: () => void; loading: boolean }) {
+function ReportModal({
+    type,
+    data,
+    onClose,
+    loading,
+    categoryByProductId,
+}: {
+    type: ReportType;
+    data: any;
+    onClose: () => void;
+    loading: boolean;
+    categoryByProductId: Map<number, string>;
+}) {
     const getReportTitle = () => {
         switch (type) {
             case 'valuation': return 'Inventory Valuation Report';
@@ -822,12 +994,17 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
                         </div>
                     ) : (
                         <>
-                            {type === 'valuation' && <ValuationReport data={data as InventoryValuation} />}
-                            {(type === 'fifo' || type === 'lifo' || type === 'avgcost') && data && (
+                            {type === 'valuation' && data && (
+                                <LedgerValuationReport data={data as InventoryValuationReport} categoryByProductId={categoryByProductId} />
+                            )}
+                            {(type === 'fifo' || type === 'lifo') && data && (
                                 <CostMethodReport data={data as CostMethodValuation} />
                             )}
+                            {type === 'avgcost' && data && (
+                                <LedgerAvgCostReport data={data as InventoryValuationReport} />
+                            )}
                             {type === 'movement' && <MovementReport data={data as StockMovement[]} />}
-                            {type === 'deadstock' && <DeadStockReport data={data as DeadStock[]} />}
+                            {type === 'deadstock' && <LedgerDeadStockReport data={data as LedgerDeadStockRow[]} />}
                             {type === 'supplier' && <SupplierReport data={data as SupplierAccuracy[]} />}
                             {type === 'loss' && <LossReport data={data as LossLeakage[]} />}
                             {type === 'forecast' && <ForecastReport data={data as ForecastingData[]} />}
@@ -852,8 +1029,18 @@ function ReportModal({ type, data, onClose, loading }: { type: ReportType; data:
     );
 }
 
-function ValuationReport({ data }: { data: InventoryValuation }) {
+function LedgerValuationReport({
+    data,
+    categoryByProductId,
+}: {
+    data: InventoryValuationReport;
+    categoryByProductId: Map<number, string>;
+}) {
     const formatCurrency = globalFormatCurrency;
+    const avgUnitCost = data.totals.units > 0 ? data.totals.value / data.totals.units : 0;
+    const byCategory = buildCategoryRollup(data.rows, categoryByProductId, data.totals.value);
+    const glLine = glDifferenceLabel(data.difference);
+
     const card = (label: string, value: string, color: string) => (
         <div style={{ ...panel, padding: '16px 18px', borderColor: `${color}33` }}>
             <p style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</p>
@@ -864,17 +1051,54 @@ function ValuationReport({ data }: { data: InventoryValuation }) {
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-3 gap-4">
-                {card('Total Asset Value', formatCurrency(data.totalAssetValue), C.green)}
-                {card('Total Units', data.totalUnits.toLocaleString(), C.blue)}
-                {card('Avg Unit Cost', formatCurrency(data.averageUnitCost), C.purple)}
+                {card('Total Asset Value', formatCurrency(data.totals.value), C.green)}
+                {card('Total Units', data.totals.units.toLocaleString(), C.blue)}
+                {card('Avg Unit Cost', formatCurrency(avgUnitCost), C.purple)}
             </div>
-            {data.isPartial && (
-                <div style={{ ...panel, padding: 12, color: C.amber, fontSize: 11 }}>
-                    Partial valuation: {data.excludedUnits?.toLocaleString() ?? 'some'} units excluded because no real product cost is set.
-                </div>
-            )}
-            <ReportTable title="Valuation by Category" headers={['Category', 'Value', 'Units', '% of Total']} rows={data.byCategory.map(cat => [cat.category, formatCurrency(cat.value), cat.units.toLocaleString(), `${cat.percentage.toFixed(1)}%`])} />
-            <ReportTable title="Valuation by Location" headers={['Location', 'Value', 'Units']} rows={data.byLocation.map(loc => [loc.location, formatCurrency(loc.value), loc.units.toLocaleString()])} />
+            <div style={{ ...panel, padding: 12, fontSize: 11, color: glLine.ok ? C.green : C.red }}>
+                GL 1200 {formatCurrency(data.gl_inventory)} · {glLine.text}
+            </div>
+            <ReportTable
+                title="Product valuation"
+                headers={['Product', 'SKU', 'Units', 'Unit cost', 'Value']}
+                rows={data.rows.map(row => [
+                    row.name,
+                    row.sku || '—',
+                    row.on_hand.toLocaleString(),
+                    formatCurrency(row.cost),
+                    formatCurrency(row.value),
+                ])}
+            />
+            <ReportTable
+                title="Valuation by Category"
+                headers={['Category', 'Value', 'Units', '% of Total']}
+                rows={byCategory.map(cat => [cat.category, formatCurrency(cat.value), cat.units.toLocaleString(), `${cat.percentage.toFixed(1)}%`])}
+            />
+        </div>
+    );
+}
+
+function LedgerAvgCostReport({ data }: { data: InventoryValuationReport }) {
+    const formatCurrency = globalFormatCurrency;
+    return (
+        <div className="space-y-6">
+            <div style={{ ...panel, padding: 14, background: 'rgba(255,255,255,.03)' }}>
+                <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+                    Ledger on-hand × product cost (as of {data.as_of || 'today'}). Cost method per SKU from the catalog.
+                </p>
+            </div>
+            <ReportTable
+                title="Average cost detail"
+                headers={['Product', 'SKU', 'On hand', 'Cost', 'Value', 'Method']}
+                rows={data.rows.map(row => [
+                    row.name,
+                    row.sku || '—',
+                    row.on_hand.toLocaleString(),
+                    formatCurrency(row.cost),
+                    formatCurrency(row.value),
+                    row.cost_method || 'average',
+                ])}
+            />
         </div>
     );
 }
@@ -971,8 +1195,9 @@ function MovementReport({ data }: { data: StockMovement[] }) {
     );
 }
 
-function DeadStockReport({ data }: { data: DeadStock[] }) {
+function LedgerDeadStockReport({ data }: { data: LedgerDeadStockRow[] }) {
     const formatCurrency = globalFormatCurrency;
+    const locked = data.reduce((sum, d) => sum + (d.value_at_cost || 0), 0);
     return (
         <div className="space-y-6">
             <div style={{ ...panel, padding: 16, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.2)' }}>
@@ -981,15 +1206,22 @@ function DeadStockReport({ data }: { data: DeadStock[] }) {
                     <div>
                         <h3 style={{ fontWeight: 700, color: C.red, fontSize: 12, marginBottom: 4 }}>Critical Alert</h3>
                         <p style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                            {data.length} products identified as slow-moving or dead stock. Total locked capital: {formatCurrency(data.reduce((sum, d) => sum + d.lockedCapital, 0))}
+                            {data.length} products with no ledger movement in 90+ days. Total locked capital: {formatCurrency(locked)}
                         </p>
                     </div>
                 </div>
             </div>
             <ReportTable
                 title="Dead Stock Detail"
-                headers={['Product', 'SKU', 'Stock', 'Days Idle', 'Locked Capital', 'Action']}
-                rows={data.map(item => [item.productName, item.sku, String(item.currentStock), String(item.daysSinceLastSale), formatCurrency(item.lockedCapital), item.recommendedAction])}
+                headers={['Product', 'SKU', 'Stock', 'Days idle', 'Locked capital', 'Action']}
+                rows={data.map(item => [
+                    item.name,
+                    item.sku || '—',
+                    String(item.on_hand),
+                    String(item.daysIdle),
+                    formatCurrency(item.value_at_cost),
+                    item.action,
+                ])}
             />
         </div>
     );
