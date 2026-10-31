@@ -8,15 +8,20 @@ import * as countService from '../../../services/cycleCountService';
 import * as productService from '../../../services/productService';
 import type { CycleCountDetail, CycleCountLine } from '../../../services/cycleCountService';
 
-vi.mock('../../../services/cycleCountService', () => ({
-  getCount: vi.fn(),
-  startCount: vi.fn(),
-  recordLine: vi.fn(),
-  recountLine: vi.fn(),
-  skipLine: vi.fn(),
-  addFoundLine: vi.fn(),
-  completeCount: vi.fn(),
-}));
+vi.mock('../../../services/cycleCountService', async (importOriginal) => {
+  const actual = await importOriginal<typeof countService>();
+  return {
+    ...actual,
+    getCount: vi.fn(),
+    startCount: vi.fn(),
+    recordLine: vi.fn(),
+    recountLine: vi.fn(),
+    skipLine: vi.fn(),
+    addFoundLine: vi.fn(),
+    completeCount: vi.fn(),
+    getVariances: vi.fn(),
+  };
+});
 vi.mock('../../../services/productService', () => ({
   getProducts: vi.fn(),
   lookupProductByBarcode: vi.fn(),
@@ -109,6 +114,14 @@ describe('Count screen', () => {
   beforeEach(() => {
     auth.role = 'warehouse';
     for (const fn of Object.values(countService)) vi.mocked(fn as () => unknown).mockReset?.();
+    vi.mocked(countService.getVariances).mockResolvedValue({
+      count_id: 3,
+      count_number: 'CC-000003',
+      status: 'review',
+      lines: [],
+      totals: { lines: 0, units: 0, value: 0 },
+      by_location: [],
+    });
     vi.mocked(productService.getProducts).mockReset().mockResolvedValue([
       { id: '4', sku: 'FLT-1', name: 'Filter' },
     ] as productService.Product[]);
@@ -234,9 +247,45 @@ describe('Count screen', () => {
   it('shows the backend 400 detail inline', async () => {
     const done = detail({ lines_counted: 3 }, detail().lines.map((row) => ({ ...row, status: 'counted', counted_qty: 1 })));
     await render(done);
-    vi.mocked(countService.completeCount).mockRejectedValue(new Error('2 line(s) still need a count or a skip'));
+    vi.mocked(countService.completeCount).mockRejectedValue(new Error('y'));
     await act(async () => button('Complete').click());
-    expect(container.querySelector('[data-testid="count-error"]')!.textContent).toBe('2 line(s) still need a count or a skip');
+    expect(countService.skipLine).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="count-footer-error"]')!.textContent).toBe('y');
+  });
+
+  it('with partial progress, Complete opens skip dialog then skips open lines and completes', async () => {
+    const seven = Array.from({ length: 7 }, (_, index) => line({
+      id: 100 + index,
+      sequence: index + 1,
+      product_id: index + 1,
+      location_id: index < 4 ? 5 : 6,
+      status: index < 2 ? 'counted' : 'pending',
+      counted_qty: index < 2 ? 1 : null,
+    }));
+    await render(detail({ lines_total: 7, lines_counted: 2 }, seven));
+    vi.mocked(countService.skipLine).mockImplementation(async (_id, lineId) => {
+      return detail(
+        { lines_total: 7, lines_counted: 2 },
+        seven.map((row) => (row.id === lineId ? { ...row, status: 'skipped' } : row)),
+      );
+    });
+    vi.mocked(countService.completeCount).mockResolvedValue(detail({ status: 'review', lines_counted: 7 }, seven.map((row) => ({ ...row, status: row.status === 'pending' ? 'skipped' : row.status }))));
+    await act(async () => button('Complete').click());
+    expect(container.querySelector('[data-testid="complete-skip-dialog"]')!.textContent).toContain('5 lines are not counted');
+    await act(async () => button('Skip & complete').click());
+    expect(vi.mocked(countService.skipLine).mock.calls.map((call) => call[1])).toEqual([102, 103, 104, 105, 106]);
+    expect(countService.completeCount).toHaveBeenCalledWith(3);
+    expect(container.querySelector('[data-testid="where"]')!.textContent).toBe('/warehouse/counts?status=review');
+  });
+
+  it('with all lines counted or skipped, Complete does not call skip', async () => {
+    const done = detail({ lines_counted: 3 }, detail().lines.map((row) => ({ ...row, status: 'counted', counted_qty: 1 })));
+    await render(done);
+    vi.mocked(countService.completeCount).mockResolvedValue({ ...done, status: 'review' });
+    await act(async () => button('Complete').click());
+    expect(countService.skipLine).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="complete-skip-dialog"]')).toBeNull();
+    expect(countService.completeCount).toHaveBeenCalledWith(3);
   });
 
   it('Recount is offered to managers on counted lines only', async () => {
