@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'reac
 import {
     ArrowLeft,
     BookOpen,
+    CheckCircle,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
@@ -23,25 +24,165 @@ import {
     type GLAccount,
 } from '../../services/glService';
 import { formatLocalDate } from '../../utils/dates';
+import { localIsoDate, localMonthStartIso } from '../../utils/localDate';
 
 const RANGE_TOO_WIDE = 'Date range cannot exceed 92 days';
 const RANGE_BACKWARDS = 'end_date must be on or after start_date';
 
-const GROUP_CARDS: Array<{ label: string; groups: string[] }> = [
-    { label: 'Sales', groups: ['sales'] },
-    { label: 'Receipts', groups: ['receipts'] },
-    { label: 'Purchases', groups: ['purchases'] },
-    { label: 'Payments + Expenses', groups: ['payments', 'expenses'] },
-    { label: 'Bank', groups: ['bank'] },
-    { label: 'Journal', groups: ['journal'] },
+const GROUP_CARDS: Array<{ label: string; groups: string[]; valueColor: string }> = [
+    { label: 'Sales', groups: ['sales'], valueColor: 'var(--color-brand-green-tint)' },
+    { label: 'Receipts', groups: ['receipts'], valueColor: 'var(--color-brand-green-tint)' },
+    { label: 'Purchases', groups: ['purchases'], valueColor: 'var(--color-brand-red-tint)' },
+    { label: 'Payments + Expenses', groups: ['payments', 'expenses'], valueColor: 'var(--color-brand-red-tint)' },
+    { label: 'Bank', groups: ['bank'], valueColor: 'var(--color-brand-blue-tint)' },
+    { label: 'Journal', groups: ['journal'], valueColor: 'var(--color-redwood-text-main)' },
 ];
 
-function localTodayISO(): string {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+const panel: CSSProperties = {
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+};
+
+const ghostBtn: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '5px 10px',
+    borderRadius: '6px',
+    fontSize: '9.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid var(--color-redwood-border)',
+    background: 'rgba(255,255,255,.04)',
+    color: 'var(--color-redwood-text-muted)',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+};
+
+const thStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--color-redwood-border)',
+    textAlign: 'left',
+};
+
+const thRight: CSSProperties = {
+    ...thStyle,
+    textAlign: 'right',
+};
+
+const tdStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 11,
+    color: 'var(--color-redwood-text-main)',
+    verticalAlign: 'middle',
+    borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const tdMonoRight: CSSProperties = {
+    ...tdStyle,
+    textAlign: 'right',
+    fontFamily: 'ui-monospace,monospace',
+    fontWeight: 600,
+};
+
+const dateInputStyle: CSSProperties = {
+    padding: '6px 10px',
+    borderRadius: 8,
+    border: '1px solid var(--color-redwood-border)',
+    background: 'var(--color-redwood-row-bg)',
+    color: 'var(--color-redwood-text-main)',
+    fontSize: 10,
+    fontFamily: 'inherit',
+    outline: 'none',
+};
+
+const selectStyle: CSSProperties = {
+    padding: '6px 10px',
+    borderRadius: 6,
+    border: '1px solid var(--color-redwood-border)',
+    background: 'var(--color-redwood-row-bg)',
+    color: 'var(--color-redwood-text-main)',
+    fontSize: 10,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+};
+
+const bucketLabelStyle: CSSProperties = {
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    margin: '0 0 4px',
+};
+
+const bucketValueStyle: CSSProperties = {
+    margin: 0,
+    fontSize: 15,
+    fontWeight: 700,
+    fontFamily: 'ui-monospace,monospace',
+};
+
+const dayGroupRowStyle: CSSProperties = {
+    ...tdStyle,
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    background: 'rgba(255,255,255,.06)',
+    borderBottom: '1px solid var(--color-redwood-border)',
+};
+
+const footerRowStyle: CSSProperties = {
+    ...tdStyle,
+    fontSize: 9,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    background: 'rgba(255,255,255,.06)',
+};
+
+function presetGhost(active: boolean): CSSProperties {
+    return {
+        ...ghostBtn,
+        borderColor: active ? 'rgba(79,142,247,.45)' : 'var(--color-redwood-border)',
+        background: active ? 'rgba(79,142,247,.15)' : 'rgba(255,255,255,.04)',
+        color: active ? 'var(--color-brand-blue-tint)' : 'var(--color-redwood-text-muted)',
+    };
+}
+
+function voucherBadgeStyle(group: string): CSSProperties {
+    const base: CSSProperties = {
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '.3px',
+    };
+    switch (group) {
+        case 'sales':
+        case 'receipts':
+            return { ...base, background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)' };
+        case 'purchases':
+        case 'payments':
+        case 'expenses':
+            return { ...base, background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)' };
+        case 'bank':
+            return { ...base, background: 'var(--color-badge-blue-bg)', color: 'var(--color-brand-blue-tint)' };
+        default:
+            return { ...base, background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)' };
+    }
 }
 
 function parseISO(iso: string): number {
@@ -80,25 +221,6 @@ function timeLabel(createdAt: string | null): string {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function groupBadgeClass(group: string): string {
-    switch (group) {
-        case 'sales':
-            return 'bg-blue-100 text-blue-700';
-        case 'receipts':
-            return 'bg-emerald-100 text-emerald-700';
-        case 'purchases':
-            return 'bg-orange-100 text-orange-700';
-        case 'payments':
-            return 'bg-amber-100 text-amber-800';
-        case 'expenses':
-            return 'bg-rose-100 text-rose-700';
-        case 'bank':
-            return 'bg-cyan-100 text-cyan-800';
-        default:
-            return 'bg-purple-100 text-purple-700';
-    }
-}
-
 function groupTotals(summary: DayBookSummary, groups: string[]): { count: number; total: number } {
     const rows = summary.by_type.filter((row) => groups.includes(row.group));
     return {
@@ -119,9 +241,10 @@ const errorBanner: CSSProperties = {
 
 export default function DayBook() {
     const navigate = useNavigate();
-    const today = localTodayISO();
-    const [startDate, setStartDate] = useState(today);
-    const [endDate, setEndDate] = useState(today);
+    const today = localIsoDate();
+    const monthStart = localMonthStartIso();
+    const [startDate, setStartDate] = useState(() => localMonthStartIso());
+    const [endDate, setEndDate] = useState(() => localIsoDate());
     const [sourceType, setSourceType] = useState('');
     const [accountId, setAccountId] = useState<number | undefined>(undefined);
     const [accounts, setAccounts] = useState<GLAccount[] | null>(null);
@@ -132,6 +255,14 @@ export default function DayBook() {
     const [reloadKey, setReloadKey] = useState(0);
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
     const [expandAll, setExpandAll] = useState(false);
+    const [tileCols, setTileCols] = useState(4);
+
+    useEffect(() => {
+        const update = () => setTileCols(window.innerWidth >= 900 ? 4 : 2);
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -285,7 +416,7 @@ export default function DayBook() {
             foot: [
                 ['PERIOD TOTAL', '', '', '', '', formatCurrency(summary.total_amount), '', ''],
                 [
-                    `Ledger: Dr ${formatCurrency(summary.total_debit)} · Cr ${formatCurrency(summary.total_credit)} · ${summary.balanced ? 'Balanced' : 'Out of balance'}`,
+                    `Ledger: Dr ${formatCurrency(summary.total_debit)} · Cr ${formatCurrency(summary.total_credit)} · ${summary.balanced ? 'Balanced' : 'Imbalanced'}`,
                     '',
                     '',
                     '',
@@ -304,130 +435,189 @@ export default function DayBook() {
 
     const showBook = !loading && !error && book != null;
     const isToday = startDate === today && endDate === today;
+    const isThisMonth = startDate === monthStart && endDate === today;
+
+    const applyToday = () => {
+        setStartDate(today);
+        setEndDate(today);
+        setLoading(true);
+    };
+
+    const applyThisMonth = () => {
+        setStartDate(localMonthStartIso());
+        setEndDate(localIsoDate());
+        setLoading(true);
+    };
+
+    const rangeHeading =
+        startDate === endDate
+            ? formatLocalDate(startDate) || startDate
+            : `${formatLocalDate(startDate) || startDate} → ${formatLocalDate(endDate) || endDate}`;
 
     return (
-        <div className="space-y-6 max-w-[1400px] mx-auto pb-10 animate-in fade-in duration-500">
-            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center">
-                        <BookOpen size={24} className="text-purple-600" />
+        <div style={{ padding: 12, maxWidth: 1280, margin: '0 auto', paddingBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div
+                        style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 8,
+                            background: 'rgba(124,58,237,.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <BookOpen size={18} style={{ color: 'var(--color-brand-amber-tint)' }} />
                     </div>
-                    <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden">
-                            <ArrowLeft size={14} /> Back
+                    <div style={{ minWidth: 0 }}>
+                        <button
+                            type="button"
+                            onClick={() => navigate(-1)}
+                            className="print:hidden"
+                            style={{ ...ghostBtn, display: 'inline-flex', marginBottom: 6, padding: '4px 8px' }}
+                        >
+                            <ArrowLeft size={12} /> Back
                         </button>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Day Book</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">All vouchers for the period · from the general ledger</p>
+                        <h1
+                            style={{
+                                margin: 0,
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: 'var(--color-redwood-text-main)',
+                                fontFamily: "'Syne',sans-serif",
+                            }}
+                        >
+                            Day book
+                        </h1>
+                        <p style={{ fontSize: 9.5, color: 'var(--color-redwood-text-subtle)', margin: '3px 0 0' }}>
+                            All vouchers for the period · from the general ledger
+                        </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 print:hidden">
+                <div className="print:hidden" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0, alignItems: 'center' }}>
                     <button
+                        type="button"
                         onClick={handlePrint}
                         disabled={loading || !!error || entries.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        style={{ ...ghostBtn, opacity: loading || !!error || entries.length === 0 ? 0.45 : 1 }}
                     >
-                        <Printer size={14} /> Print
+                        <Printer size={12} /> Print
                     </button>
                     <button
+                        type="button"
                         onClick={handleCsv}
                         disabled={loading || !!error || !!rangeError(startDate, endDate)}
-                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        style={{ ...ghostBtn, opacity: loading || !!error || !!rangeError(startDate, endDate) ? 0.45 : 1 }}
                     >
-                        <Download size={14} /> Export CSV
+                        <Download size={12} /> Export CSV
                     </button>
                     <button
+                        type="button"
                         onClick={exportPDF}
                         disabled={loading || !!error || entries.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        style={{ ...ghostBtn, opacity: loading || !!error || entries.length === 0 ? 0.45 : 1 }}
                     >
-                        <Download size={14} /> Export PDF
+                        <Download size={12} /> Export PDF
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4 flex-wrap print:hidden">
-                <button type="button" onClick={() => shiftRange(-1)} aria-label="Previous period" className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all">
-                    <ChevronLeft size={18} className="text-gray-600" />
-                </button>
-                <div className="flex items-center gap-3 flex-1 justify-center flex-wrap">
-                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
-                        From
-                        <input
-                            type="date"
-                            aria-label="From"
-                            value={startDate}
-                            onChange={(e) => { setStartDate(e.target.value); setLoading(true); }}
-                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-mono"
-                        />
-                    </label>
-                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
-                        To
-                        <input
-                            type="date"
-                            aria-label="To"
-                            value={endDate}
-                            onChange={(e) => { setEndDate(e.target.value); setLoading(true); }}
-                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-mono"
-                        />
-                    </label>
-                    <button
-                        type="button"
-                        onClick={() => { setStartDate(today); setEndDate(today); setLoading(true); }}
-                        className={`px-3 py-1 text-xs font-black rounded-lg uppercase ${isToday ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                        Today
+            <div style={{ ...panel, padding: '12px 14px' }} className="print:hidden">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => shiftRange(-1)} aria-label="Previous period" style={ghostBtn}>
+                        <ChevronLeft size={14} />
                     </button>
-                    <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
-                        Type
-                        <select
-                            aria-label="Type"
-                            value={sourceType}
-                            onChange={(e) => { setSourceType(e.target.value); setLoading(true); }}
-                            className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-bold bg-white"
-                        >
-                            <option value="">All types</option>
-                            {typeOptions.map((row) => (
-                                <option key={row.source_type || row.voucher_type} value={row.source_type || ''}>
-                                    {row.voucher_type}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    {accounts && (
-                        <label className="flex items-center gap-2 text-[10px] font-black text-gray-500 uppercase">
-                            Account
-                            <select
-                                aria-label="Account"
-                                value={accountId ?? ''}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '1 1 200px', justifyContent: 'center' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 8, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>
+                            From
+                            <input
+                                type="date"
+                                aria-label="From"
+                                value={startDate}
                                 onChange={(e) => {
-                                    setAccountId(e.target.value ? Number(e.target.value) : undefined);
+                                    setStartDate(e.target.value);
                                     setLoading(true);
                                 }}
-                                className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-purple-400 font-bold bg-white"
+                                style={dateInputStyle}
+                            />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 8, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>
+                            To
+                            <input
+                                type="date"
+                                aria-label="To"
+                                value={endDate}
+                                onChange={(e) => {
+                                    setEndDate(e.target.value);
+                                    setLoading(true);
+                                }}
+                                style={dateInputStyle}
+                            />
+                        </label>
+                        <button type="button" onClick={applyToday} style={presetGhost(isToday)}>
+                            Today
+                        </button>
+                        <button type="button" onClick={applyThisMonth} style={presetGhost(isThisMonth)}>
+                            This month
+                        </button>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 8, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>
+                            Type
+                            <select
+                                aria-label="Type"
+                                value={sourceType}
+                                onChange={(e) => {
+                                    setSourceType(e.target.value);
+                                    setLoading(true);
+                                }}
+                                style={selectStyle}
                             >
-                                <option value="">All accounts</option>
-                                {accounts.map((account) => (
-                                    <option key={account.id} value={account.id}>
-                                        {account.code} — {account.name}
+                                <option value="">All types</option>
+                                {typeOptions.map((row) => (
+                                    <option key={row.source_type || row.voucher_type} value={row.source_type || ''}>
+                                        {row.voucher_type}
                                     </option>
                                 ))}
                             </select>
                         </label>
-                    )}
+                        {accounts && (
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 8, fontWeight: 700, color: 'var(--color-redwood-text-muted)', textTransform: 'uppercase' }}>
+                                Account
+                                <select
+                                    aria-label="Account"
+                                    value={accountId ?? ''}
+                                    onChange={(e) => {
+                                        setAccountId(e.target.value ? Number(e.target.value) : undefined);
+                                        setLoading(true);
+                                    }}
+                                    style={selectStyle}
+                                >
+                                    <option value="">All accounts</option>
+                                    {accounts.map((account) => (
+                                        <option key={account.id} value={account.id}>
+                                            {account.code} — {account.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+                    </div>
+                    <button type="button" onClick={() => shiftRange(1)} aria-label="Next period" style={ghostBtn}>
+                        <ChevronRight size={14} />
+                    </button>
                 </div>
-                <button type="button" onClick={() => shiftRange(1)} aria-label="Next period" className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all">
-                    <ChevronRight size={18} className="text-gray-600" />
-                </button>
             </div>
 
             {loading && !error && (
-                <div className="space-y-3" aria-busy="true" aria-label="Loading day book">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                            <div key={i} className="h-20 rounded-2xl bg-gray-100 animate-pulse" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} aria-busy="true" aria-label="Loading day book">
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`, gap: 8 }}>
+                        {Array.from({ length: 8 }).map((_, i) => (
+                            <div key={i} style={{ ...panel, height: 72, opacity: 0.5 }} />
                         ))}
                     </div>
-                    <div className="h-48 rounded-2xl bg-gray-100 animate-pulse" />
+                    <div style={{ ...panel, height: 160, opacity: 0.5 }} />
                 </div>
             )}
 
@@ -437,7 +627,8 @@ export default function DayBook() {
                     <button
                         type="button"
                         onClick={() => setReloadKey((k) => k + 1)}
-                        className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase bg-indigo-600 text-white hover:bg-indigo-500 print:hidden"
+                        className="print:hidden"
+                        style={{ ...ghostBtn, color: 'var(--color-brand-blue-tint)', borderColor: 'rgba(79,142,247,.35)' }}
                     >
                         Retry
                     </button>
@@ -446,35 +637,61 @@ export default function DayBook() {
 
             {showBook && summary && (
                 <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Vouchers</p>
-                            <p className="text-xl font-black font-mono text-gray-900">{summary.entry_count}</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${tileCols}, minmax(0, 1fr))`, gap: 8 }}>
+                        <div style={panel}>
+                            <p style={bucketLabelStyle}>Vouchers</p>
+                            <p style={{ ...bucketValueStyle, color: 'var(--color-redwood-text-main)' }}>{summary.entry_count}</p>
                         </div>
                         {GROUP_CARDS.map((card) => {
                             const stats = groupTotals(summary, card.groups);
                             return (
-                                <div key={card.label} className="bg-white border border-gray-100 rounded-2xl p-4">
-                                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{card.label}</p>
-                                    <p className="text-xl font-black font-mono text-gray-900">{formatCurrency(stats.total)}</p>
-                                    <p className="text-[10px] font-bold text-gray-400 mt-1">{stats.count} vouchers</p>
+                                <div key={card.label} style={panel}>
+                                    <p style={bucketLabelStyle}>{card.label}</p>
+                                    <p style={{ ...bucketValueStyle, color: card.valueColor }}>{formatCurrency(stats.total)}</p>
+                                    <p style={{ margin: '4px 0 0', fontSize: 9, color: 'var(--color-redwood-text-muted)' }}>{stats.count} vouchers</p>
                                 </div>
                             );
                         })}
-                        <div className="bg-white border border-gray-100 rounded-2xl p-4">
-                            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Ledger Check</p>
-                            <p className="text-sm font-black font-mono text-gray-900">{formatCurrency(summary.total_debit)}</p>
-                            <p className="text-sm font-black font-mono text-gray-900">{formatCurrency(summary.total_credit)}</p>
-                            <span className={`inline-block mt-2 px-2 py-1 rounded-lg text-[10px] font-black uppercase ${summary.balanced ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                {summary.balanced ? 'Balanced' : 'Out of balance'}
+                        <div style={panel}>
+                            <p style={bucketLabelStyle}>Ledger check</p>
+                            <p style={{ ...bucketValueStyle, color: 'var(--color-redwood-text-main)', fontSize: 13 }}>
+                                {formatCurrency(summary.total_debit)}
+                            </p>
+                            <p style={{ ...bucketValueStyle, color: 'var(--color-redwood-text-main)', fontSize: 13, marginTop: 2 }}>
+                                {formatCurrency(summary.total_credit)}
+                            </p>
+                            <span
+                                style={{
+                                    display: 'inline-block',
+                                    marginTop: 6,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    background: summary.balanced ? 'var(--color-badge-green-bg)' : 'var(--color-badge-red-bg)',
+                                    color: summary.balanced ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)',
+                                }}
+                            >
+                                {summary.balanced ? 'Balanced' : 'Imbalanced'}
                             </span>
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                        <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3">
-                            <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                                {entries.length} vouchers · {startDate === endDate ? (formatLocalDate(startDate) || startDate) : `${formatLocalDate(startDate) || startDate} → ${formatLocalDate(endDate) || endDate}`}
+                    <div style={{ ...panel, padding: 0 }}>
+                        <div
+                            style={{
+                                padding: '12px 14px',
+                                borderBottom: '1px solid var(--color-redwood-border)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
+                                {entries.length} vouchers · {rangeHeading}
                             </p>
                             {entries.length > 0 && (
                                 <button
@@ -483,33 +700,37 @@ export default function DayBook() {
                                         setExpandAll((open) => !open);
                                         setExpanded(new Set());
                                     }}
-                                    className="text-[10px] font-black uppercase text-gray-500 hover:text-gray-800 print:hidden"
+                                    className="print:hidden"
+                                    style={{ ...ghostBtn, padding: '4px 8px', fontSize: 9 }}
                                 >
                                     {expandAll ? 'Collapse all' : 'Expand all'}
                                 </button>
                             )}
                         </div>
                         {entries.length === 0 ? (
-                            <div className="p-16 text-center">
-                                <BookOpen size={48} className="mx-auto text-gray-200 mb-3" />
-                                <p className="text-gray-400 font-bold text-sm">No vouchers posted for this period</p>
+                            <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+                                <CheckCircle size={40} style={{ color: 'var(--color-redwood-text-muted)', opacity: 0.45, margin: '0 auto 12px' }} />
+                                <p style={{ color: 'var(--color-redwood-text-muted)', fontSize: 11, fontWeight: 600, margin: 0 }}>
+                                    No vouchers posted for this period
+                                </p>
                             </div>
                         ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b border-gray-100">
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
                                         <tr>
-                                            {['Time', 'Voucher', 'No.', 'Party', 'Narration', 'Amount', 'Debit', 'Credit', ''].map((heading) => (
-                                                <th
-                                                    key={heading || 'expand'}
-                                                    className={`px-5 py-3 text-[10px] font-black text-gray-400 uppercase tracking-widest ${heading === 'Amount' || heading === 'Debit' || heading === 'Credit' ? 'text-right' : ''}`}
-                                                >
-                                                    {heading}
-                                                </th>
-                                            ))}
+                                            <th style={thStyle}>Time</th>
+                                            <th style={thStyle}>Voucher</th>
+                                            <th style={thStyle}>No.</th>
+                                            <th style={thStyle}>Party</th>
+                                            <th style={thStyle}>Narration</th>
+                                            <th style={thRight}>Amount</th>
+                                            <th style={thRight}>Debit</th>
+                                            <th style={thRight}>Credit</th>
+                                            <th style={{ ...thStyle, width: 32 }} />
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
+                                    <tbody>
                                         {(multiDay ? dayOrder : ['']).map((day) => {
                                             const dayEntries = multiDay ? (entriesByDay.get(day) ?? []) : entries;
                                             const daySummary = summary.by_day.find((row) => row.date === day);
@@ -517,10 +738,12 @@ export default function DayBook() {
                                             return (
                                                 <Fragment key={day || 'single'}>
                                                     {multiDay && (
-                                                        <tr className="bg-purple-50">
-                                                            <td colSpan={9} className="px-5 py-3 text-xs font-black text-purple-800 uppercase">
+                                                        <tr>
+                                                            <td colSpan={9} style={dayGroupRowStyle}>
                                                                 {formatLocalDate(day) || day}
-                                                                {daySummary ? ` · ${daySummary.count} · ${formatCurrency(daySummary.total_amount)}` : ''}
+                                                                {daySummary
+                                                                    ? ` · ${daySummary.count} · ${formatCurrency(daySummary.total_amount)}`
+                                                                    : ''}
                                                             </td>
                                                         </tr>
                                                     )}
@@ -532,36 +755,61 @@ export default function DayBook() {
                                                                 <tr
                                                                     data-voucher-row={entry.id}
                                                                     onClick={() => toggleRow(entry.id)}
-                                                                    className="hover:bg-gray-50 transition-all cursor-pointer"
-                                                                    style={reversed ? { opacity: 0.55 } : undefined}
+                                                                    style={{ cursor: 'pointer', opacity: reversed ? 0.55 : 1 }}
                                                                 >
-                                                                    <td className="px-5 py-4 text-xs font-mono text-gray-400">{timeLabel(entry.created_at)}</td>
-                                                                    <td className="px-5 py-4">
-                                                                        <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${groupBadgeClass(entry.group)}`}>{entry.voucher_type}</span>
-                                                                        {reversed && <span className="ml-2 px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-gray-200 text-gray-600">Reversed</span>}
-                                                                        {entry.source_type === 'reversal' && <span className="ml-2 px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-purple-100 text-purple-700">Reversal</span>}
+                                                                    <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                                                                        {timeLabel(entry.created_at)}
                                                                     </td>
-                                                                    <td className={`px-5 py-4 text-xs font-mono font-bold text-orange-600 ${reversed ? 'line-through' : ''}`}>{entry.entry_number}</td>
-                                                                    <td className="px-5 py-4 text-sm text-gray-600">{entry.party_name || '—'}</td>
-                                                                    <td className="px-5 py-4 text-sm font-bold text-gray-900">{entry.memo || '—'}</td>
-                                                                    <td className="px-5 py-4 text-sm font-black font-mono text-gray-900 text-right">{formatCurrency(entry.amount)}</td>
-                                                                    <td className="px-5 py-4 text-sm font-mono text-gray-300 text-right">—</td>
-                                                                    <td className="px-5 py-4 text-sm font-mono text-gray-300 text-right">—</td>
-                                                                    <td className="px-5 py-4 text-gray-400">
-                                                                        <ChevronDown size={14} className={open ? 'rotate-180' : ''} />
+                                                                    <td style={tdStyle}>
+                                                                        <span style={voucherBadgeStyle(entry.group)}>{entry.voucher_type}</span>
+                                                                        {reversed && (
+                                                                            <span style={{ ...voucherBadgeStyle('journal'), marginLeft: 6, opacity: 0.85 }}>
+                                                                                Reversed
+                                                                            </span>
+                                                                        )}
+                                                                        {entry.source_type === 'reversal' && (
+                                                                            <span style={{ ...voucherBadgeStyle('journal'), marginLeft: 6 }}>Reversal</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td
+                                                                        style={{
+                                                                            ...tdMonoRight,
+                                                                            color: 'var(--color-brand-amber-tint)',
+                                                                            textDecoration: reversed ? 'line-through' : undefined,
+                                                                        }}
+                                                                    >
+                                                                        {entry.entry_number}
+                                                                    </td>
+                                                                    <td style={{ ...tdStyle, color: 'var(--color-redwood-text-muted)' }}>{entry.party_name || '—'}</td>
+                                                                    <td style={{ ...tdStyle, fontWeight: 600 }}>{entry.memo || '—'}</td>
+                                                                    <td style={tdMonoRight}>{formatCurrency(entry.amount)}</td>
+                                                                    <td style={{ ...tdMonoRight, color: 'var(--color-redwood-text-muted)' }}>—</td>
+                                                                    <td style={{ ...tdMonoRight, color: 'var(--color-redwood-text-muted)' }}>—</td>
+                                                                    <td style={{ ...tdStyle, color: 'var(--color-redwood-text-muted)' }}>
+                                                                        <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : undefined }} />
                                                                     </td>
                                                                 </tr>
-                                                                {open && entry.lines.map((line, index) => (
-                                                                    <tr key={`${entry.id}-line-${index}`} data-line-row={entry.id} className="bg-gray-50/80">
-                                                                        <td className="px-5 py-2" />
-                                                                        <td className="px-5 py-2 text-xs font-mono text-gray-500">{line.account_code || '—'}</td>
-                                                                        <td className="px-5 py-2 text-sm text-gray-700" colSpan={2}>{line.account_name || '—'}</td>
-                                                                        <td className="px-5 py-2 text-xs text-gray-500">{line.memo || '—'}</td>
-                                                                        <td className="px-5 py-2 text-sm font-mono text-right text-red-700">{line.debit > 0 ? formatCurrency(line.debit) : '—'}</td>
-                                                                        <td className="px-5 py-2 text-sm font-mono text-right text-emerald-700">{line.credit > 0 ? formatCurrency(line.credit) : '—'}</td>
-                                                                        <td />
-                                                                    </tr>
-                                                                ))}
+                                                                {open &&
+                                                                    entry.lines.map((line, index) => (
+                                                                        <tr key={`${entry.id}-line-${index}`} data-line-row={entry.id}>
+                                                                            <td style={tdStyle} />
+                                                                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace,monospace', fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>
+                                                                                {line.account_code || '—'}
+                                                                            </td>
+                                                                            <td style={{ ...tdStyle, color: 'var(--color-redwood-text-muted)' }} colSpan={2}>
+                                                                                {line.account_name || '—'}
+                                                                            </td>
+                                                                            <td style={{ ...tdStyle, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>{line.memo || '—'}</td>
+                                                                            <td style={tdStyle} />
+                                                                            <td style={{ ...tdMonoRight, color: 'var(--color-brand-red-tint)' }}>
+                                                                                {line.debit > 0 ? formatCurrency(line.debit) : '—'}
+                                                                            </td>
+                                                                            <td style={{ ...tdMonoRight, color: 'var(--color-brand-green-tint)' }}>
+                                                                                {line.credit > 0 ? formatCurrency(line.credit) : '—'}
+                                                                            </td>
+                                                                            <td style={tdStyle} />
+                                                                        </tr>
+                                                                    ))}
                                                             </Fragment>
                                                         );
                                                     })}
@@ -570,16 +818,29 @@ export default function DayBook() {
                                         })}
                                     </tbody>
                                     <tfoot>
-                                        <tr className="bg-gray-900 text-white">
-                                            <td colSpan={5} className="px-5 py-4 text-xs font-black uppercase">Period Total</td>
-                                            <td className="px-5 py-4 text-sm font-black font-mono text-right">{formatCurrency(summary.total_amount)}</td>
-                                            <td colSpan={3} />
+                                        <tr>
+                                            <td colSpan={5} style={footerRowStyle}>
+                                                Period total
+                                            </td>
+                                            <td style={{ ...tdMonoRight, ...footerRowStyle }}>{formatCurrency(summary.total_amount)}</td>
+                                            <td colSpan={3} style={footerRowStyle} />
                                         </tr>
-                                        <tr className="bg-gray-800 text-white">
-                                            <td colSpan={9} className="px-5 py-3 text-xs font-bold">
+                                        <tr>
+                                            <td colSpan={9} style={{ ...footerRowStyle, textTransform: 'none', fontWeight: 600, fontSize: 10 }}>
                                                 Ledger: Dr {formatCurrency(summary.total_debit)} · Cr {formatCurrency(summary.total_credit)} ·{' '}
-                                                <span className={`inline-block px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${summary.balanced ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'}`}>
-                                                    {summary.balanced ? 'Balanced' : 'Out of balance'}
+                                                <span
+                                                    style={{
+                                                        display: 'inline-block',
+                                                        padding: '2px 8px',
+                                                        borderRadius: 6,
+                                                        fontSize: 9,
+                                                        fontWeight: 700,
+                                                        textTransform: 'uppercase',
+                                                        background: summary.balanced ? 'var(--color-badge-green-bg)' : 'var(--color-badge-red-bg)',
+                                                        color: summary.balanced ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)',
+                                                    }}
+                                                >
+                                                    {summary.balanced ? 'Balanced' : 'Imbalanced'}
                                                 </span>
                                             </td>
                                         </tr>
