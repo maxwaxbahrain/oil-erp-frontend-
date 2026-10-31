@@ -2216,6 +2216,50 @@ export const getAgedReceivable = (asOf?: string): Promise<AgedReceivableReport> 
   return apiRequest<AgedReceivableReport>(`/credit/aged-receivable${qs ? `?${qs}` : ''}`);
 };
 
+export interface AgedPayableLine {
+  kind: 'opening' | 'opening_credit' | 'purchase_order' | 'credit' | 'purchase_return' | 'refund' | 'refund_owed';
+  label: string;
+  date: string | null;
+  amount: number;
+  bucket: string | null;
+  status?: string;
+  stored_as?: string;
+  direction?: 'owed';
+}
+
+export interface AgedPayableSupplier {
+  supplier_id: string;
+  supplier_name: string;
+  current: number;
+  days30: number;
+  days60: number;
+  days90: number;
+  gross: number;
+  credits: number;
+  net: number;
+  ledger_closing: number;
+  po_count: number;
+  lines: AgedPayableLine[];
+}
+
+export interface AgedPayableReport {
+  as_of: string;
+  gross: number;
+  credits: number;
+  net: number;
+  suppliers: AgedPayableSupplier[];
+  gl_ap_balance: number;
+  gl_difference: number;
+}
+
+/** Per-supplier net is the supplier ledger closing. Openings are their own rows. */
+export const getAgedPayable = (asOf?: string): Promise<AgedPayableReport> => {
+  const params = new URLSearchParams();
+  if (asOf) params.set('as_of', asOf);
+  const qs = params.toString();
+  return apiRequest<AgedPayableReport>(`/credit/aged-payable${qs ? `?${qs}` : ''}`);
+};
+
 export const getCollectionsReport = (
   asOf?: string,
   scope?: 'all' | 'late',
