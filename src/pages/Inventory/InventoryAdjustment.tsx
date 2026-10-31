@@ -97,11 +97,32 @@ function apiProductsBase(): string {
     return String(import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '') + '/api';
 }
 
-async function putProductStock(productId: string, stock: number): Promise<void> {
+/** PUT /api/products/{id} stock payload (exported for tests). */
+export function buildProductStockPutPayload(
+    stock: number,
+    reason: string | undefined,
+    note: string | undefined,
+): { stock: number; adjustment_reason: string; adjustment_note?: string } {
+    const payload: { stock: number; adjustment_reason: string; adjustment_note?: string } = {
+        stock,
+        adjustment_reason: (reason ?? '').trim() || 'Other',
+    };
+    const trimmedNote = (note ?? '').trim();
+    if (trimmedNote) payload.adjustment_note = trimmedNote;
+    return payload;
+}
+
+async function putProductStock(
+    productId: string,
+    stock: number,
+    opts?: { adjustment_reason?: string; adjustment_note?: string },
+): Promise<void> {
     const putResp = await authFetch(`${apiProductsBase()}/products/${productId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stock }),
+        body: JSON.stringify(
+            buildProductStockPutPayload(stock, opts?.adjustment_reason, opts?.adjustment_note),
+        ),
     });
     if (!putResp.ok) {
         const detail = await putResp.text().catch(() => '');
@@ -364,7 +385,14 @@ export default function InventoryAdjustment() {
                 const parsed = Number(raw);
                 if (Number.isNaN(parsed) || parsed < 0) return null;
                 if (parsed === p.current_stock) return null;
-                return { id: p.id, name: p.name, sku: p.sku, current_stock: p.current_stock, newStock: parsed };
+                return {
+                    id: p.id,
+                    name: p.name,
+                    sku: p.sku,
+                    current_stock: p.current_stock,
+                    newStock: parsed,
+                    note: undefined as string | undefined,
+                };
             })
             .filter((row): row is NonNullable<typeof row> => row != null);
     }, [products, bulkNewStock]);
@@ -410,7 +438,10 @@ export default function InventoryAdjustment() {
         try {
             await runWithConcurrency(changes, 5, async (row) => {
                 try {
-                    await putProductStock(row.id, row.newStock);
+                    await putProductStock(row.id, row.newStock, {
+                        adjustment_reason: 'Bulk entry',
+                        adjustment_note: row.note,
+                    });
                     results.push({ id: row.id, name: row.name, status: 'saved' });
                 } catch (e) {
                     results.push({
@@ -425,6 +456,7 @@ export default function InventoryAdjustment() {
             });
 
             await refreshProducts();
+            await refreshAdjustmentHistory();
             setBulkNewStock((prev) => {
                 const next = { ...prev };
                 for (const row of changes) {
@@ -450,7 +482,7 @@ export default function InventoryAdjustment() {
     };
 
     const handleSave = async () => {
-        if (!form.productId || !form.reason || form.quantity <= 0) {
+        if (!form.productId || form.quantity <= 0) {
             alert('Please fill all fields.');
             return;
         }
@@ -515,7 +547,7 @@ export default function InventoryAdjustment() {
             const putResp = await authFetch(`${base}/products/${backendId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stock: newStock }),
+                body: JSON.stringify(buildProductStockPutPayload(newStock, form.reason, form.note)),
             });
             if (!putResp.ok) {
                 const detail = await putResp.text().catch(() => '');
@@ -1383,17 +1415,17 @@ export default function InventoryAdjustment() {
                     <button
                         type="button"
                         onClick={handleSave}
-                        disabled={saving || !form.productId || !form.reason}
+                        disabled={saving || !form.productId}
                         style={{
                             width: '100%',
                             padding: '12px 16px',
                             borderRadius: 10,
                             border: 'none',
-                            background: saving || !form.productId || !form.reason ? 'rgba(79,142,247,.35)' : C.blue,
+                            background: saving || !form.productId ? 'rgba(79,142,247,.35)' : C.blue,
                             color: '#fff',
                             fontWeight: 700,
                             fontSize: 12,
-                            cursor: saving || !form.productId || !form.reason ? 'not-allowed' : 'pointer',
+                            cursor: saving || !form.productId ? 'not-allowed' : 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
