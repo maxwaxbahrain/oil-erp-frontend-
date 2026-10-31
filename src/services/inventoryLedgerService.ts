@@ -77,9 +77,36 @@ export interface OnHandQuery {
   zero?: boolean;
   location_id?: number;
   path_prefix?: string;
+  product_id?: number;
   by_location?: boolean;
   limit?: number;
   offset?: number;
+}
+
+export interface InventoryValuationRow {
+  product_id: number;
+  sku: string | null;
+  name: string;
+  on_hand: number;
+  cost: number;
+  value: number;
+  last_receipt_cost: number | null;
+  last_movement_date: string | null;
+  cost_method: string;
+}
+
+export interface InventoryValuationReport {
+  as_of: string | null;
+  rows: InventoryValuationRow[];
+  totals: { products: number; units: number; value: number };
+  gl_inventory: number;
+  difference: number | null;
+}
+
+export interface InventoryValuationQuery {
+  as_of?: string;
+  category_id?: number;
+  search?: string;
 }
 
 export interface InventoryMovement {
@@ -144,6 +171,14 @@ export function getInventorySummary(): Promise<InventorySummary> {
   return readJson<InventorySummary>(ledgerQuery('/inventory/summary', {}));
 }
 
+export function getInventoryValuation(query: InventoryValuationQuery = {}): Promise<InventoryValuationReport> {
+  return readJson<InventoryValuationReport>(ledgerQuery('/inventory/valuation', {
+    as_of: query.as_of,
+    category_id: query.category_id,
+    search: query.search?.trim(),
+  }));
+}
+
 export function getOnHand(query: OnHandQuery = {}): Promise<OnHandPage> {
   return readJson<OnHandPage>(ledgerQuery('/inventory/on-hand', {
     search: query.search?.trim(),
@@ -151,10 +186,16 @@ export function getOnHand(query: OnHandQuery = {}): Promise<OnHandPage> {
     zero: query.zero,
     location_id: query.location_id,
     path_prefix: query.path_prefix?.trim(),
+    product_id: query.product_id,
     by_location: query.by_location,
     limit: query.limit ?? 50,
     offset: query.offset ?? 0,
   }));
+}
+
+/** Alias for warehouse on-hand reads (Material audit and product views). */
+export function getInventoryOnHand(query: OnHandQuery = {}): Promise<OnHandPage> {
+  return getOnHand(query);
 }
 
 export interface ProductLocationOnHand {
