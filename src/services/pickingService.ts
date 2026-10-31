@@ -302,6 +302,7 @@ function mapDetail(raw: unknown): PickListDetail {
 
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   const response = await authFetch(`${API_BASE_URL}/picking${path}`, {
+    cache: 'no-store',
     ...init,
     headers: {
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
@@ -370,17 +371,17 @@ export async function completePickList(id: number): Promise<PickListDetail> {
   return mapDetail(await request(`/pick-lists/${id}/complete`, { method: 'POST' }));
 }
 
-export async function recordPick(listId: number, lineId: number, input: RecordPickInput): Promise<void> {
+export async function recordPick(listId: number, lineId: number, input: RecordPickInput): Promise<PickListDetail> {
   const body: Record<string, unknown> = { qty: input.qty };
   if (input.pickedLocationId != null) body.picked_location_id = input.pickedLocationId;
   if (input.note) body.note = input.note;
   if (input.lotsPicked && input.lotsPicked.length > 0) {
     body.lots_picked = input.lotsPicked.map((lot) => ({ lot_id: lot.lotId, qty: lot.qty }));
   }
-  await request(`/pick-lists/${listId}/lines/${lineId}/pick`, {
+  return mapDetail(await request(`/pick-lists/${listId}/lines/${lineId}/pick`, {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  }));
 }
 
 export async function getPickListForInvoice(invoiceId: number): Promise<PickListDetail> {

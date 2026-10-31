@@ -154,6 +154,22 @@ describe('Pick list screen', () => {
       if (method === 'POST' && String(url).endsWith('/release')) {
         return http({ ...current, status: 'released' });
       }
+      if (method === 'POST' && String(url).includes('/lines/') && String(url).endsWith('/pick')) {
+        const body = JSON.parse(String(init?.body)) as { qty: number; note?: string };
+        const lineId = Number(String(url).match(/\/lines\/(\d+)\/pick$/)?.[1]);
+        const nextLines = current.lines.map((row) => {
+          if (row.id !== lineId) return row;
+          const required = Number(row.qty_required);
+          const qty = Number(body.qty);
+          let status = 'open';
+          if (qty <= 0 && body.note) status = 'skipped';
+          else if (Math.abs(qty - required) < 1e-9) status = 'picked';
+          else status = 'short';
+          return { ...row, qty_picked: qty, status };
+        });
+        current = { ...current, lines: nextLines };
+        return http(current);
+      }
       return http(current);
     });
     apiGet.mockReset();
@@ -491,5 +507,74 @@ describe('Pick list screen', () => {
     const failed = container.querySelector('[data-testid="failed-stop"]') as HTMLElement;
     expect(failed.textContent).toBe('A stop failed — see deliveries');
     expect(failed.style.color).toBe('rgb(239, 68, 68)');
+  });
+
+  it('Pick all open lines posts remaining qty for each open line in sequence', async () => {
+    current = detail('picking', [
+      line({ id: 11, sequence: 1, product_id: 9, sku: 'A', name: 'A', location_id: 1, qty_required: 10, status: 'open' }),
+      line({ id: 22, sequence: 2, product_id: 8, sku: 'B', name: 'B', location_id: 5, qty_required: 4, status: 'open' }),
+    ]);
+    await mount();
+    await act(async () => {
+      (container.querySelector('[data-testid="pick-all-open-lines"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await flush();
+    const picks = calls().filter((call) => call.method === 'POST' && call.url.endsWith('/pick'));
+    expect(picks.map((call) => call.body?.qty)).toEqual([10, 4]);
+    expect(picks.map((call) => call.url)).toEqual([
+      expect.stringContaining('/lines/11/pick'),
+      expect.stringContaining('/lines/22/pick'),
+    ]);
+  });
+
+  it('Pick all open lines skips lines that are not open', async () => {
+    current = detail('picking', [
+      line({ id: 11, sequence: 1, product_id: 9, sku: 'A', name: 'A', location_id: 1, qty_required: 10, qty_picked: 3, status: 'short' }),
+      line({ id: 22, sequence: 2, product_id: 8, sku: 'B', name: 'B', location_id: 5, qty_required: 4, status: 'open' }),
+    ]);
+    await mount();
+    await act(async () => {
+      (container.querySelector('[data-testid="pick-all-open-lines"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await flush();
+    const picks = calls().filter((call) => call.method === 'POST' && call.url.endsWith('/pick'));
+    expect(picks).toHaveLength(1);
+    expect(picks[0]?.url).toContain('/lines/22/pick');
+    expect(picks[0]?.body).toEqual({ qty: 4 });
+  });
+
+  it('Pick all open lines shows backend detail and keeps the first line picked qty from the server', async () => {
+    current = detail('picking', [
+      line({ id: 11, sequence: 1, product_id: 9, sku: 'A', name: 'A', location_id: 1, qty_required: 10, status: 'open' }),
+      line({ id: 22, sequence: 2, product_id: 8, sku: 'B', name: 'B', location_id: 5, qty_required: 4, status: 'open' }),
+    ]);
+    let pickCount = 0;
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (method === 'POST' && String(url).includes('/lines/') && String(url).endsWith('/pick')) {
+        pickCount += 1;
+        if (pickCount === 1) {
+          const body = JSON.parse(String(init?.body)) as { qty: number };
+          const lineId = Number(String(url).match(/\/lines\/(\d+)\/pick$/)?.[1]);
+          const nextLines = current.lines.map((row) => (
+            row.id === lineId ? { ...row, qty_picked: body.qty, status: 'picked' } : row
+          ));
+          current = { ...current, lines: nextLines };
+          return http(current);
+        }
+        return http({ detail: 'z' }, 400);
+      }
+      return http(current);
+    });
+    await mount();
+    await act(async () => {
+      (container.querySelector('[data-testid="pick-all-open-lines"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(container.querySelector('[data-testid="pick-screen-error"]')!.textContent).toBe('z');
+    expect(container.querySelector('[data-testid="pick-line-11"]')!.textContent).toContain('Picked 10');
   });
 });

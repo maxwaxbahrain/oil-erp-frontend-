@@ -154,7 +154,11 @@ export default function PickListPage() {
   const van = vans.find((item) => item.id === list?.vanId);
   const invoiceNumbers = [...new Set(lines.map((line) => line.invoiceNumber).filter(Boolean))].join(', ');
 
-  async function refresh() {
+  async function applyPickListDetail(updated: PickListDetail) {
+    if (updated.lines.length > 0) {
+      setList(updated);
+      return;
+    }
     setList(await getPickList(listId));
   }
 
@@ -183,13 +187,24 @@ export default function PickListPage() {
     });
   }
 
+  function remainingToPick(line: PickLine): number {
+    return Math.max(0, line.qtyRequired - line.qtyPicked);
+  }
+
+  function pickQtyForSubmit(line: PickLine, qty: number): number {
+    const remaining = remainingToPick(line);
+    if (qty > remaining + 1e-9) return remaining;
+    return qty;
+  }
+
   async function submit(line: PickLine, qty: number, extra?: { note?: string; pickedLocationId?: number }) {
+    const amount = pickQtyForSubmit(line, qty);
     let lotsPicked: { lotId: number; qty: number }[] | undefined;
-    if (line.lots.length > 0 && qty > 0) {
+    if (line.lots.length > 0 && amount > 0) {
       const plan = lotPlan(line);
       const total = plan.reduce((sum, lot) => sum + lot.qty, 0);
-      if (Math.abs(total - qty) > 1e-9) {
-        setLineError((prev) => ({ ...prev, [line.id]: `Lot quantities must add up to ${qty}` }));
+      if (Math.abs(total - amount) > 1e-9) {
+        setLineError((prev) => ({ ...prev, [line.id]: `Lot quantities must add up to ${amount}` }));
         return;
       }
       lotsPicked = plan
@@ -198,14 +213,15 @@ export default function PickListPage() {
     }
     setBusy(true);
     setLineError((prev) => ({ ...prev, [line.id]: '' }));
+    setError(null);
     try {
-      await recordPick(listId, line.id, {
-        qty,
+      const updated = await recordPick(listId, line.id, {
+        qty: amount,
         note: extra?.note,
         pickedLocationId: extra?.pickedLocationId,
         lotsPicked,
       });
-      await refresh();
+      await applyPickListDetail(updated);
       setEditing((prev) => ({ ...prev, [line.id]: false }));
       setShortFor(null);
       setSkipFor(null);
@@ -217,11 +233,42 @@ export default function PickListPage() {
     }
   }
 
+  async function pickAllOpenLines() {
+    setError(null);
+    setBusy(true);
+    try {
+      const openLines = lines.filter((line) => line.status === 'open');
+      for (const line of openLines) {
+        const amount = remainingToPick(line);
+        if (amount <= 0) continue;
+        let lotsPicked: { lotId: number; qty: number }[] | undefined;
+        if (line.lots.length > 0) {
+          const plan = lotPlan(line);
+          const total = plan.reduce((sum, lot) => sum + lot.qty, 0);
+          if (Math.abs(total - amount) > 1e-9) {
+            setLineError((prev) => ({ ...prev, [line.id]: `Lot quantities must add up to ${amount}` }));
+            return;
+          }
+          lotsPicked = plan
+            .filter((lot) => lot.lotId != null && lot.qty > 0)
+            .map((lot) => ({ lotId: lot.lotId as number, qty: lot.qty }));
+        }
+        setLineError((prev) => ({ ...prev, [line.id]: '' }));
+        const updated = await recordPick(listId, line.id, { qty: amount, lotsPicked });
+        await applyPickListDetail(updated);
+      }
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function qtyOf(line: PickLine): number {
     const raw = qtyByLine[line.id];
-    if (raw == null || raw === '') return line.qtyRequired;
+    if (raw == null || raw === '') return remainingToPick(line);
     const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : line.qtyRequired;
+    return Number.isFinite(parsed) ? parsed : remainingToPick(line);
   }
 
   async function onRelease() {
@@ -296,8 +343,18 @@ export default function PickListPage() {
       </header>
 
       <BarcodeScanField onScan={onScan} />
+      {(list.status === 'released' || list.status === 'picking') && lines.some((line) => line.status === 'open') && (
+        <button
+          type="button"
+          data-testid="pick-all-open-lines"
+          disabled={busy}
+          onClick={() => void pickAllOpenLines()}
+        >
+          Pick all
+        </button>
+      )}
       {scanError && <p role="alert" data-testid="scan-error" style={{ color: '#ef4444', fontSize: 13 }}>{scanError}</p>}
-      {error && <p role="alert" style={{ color: '#ef4444', fontSize: 13 }}>{error}</p>}
+      {error && <p role="alert" data-testid="pick-screen-error" style={{ color: '#ef4444', fontSize: 13 }}>{error}</p>}
 
       {lines.map((line) => {
         const showInputs = line.status === 'open' || editing[line.id];
@@ -346,7 +403,7 @@ export default function PickListPage() {
                   onChange={(event) => setQtyByLine((prev) => ({ ...prev, [line.id]: event.target.value }))}
                 />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button type="button" disabled={busy} onClick={() => void submit(line, line.qtyRequired)}>Pick all</button>
+                  <button type="button" disabled={busy} onClick={() => void submit(line, remainingToPick(line))}>Pick all</button>
                   <button type="button" disabled={busy} onClick={() => { setShortFor(line.id); setShortNote(''); }}>Short…</button>
                   <button
                     type="button"
