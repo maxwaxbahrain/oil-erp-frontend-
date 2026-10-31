@@ -21,7 +21,16 @@ import { formatDateOnly } from '../../utils/formatters';
 import { defaultPurchaseOrderDates } from './defaultPurchaseOrderDates';
 import PackQtyInput, { BarcodeScanField } from '../../components/Inventory/PackQtyInput';
 import { getProducts as getCatalogProducts, lookupProductByBarcode } from '../../services/productService';
-import { planBarcodeScan, toLinePayload, type PackEntryValue, type PackProduct } from '../../utils/packEntry';
+import {
+    apiProductBaseUnitPrice,
+    catalogProductBaseUnitPrice,
+    planBarcodeScan,
+    toLinePayload,
+    type PackEntryValue,
+    type PackProduct,
+} from '../../utils/packEntry';
+
+const PO_LINE_PRICE_SOURCE = 'cost' as const;
 
 interface POLineItem {
     id: string;
@@ -484,6 +493,9 @@ export default function PurchaseOrderForm() {
 
         if (!selectedProduct) return;
 
+        const unitCost = apiProductBaseUnitPrice(selectedProduct, PO_LINE_PRICE_SOURCE);
+        const rate = unitCost ?? 0;
+
         setFormData(prev => ({
             ...prev,
             lineItems: prev.lineItems.map(item => {
@@ -494,13 +506,13 @@ export default function PurchaseOrderForm() {
                     productId: selectedProduct.id,
                     product: selectedProduct.name,
                     description: selectedProduct.name,
-                    rate: selectedProduct.unit_price,
-                    amount: item.quantity * selectedProduct.unit_price,
+                    rate,
+                    amount: item.quantity * rate,
                     enteredUom: 'base',
                     enteredQty: item.quantity,
-                    enteredUnitPrice: selectedProduct.unit_price,
+                    enteredUnitPrice: rate,
                     packQtySnapshot: null,
-                    baseRate: selectedProduct.unit_price,
+                    baseRate: rate,
                 };
             })
         }));
@@ -556,7 +568,7 @@ export default function PurchaseOrderForm() {
                 next.set(String(product.id), pack);
                 return next;
             });
-            const basePrice = Number(product.pricing?.sellingPrice) || 0;
+            const basePrice = catalogProductBaseUnitPrice(product, PO_LINE_PRICE_SOURCE);
             setFormData((prev) => {
                 const plan = planBarcodeScan(prev.lineItems, { ...pack, id: String(product.id) }, found.matchedPackQty, basePrice);
                 const apply = (item: POLineItem): POLineItem => {
