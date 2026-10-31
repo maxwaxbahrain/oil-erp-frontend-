@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect, useMemo } from 'react';
-import { Scale, Download, CheckCircle, XCircle, ArrowLeft, Printer } from 'lucide-react';
+import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { Scale, Download, CheckCircle, XCircle, ArrowLeft, Printer, Calendar } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCurrency } from '../../services/settingsService';
@@ -18,22 +18,84 @@ interface TrialEntry {
 const GL_COVERAGE_NOTE =
     'Generated from the general ledger. Includes invoices, customer payments, expenses, opening balances, goods receipts (GRN), and supplier payments.';
 
-function asOfForPeriod(period: 'month' | 'quarter' | 'year'): string {
-    const now = new Date();
-    const today = localIsoDate(now);
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    let end: Date;
-    if (period === 'month') {
-        end = new Date(y, m + 1, 0);
-    } else if (period === 'quarter') {
-        const qEndMonth = Math.floor(m / 3) * 3 + 2;
-        end = new Date(y, qEndMonth + 1, 0);
-    } else {
-        end = new Date(y, 11, 31);
-    }
-    const endIso = localIsoDate(end);
-    return endIso > today ? today : endIso;
+const panel: CSSProperties = {
+    background: 'var(--color-redwood-bg-surface)',
+    border: '1px solid var(--color-redwood-border)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+};
+
+const ghostBtn: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '5px 10px',
+    borderRadius: '6px',
+    fontSize: '9.5px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    border: '1px solid var(--color-redwood-border)',
+    background: 'rgba(255,255,255,.04)',
+    color: 'var(--color-redwood-text-muted)',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+};
+
+const thStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 8.5,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '.4px',
+    color: 'var(--color-redwood-text-muted)',
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--color-redwood-border)',
+    textAlign: 'left',
+};
+
+const tdStyle: CSSProperties = {
+    padding: '8px 10px',
+    fontSize: 11,
+    color: 'var(--color-redwood-text-main)',
+    verticalAlign: 'middle',
+    borderBottom: '1px solid rgba(255,255,255,.04)',
+};
+
+const dateInputStyle: CSSProperties = {
+    width: '100%',
+    padding: '8px 32px 8px 10px',
+    borderRadius: 8,
+    border: '1px solid var(--color-redwood-border)',
+    background: 'var(--color-redwood-row-bg)',
+    color: 'var(--color-redwood-text-main)',
+    fontSize: 10,
+    fontFamily: 'inherit',
+    outline: 'none',
+};
+
+export function trialBalanceTodayISO(now: Date = new Date()): string {
+    return localIsoDate(now);
+}
+
+/** Last calendar day of the month before `now`'s month. */
+export function trialBalanceEndOfLastMonthISO(now: Date = new Date()): string {
+    return localIsoDate(new Date(now.getFullYear(), now.getMonth(), 0));
+}
+
+/** Last calendar day of the quarter before `now`'s quarter. */
+export function trialBalanceEndOfLastQuarterISO(now: Date = new Date()): string {
+    const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    return localIsoDate(new Date(now.getFullYear(), quarterStartMonth, 0));
+}
+
+/** Dec 31 of the year before `now`'s year. */
+export function trialBalanceEndOfLastYearISO(now: Date = new Date()): string {
+    return localIsoDate(new Date(now.getFullYear() - 1, 11, 31));
+}
+
+function roundMoney(n: number): number {
+    return Math.round(n * 100) / 100;
 }
 
 function glTypeToCategory(type: string): string {
@@ -47,15 +109,57 @@ function glTypeToCategory(type: string): string {
     }
 }
 
-function mapGlRows(accounts: GLTrialBalanceRow[]): TrialEntry[] {
+function accountLabel(row: GLTrialBalanceRow): string {
+    return row.code ? `${row.code} — ${row.name}` : row.name;
+}
+
+export function mapGlRowsGross(accounts: GLTrialBalanceRow[]): TrialEntry[] {
     return accounts
         .filter(row => (row.debit || 0) > 0 || (row.credit || 0) > 0)
         .map(row => ({
-            account: row.code ? `${row.code} — ${row.name}` : row.name,
+            account: accountLabel(row),
             category: glTypeToCategory(row.type),
             debit: row.debit || 0,
             credit: row.credit || 0,
         }));
+}
+
+export function mapGlRowsNet(accounts: GLTrialBalanceRow[]): TrialEntry[] {
+    return accounts
+        .map(row => {
+            const net = roundMoney((row.debit || 0) - (row.credit || 0));
+            return {
+                account: accountLabel(row),
+                category: glTypeToCategory(row.type),
+                debit: net > 0 ? net : 0,
+                credit: net < 0 ? roundMoney(Math.abs(net)) : 0,
+            };
+        })
+        .filter(row => row.debit > 0 || row.credit > 0);
+}
+
+export function sumColumn(entries: TrialEntry[], side: 'debit' | 'credit'): number {
+    return roundMoney(entries.reduce((sum, e) => sum + (e[side] || 0), 0));
+}
+
+function catBadgeStyle(cat: string): CSSProperties {
+    const base: CSSProperties = {
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '.3px',
+    };
+    switch (cat) {
+        case 'Income': return { ...base, background: 'var(--color-badge-green-bg)', color: 'var(--color-brand-green-tint)' };
+        case 'Assets': return { ...base, background: 'var(--color-badge-blue-bg)', color: 'var(--color-brand-blue-tint)' };
+        case 'Liabilities': return { ...base, background: 'var(--color-badge-red-bg)', color: 'var(--color-brand-red-tint)' };
+        case 'Expenses': return { ...base, background: 'var(--color-badge-amber-bg)', color: 'var(--color-brand-amber-tint)' };
+        case 'Equity': return { ...base, background: 'var(--color-badge-teal-bg)', color: 'var(--color-redwood-text-main)' };
+        default: return { ...base, background: 'var(--color-badge-blue-bg)', color: 'var(--color-redwood-text-muted)' };
+    }
 }
 
 export default function TrialBalance() {
@@ -63,16 +167,15 @@ export default function TrialBalance() {
     const [tb, setTb] = useState<GLTrialBalance | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month');
+    const [asOf, setAsOf] = useState<string>(() => trialBalanceTodayISO());
+    const [showGross, setShowGross] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
-
-    const requestedAsOf = useMemo(() => asOfForPeriod(period), [period]);
 
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setError(null);
-        getGLTrialBalance(requestedAsOf)
+        getGLTrialBalance(asOf)
             .then(data => {
                 if (cancelled) return;
                 setTb(data);
@@ -85,30 +188,24 @@ export default function TrialBalance() {
                 setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [requestedAsOf, reloadKey]);
+    }, [asOf, reloadKey]);
 
-    const entries = useMemo(() => (tb ? mapGlRows(tb.accounts) : []), [tb]);
-    const totalDebit = tb?.total_debit ?? 0;
-    const totalCredit = tb?.total_credit ?? 0;
-    const isBalanced = tb?.is_balanced ?? false;
-    const asOfLabel = tb?.as_of ?? requestedAsOf;
+    const grossEntries = useMemo(() => (tb ? mapGlRowsGross(tb.accounts) : []), [tb]);
+    const netEntries = useMemo(() => (tb ? mapGlRowsNet(tb.accounts) : []), [tb]);
+    const entries = showGross ? grossEntries : netEntries;
 
-    const catColor = (cat: string) => {
-        switch (cat) {
-            case 'Income': return 'bg-emerald-100 text-emerald-700';
-            case 'Assets': return 'bg-blue-100 text-blue-700';
-            case 'Liabilities': return 'bg-red-100 text-red-700';
-            case 'Expenses': return 'bg-orange-100 text-orange-700';
-            case 'Equity': return 'bg-purple-100 text-purple-700';
-            default: return 'bg-gray-100 text-gray-700';
-        }
-    };
+    const totalDebit = showGross
+        ? (tb?.total_debit ?? 0)
+        : sumColumn(netEntries, 'debit');
+    const totalCredit = showGross
+        ? (tb?.total_credit ?? 0)
+        : sumColumn(netEntries, 'credit');
+    const isBalanced = showGross
+        ? (tb?.is_balanced ?? false)
+        : Math.abs(totalDebit - totalCredit) < 0.005;
 
-    const periodLabel = {
-        month: 'Monthly (as of month-end)',
-        quarter: 'Quarterly (as of quarter-end)',
-        year: 'Yearly (as of year-end)',
-    };
+    const asOfLabel = tb?.as_of ?? asOf;
+    const headingDate = formatLocalDate(asOfLabel) || asOfLabel;
 
     const handlePrint = () => window.print();
 
@@ -116,17 +213,21 @@ export default function TrialBalance() {
         if (!tb) return;
         const doc = new jsPDF();
         doc.setFontSize(16);
-        doc.text('Trial Balance', 14, 16);
+        doc.text('Trial balance', 14, 16);
         doc.setFontSize(10);
-        doc.text(`General ledger as of ${formatLocalDate(asOfLabel) || asOfLabel}`, 14, 22);
+        doc.text(`General ledger as of ${headingDate}`, 14, 22);
+        doc.text(
+            showGross ? '(Gross movements)' : '(Net balances)',
+            14, 27,
+        );
         doc.text(
             isBalanced
                 ? `Balanced · Totals: ${formatCurrency(totalDebit)}`
                 : `IMBALANCED · Difference: ${formatCurrency(Math.abs(totalDebit - totalCredit))}`,
-            14, 28,
+            14, 33,
         );
         autoTable(doc, {
-            startY: 34,
+            startY: 38,
             head: [['Account', 'Category', 'Debit', 'Credit']],
             body: entries.map(e => [
                 e.account,
@@ -142,123 +243,192 @@ export default function TrialBalance() {
         doc.save(`TrialBalance_${asOfLabel}.pdf`);
     };
 
+    const presetBtn = (label: string, value: string) => (
+        <button
+            key={label}
+            type="button"
+            onClick={() => setAsOf(value)}
+            style={{
+                ...ghostBtn,
+                borderColor: asOf === value ? 'rgba(79,142,247,.45)' : 'var(--color-redwood-border)',
+                color: asOf === value ? '#93C5FD' : 'var(--color-redwood-text-muted)',
+                background: asOf === value ? 'rgba(79,142,247,.15)' : ghostBtn.background as string,
+            }}
+        >
+            {label}
+        </button>
+    );
+
     return (
-        <div className="space-y-6 max-w-[1200px] mx-auto pb-10 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
-                        <Scale size={24} className="text-indigo-600" />
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 24, maxWidth: 1280, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(79,142,247,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Scale size={18} style={{ color: '#4F8EF7' }} />
                     </div>
-                    <div>
-                        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-xs font-black text-gray-400 hover:text-gray-700 mb-3 transition-all print:hidden"><ArrowLeft size={14} /> Back</button>
-                        <h1 className="text-xl font-black text-gray-900 uppercase tracking-tight">Trial Balance</h1>
-                        <p className="text-xs text-gray-500 mt-0.5">All debits must equal all credits · {periodLabel[period]}</p>
-                        <p className="text-[11px] text-gray-400 mt-1 max-w-xl">{GL_COVERAGE_NOTE}</p>
+                    <div style={{ minWidth: 0 }}>
+                        <button
+                            type="button"
+                            onClick={() => navigate(-1)}
+                            className="print:hidden"
+                            style={{ ...ghostBtn, display: 'inline-flex', marginBottom: 6, padding: '4px 8px' }}
+                        >
+                            <ArrowLeft size={12} /> Back
+                        </button>
+                        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                            Trial balance
+                        </h1>
+                        <p style={{ fontSize: 9.5, color: 'var(--color-redwood-text-subtle)', margin: '3px 0 0' }}>
+                            Trial balance — as of {headingDate}
+                        </p>
+                        <p style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', margin: '6px 0 0', maxWidth: 520 }}>
+                            {GL_COVERAGE_NOTE}
+                        </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-3 print:hidden">
-                    {(['month', 'quarter', 'year'] as const).map(p => (
-                        <button key={p} onClick={() => setPeriod(p)}
-                            className={`px-4 py-2 text-xs font-black uppercase rounded-xl transition-all ${period === p ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                            {p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Yearly'}
-                        </button>
-                    ))}
-                    <button
-                        onClick={handlePrint}
-                        disabled={loading || !!error || entries.length === 0}
-                        className="flex items-center gap-2 px-4 py-2 border-2 border-gray-900 text-gray-900 rounded-xl text-xs font-black uppercase hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    >
-                        <Printer size={14} /> Print
+                <div className="print:hidden" style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button type="button" onClick={handlePrint} disabled={loading || !!error || entries.length === 0} style={{ ...ghostBtn, opacity: loading || !!error || entries.length === 0 ? 0.45 : 1 }}>
+                        <Printer size={12} /> Print
                     </button>
                     <button
+                        type="button"
                         onClick={exportPDF}
                         disabled={loading || !!error || !tb}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-xs font-black uppercase hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        style={{ ...ghostBtn, opacity: loading || !!error || !tb ? 0.45 : 1 }}
                     >
-                        <Download size={14} /> Export PDF
+                        <Download size={12} /> Export PDF
                     </button>
                 </div>
             </div>
 
-            {/* Error — never silent zeros when load failed */}
+            <div style={{ ...panel, padding: '14px 16px' }} className="print:hidden">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+                    <div style={{ minWidth: 180, flex: '1 1 180px' }}>
+                        <label style={{ display: 'block', fontSize: 9, fontWeight: 700, color: 'var(--color-redwood-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.3px' }}>
+                            As of
+                        </label>
+                        <div style={{ position: 'relative' }}>
+                            <input
+                                type="date"
+                                aria-label="As of"
+                                value={asOf}
+                                onChange={(e) => setAsOf(e.target.value)}
+                                style={dateInputStyle}
+                            />
+                            <Calendar size={12} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-redwood-text-muted)', pointerEvents: 'none' }} />
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                        {presetBtn('Today', trialBalanceTodayISO())}
+                        {presetBtn('End of last month', trialBalanceEndOfLastMonthISO())}
+                        {presetBtn('End of last quarter', trialBalanceEndOfLastQuarterISO())}
+                        {presetBtn('End of last year', trialBalanceEndOfLastYearISO())}
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--color-redwood-text-muted)', cursor: 'pointer', flexShrink: 0 }}>
+                        <input
+                            type="checkbox"
+                            checked={showGross}
+                            onChange={(e) => setShowGross(e.target.checked)}
+                            aria-label="Show gross movements"
+                        />
+                        Show gross movements
+                    </label>
+                </div>
+            </div>
+
             {error && (
-                <div className="rounded-2xl p-4 flex items-center gap-3 flex-wrap bg-red-50 border border-red-200" role="alert">
-                    <XCircle size={20} className="text-red-600 shrink-0" />
-                    <p className="text-sm font-black text-red-700 flex-1 min-w-[12rem]">{error}</p>
+                <div style={{ ...panel, background: 'rgba(239,68,68,.08)', borderColor: 'rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} role="alert">
+                    <XCircle size={18} style={{ color: '#EF4444', flexShrink: 0 }} />
+                    <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-brand-red-tint)', margin: 0, flex: '1 1 200px' }}>{error}</p>
                     <button
                         type="button"
                         onClick={() => setReloadKey((k) => k + 1)}
                         disabled={loading}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase hover:bg-indigo-500 disabled:opacity-40 print:hidden"
+                        style={{ ...ghostBtn, color: '#93C5FD', borderColor: 'rgba(79,142,247,.35)' }}
                     >
                         Retry
                     </button>
                 </div>
             )}
 
-            {/* Balance Status */}
             {!loading && !error && tb && (
-                <div className={`rounded-2xl p-4 flex items-center gap-3 ${isBalanced ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+                <div style={{
+                    ...panel,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    background: isBalanced ? 'rgba(34,197,94,.06)' : 'rgba(239,68,68,.06)',
+                    borderColor: isBalanced ? 'rgba(34,197,94,.2)' : 'rgba(239,68,68,.2)',
+                }}>
                     {isBalanced
-                        ? <><CheckCircle size={20} className="text-emerald-600" /><p className="text-sm font-black text-emerald-700">Trial Balance is balanced — Total Debits = Total Credits ({formatCurrency(totalDebit)})</p></>
-                        : <><XCircle size={20} className="text-red-600" /><p className="text-sm font-black text-red-700">Imbalance detected — Difference: {formatCurrency(Math.abs(totalDebit - totalCredit))}</p></>
-                    }
+                        ? <CheckCircle size={16} style={{ color: 'var(--color-brand-green-tint)' }} />
+                        : <XCircle size={16} style={{ color: 'var(--color-brand-red-tint)' }} />}
+                    <p style={{ fontSize: 10, fontWeight: 600, color: isBalanced ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)', margin: 0 }}>
+                        {isBalanced
+                            ? `Trial balance is balanced — total debits = total credits (${formatCurrency(totalDebit)})`
+                            : `Imbalance detected — difference: ${formatCurrency(Math.abs(totalDebit - totalCredit))}`}
+                    </p>
                 </div>
             )}
 
-            {/* Trial Balance Table */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="p-5 border-b border-gray-100">
-                    <p className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                        Trial Balance — as of {formatLocalDate(asOfLabel) || asOfLabel}
+            <div style={{ ...panel, padding: 0 }}>
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--color-redwood-border)' }}>
+                    <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)' }}>
+                        Trial balance — as of {headingDate}
+                        {showGross ? ' · gross movements' : ' · net balances'}
                     </p>
                 </div>
                 {loading ? (
-                    <div className="p-16 text-center text-gray-400 font-bold">Loading general ledger trial balance…</div>
+                    <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--color-redwood-text-muted)', fontSize: 11, fontWeight: 600 }}>
+                        Loading general ledger trial balance…
+                    </div>
                 ) : error ? (
-                    <div className="p-16 text-center text-red-500 font-bold">Could not load trial balance.</div>
+                    <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--color-brand-red-tint)', fontSize: 11, fontWeight: 600 }}>
+                        Could not load trial balance.
+                    </div>
                 ) : entries.length === 0 ? (
-                    <div className="p-16 text-center text-gray-400 font-bold">No posted GL activity as of {formatLocalDate(asOfLabel) || asOfLabel}.</div>
+                    <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--color-redwood-text-muted)', fontSize: 11, fontWeight: 600 }}>
+                        No posted GL activity as of {headingDate}.
+                    </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50 border-b border-gray-100">
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
                                 <tr>
-                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest w-[40%]">Account Name</th>
-                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Category</th>
-                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Debit</th>
-                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Credit</th>
+                                    <th style={{ ...thStyle, width: '40%' }}>Account name</th>
+                                    <th style={thStyle}>Category</th>
+                                    <th style={{ ...thStyle, textAlign: 'right' }}>Debit</th>
+                                    <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-50">
+                            <tbody>
                                 {entries.map((e, i) => (
-                                    <tr key={i} className="hover:bg-gray-50 transition-all">
-                                        <td className="px-6 py-4 text-sm font-bold text-gray-900">{e.account}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${catColor(e.category)}`}>{e.category}</span>
+                                    <tr key={i}>
+                                        <td style={{ ...tdStyle, fontWeight: 600 }}>{e.account}</td>
+                                        <td style={tdStyle}>
+                                            <span style={catBadgeStyle(e.category)}>{e.category}</span>
                                         </td>
-                                        <td className="px-6 py-4 text-sm font-black font-mono text-gray-900 text-right">
+                                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: e.debit > 0 ? 'var(--color-brand-red-tint)' : 'transparent' }}>
                                             {e.debit > 0 ? formatCurrency(e.debit) : '—'}
                                         </td>
-                                        <td className="px-6 py-4 text-sm font-black font-mono text-gray-900 text-right">
+                                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 600, color: e.credit > 0 ? 'var(--color-brand-green-tint)' : 'transparent' }}>
                                             {e.credit > 0 ? formatCurrency(e.credit) : '—'}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                             <tfoot>
-                                <tr className="bg-gray-900 text-white">
-                                    <td colSpan={2} className="px-6 py-4 text-xs font-black uppercase">Grand Total</td>
-                                    <td className="px-6 py-4 text-sm font-black font-mono text-right">{formatCurrency(totalDebit)}</td>
-                                    <td className="px-6 py-4 text-sm font-black font-mono text-right">{formatCurrency(totalCredit)}</td>
+                                <tr style={{ background: 'rgba(255,255,255,.06)' }}>
+                                    <td colSpan={2} style={{ ...tdStyle, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px' }}>Grand total</td>
+                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-red-tint)' }}>{formatCurrency(totalDebit)}</td>
+                                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'ui-monospace,monospace', fontWeight: 700, color: 'var(--color-brand-green-tint)' }}>{formatCurrency(totalCredit)}</td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
                 )}
             </div>
-            <p className="text-xs text-gray-400 text-center">{GL_COVERAGE_NOTE}</p>
+            <p style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', textAlign: 'center', margin: 0 }}>{GL_COVERAGE_NOTE}</p>
         </div>
     );
 }
