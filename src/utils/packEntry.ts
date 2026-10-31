@@ -26,6 +26,35 @@ export interface DocumentEntry {
 export type PriceKey = 'rate' | 'unitPrice' | 'unitCost';
 export type AmountKey = 'amount' | 'total' | 'totalCost';
 
+/** Whether a document line prefills from selling price or purchase cost. */
+export type LinePriceSource = 'sell' | 'cost';
+
+/** Base-unit price from the simple API product row (`getProducts`). Cost 0/null → null (no prefill). */
+export function apiProductBaseUnitPrice(
+    product: { unit_price?: number; cost_price?: number | null },
+    source: LinePriceSource,
+): number | null {
+    if (source === 'cost') {
+        const cost = product.cost_price;
+        if (cost == null || cost === 0 || !Number.isFinite(Number(cost))) return null;
+        return Number(cost);
+    }
+    const sell = Number(product.unit_price);
+    return Number.isFinite(sell) ? sell : null;
+}
+
+/** Base-unit price from catalog / barcode lookup product. */
+export function catalogProductBaseUnitPrice(
+    product: { pricing?: { sellingPrice?: number; purchasePriceExWorks?: number }; cost?: number },
+    source: LinePriceSource,
+): number {
+    if (source === 'cost') {
+        const cost = Number(product.pricing?.purchasePriceExWorks ?? product.cost);
+        return cost > 0 ? cost : 0;
+    }
+    return Number(product.pricing?.sellingPrice) || 0;
+}
+
 export function roundMoney(value: number): number {
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
