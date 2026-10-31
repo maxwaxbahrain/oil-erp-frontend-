@@ -246,6 +246,33 @@ export function getMovements(query: MovementsQuery = {}): Promise<MovementsPage>
   }));
 }
 
+/** Ledger movement row (GET /api/inventory/movements). */
+export type MovementRow = InventoryMovement;
+
+const MOVEMENTS_PAGE_LIMIT = 1000;
+
+export async function getAllMovements(params: {
+  date_from: string;
+  date_to: string;
+  product_id?: number;
+  location_id?: number;
+  source_type?: string;
+}): Promise<MovementRow[]> {
+  const all: MovementRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await getMovements({
+      ...params,
+      limit: MOVEMENTS_PAGE_LIMIT,
+      offset,
+    });
+    all.push(...(page.rows ?? []));
+    if (all.length >= page.total || (page.rows?.length ?? 0) < MOVEMENTS_PAGE_LIMIT) break;
+    offset += MOVEMENTS_PAGE_LIMIT;
+  }
+  return all;
+}
+
 async function readJson<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (!res.ok) throw new Error(await parseError(res));
