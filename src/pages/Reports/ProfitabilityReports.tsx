@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type CSSProperties } from 'react';
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getInvoices, getProducts } from '../../services/api';
 import { formatCurrency as globalFormatCurrency } from '../../services/settingsService';
@@ -34,14 +34,17 @@ import {
     getGLBalanceSheet,
     getGLCashFlow,
     isGLEmpty,
-    todayISO,
-    yearStartISO,
     GL_EMPTY_MESSAGE,
     OPENING_BALANCES_PATH,
     type GLProfitLoss,
     type GLBalanceSheet,
     type GLCashFlow,
 } from '../../services/glService';
+import {
+    PERIOD_PRESET_CUSTOM,
+    periodPresets,
+    type PeriodPresetKey,
+} from '../../utils/periodPresets';
 
 // ─── UI tokens (dark redwood — presentation only) ─────────────────────────
 const panel: CSSProperties = {
@@ -78,16 +81,7 @@ const rowStyle: CSSProperties = {
     fontSize: '10px',
 };
 
-type PeriodKey = 'mtd' | 'qtd' | 'ytd' | 'q1' | 'fy2022' | 'custom';
-
-const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
-    { key: 'mtd', label: 'MTD May 2023' },
-    { key: 'qtd', label: 'QTD Q2-2023' },
-    { key: 'ytd', label: 'YTD 2023' },
-    { key: 'q1', label: 'Q1-2023' },
-    { key: 'fy2022', label: 'FY 2022' },
-    { key: 'custom', label: 'Custom' },
-];
+type PeriodKey = PeriodPresetKey | typeof PERIOD_PRESET_CUSTOM;
 
 const AI_STRATEGIC_INSIGHTS: Array<{ dot: string; title: string; body: string; reasoning: string; actions: string[] }> = [];
 const AI_SUGGESTED_ACTIONS: Array<{ priority: string; title: string; detail: string; color: string }> = [];
@@ -127,9 +121,6 @@ const BS_AI_PROMPTS = [
 
 type BsCurrency = 'usd' | 'aed';
 type BsCompare = 'apr' | 'prior';
-
-type PlCurrency = 'usd' | 'aed';
-type PlCompare = 'apr' | 'budget' | 'prior';
 
 function formatUsdFull(n: number): string {
     const abs = Math.abs(n);
@@ -285,13 +276,13 @@ export default function ProfitabilityReports() {
     const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string; threshold: number}>>([]); 
     const [salesmanData, setSalesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
 
-    // UI-only presentation state (does not affect data fetching)
-    const [period, setPeriod] = useState<PeriodKey>('mtd');
+    const ytdPreset = periodPresets().find((p) => p.key === 'ytd')!;
+    const [period, setPeriod] = useState<PeriodKey>('ytd');
+    const [dateFrom, setDateFrom] = useState(ytdPreset.from);
+    const [dateTo, setDateTo] = useState(ytdPreset.to);
     const [aiQuestion, setAiQuestion] = useState('');
     const [expandedInsight, setExpandedInsight] = useState<number | null>(null);
     const [cols, setCols] = useState({ kpi: 4, twoCol: true });
-    const [plCurrency, setPlCurrency] = useState<PlCurrency>('usd');
-    const [plCompare, setPlCompare] = useState<PlCompare>('apr');
     const [cfCurrency, setCfCurrency] = useState<CfCurrency>('usd');
     const [cfCompare, setCfCompare] = useState<CfCompare>('prior');
     const [cfPeriod, setCfPeriod] = useState<CfPeriodKey>('12mo');
@@ -312,25 +303,49 @@ export default function ProfitabilityReports() {
     }, []);
 
     // Load actual data on mount
+    const applyPeriod = useCallback((key: PeriodKey) => {
+        setPeriod(key);
+        if (key === PERIOD_PRESET_CUSTOM) return;
+        const preset = periodPresets().find((p) => p.key === key);
+        if (preset) {
+            setDateFrom(preset.from);
+            setDateTo(preset.to);
+        }
+    }, []);
+
     useEffect(() => {
         loadFinancialData();
         loadAnalyticsData();
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const [glPl, glBs, glCf] = await Promise.all([
+                getGLProfitLoss(dateFrom, dateTo).catch(() => null),
+                getGLBalanceSheet(dateTo).catch(() => null),
+                getGLCashFlow(dateFrom, dateTo).catch(() => null),
+            ]);
+            if (!cancelled) {
+                setGlPlData(glPl);
+                setGlBalanceSheet(glBs);
+                setGlCashFlow(glCf);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [dateFrom, dateTo]);
+
     const loadFinancialData = async () => {
         setLoading(true);
         try {
-            const glToday = todayISO();
-            const glYearStart = yearStartISO();
-            const [pl, cashFlow, balanceSheet, dimensional, ratios, glPl, glBs, glCf] = await Promise.all([
+            const [pl, cashFlow, balanceSheet, dimensional, ratios] = await Promise.all([
                 calculateProfitLoss(1),
                 calculateCashFlow(1),
                 calculateBalanceSheet(),
                 calculateDimensionalAnalysis(1),
                 calculateFinancialRatios(),
-                getGLProfitLoss(glYearStart, glToday).catch(() => null),
-                getGLBalanceSheet(glToday).catch(() => null),
-                getGLCashFlow(glYearStart, glToday).catch(() => null),
             ]);
 
             setPlData(pl);
@@ -338,9 +353,6 @@ export default function ProfitabilityReports() {
             setBalanceSheetData(balanceSheet);
             setDimensionalData(dimensional);
             setRatiosData(ratios);
-            setGlPlData(glPl);
-            setGlBalanceSheet(glBs);
-            setGlCashFlow(glCf);
         } catch (error) {
             console.error('Failed to load financial data:', error);
         } finally {
@@ -973,11 +985,11 @@ export default function ProfitabilityReports() {
             {/* Period pills + live indicator */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }} className="print:hidden">
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {PERIOD_PILLS.map((p) => (
+                    {periodPresets().map((p) => (
                         <button
                             key={p.key}
                             type="button"
-                            onClick={() => setPeriod(p.key)}
+                            onClick={() => applyPeriod(p.key)}
                             style={{
                                 padding: '4px 10px',
                                 borderRadius: 999,
@@ -994,6 +1006,24 @@ export default function ProfitabilityReports() {
                             {p.label}
                         </button>
                     ))}
+                    <button
+                        type="button"
+                        onClick={() => applyPeriod(PERIOD_PRESET_CUSTOM)}
+                        style={{
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            border: '1px solid',
+                            borderColor: period === PERIOD_PRESET_CUSTOM ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+                            background: period === PERIOD_PRESET_CUSTOM ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                            color: period === PERIOD_PRESET_CUSTOM ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        Custom
+                    </button>
                 </div>
             </div>
 
@@ -1037,79 +1067,7 @@ export default function ProfitabilityReports() {
                 ))}
             </div>
 
-            {/* P&L secondary filter bar (UI-only toggles) */}
-            {activeTab === 'pl' && (
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                        padding: '6px 10px',
-                        background: 'var(--color-redwood-bg-surface)',
-                        border: '1px solid var(--color-redwood-border)',
-                        borderRadius: 8,
-                    }}
-                    className="print:hidden"
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
-                            Currency
-                        </span>
-                        {(['usd', 'aed'] as PlCurrency[]).map((c) => (
-                            <button
-                                key={c}
-                                type="button"
-                                onClick={() => setPlCurrency(c)}
-                                style={{
-                                    padding: '3px 10px',
-                                    borderRadius: 999,
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    border: '1px solid',
-                                    borderColor: plCurrency === c ? 'rgba(79,142,247,.45)' : 'var(--color-redwood-border)',
-                                    background: plCurrency === c ? 'rgba(79,142,247,.18)' : 'rgba(255,255,255,.04)',
-                                    color: plCurrency === c ? '#93C5FD' : 'var(--color-redwood-text-muted)',
-                                    fontFamily: 'inherit',
-                                }}
-                            >
-                                {c === 'usd' ? 'USD ($)' : 'AED'}
-                            </button>
-                        ))}
-                        <span style={{ width: 1, height: 16, background: 'var(--color-redwood-border)', margin: '0 4px' }} />
-                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
-                            Compare
-                        </span>
-                        {([
-                            { key: 'apr' as PlCompare, label: 'vs Apr 2026' },
-                            { key: 'budget' as PlCompare, label: 'vs Budget' },
-                            { key: 'prior' as PlCompare, label: 'vs May 2025' },
-                        ]).map((c) => (
-                            <button
-                                key={c.key}
-                                type="button"
-                                onClick={() => setPlCompare(c.key)}
-                                style={{
-                                    padding: '3px 10px',
-                                    borderRadius: 999,
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    border: '1px solid',
-                                    borderColor: plCompare === c.key ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
-                                    background: plCompare === c.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
-                                    color: plCompare === c.key ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
-                                    fontFamily: 'inherit',
-                                }}
-                            >
-                                {c.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
+            {/* Comparison periods and multi-currency: backlog */}
 
             {/* Cash flow secondary filter bar (UI-only toggles) */}
             {false && activeTab === 'cashflow' && (
@@ -3113,11 +3071,11 @@ export default function ProfitabilityReports() {
                                     </div>
                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="print:hidden">
                                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginRight: 4 }}>
-                                            {PERIOD_PILLS.slice(0, 3).map((p) => (
+                                            {periodPresets().slice(0, 3).map((p) => (
                                                 <button
                                                     key={p.key}
                                                     type="button"
-                                                    onClick={() => setPeriod(p.key)}
+                                                    onClick={() => applyPeriod(p.key)}
                                                     style={{
                                                         padding: '3px 9px',
                                                         borderRadius: 999,
@@ -4242,11 +4200,11 @@ export default function ProfitabilityReports() {
                                             <Sparkles size={12} /> AI dimension analysis
                                         </button>
                                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginLeft: 4 }}>
-                                            {PERIOD_PILLS.slice(0, 3).map((p) => (
+                                            {periodPresets().slice(0, 3).map((p) => (
                                                 <button
                                                     key={p.key}
                                                     type="button"
-                                                    onClick={() => setPeriod(p.key)}
+                                                    onClick={() => applyPeriod(p.key)}
                                                     style={{
                                                         padding: '3px 9px',
                                                         borderRadius: 999,
