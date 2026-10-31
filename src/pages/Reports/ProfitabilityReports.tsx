@@ -6,7 +6,7 @@ import { formatLocalDate } from '../../utils/dates';
 import {
     BarChart3, TrendingUp, DollarSign,
     Activity,
-    Download, Target, Layers, Briefcase, Filter,
+    Download, RefreshCw, Target, Layers, Briefcase, Filter,
     Brain, Users, AlertTriangle, Star, Package, Bell,
     Printer, Bot, Sparkles, Mic, Send, ChevronDown, ChevronUp,
     Search, ChevronRight, TrendingDown,
@@ -17,18 +17,13 @@ import {
     BarChart, Bar, Legend
 } from 'recharts';
 import {
-    calculateProfitLoss,
-    calculateCashFlow,
-    calculateDimensionalAnalysis,
-    calculateFinancialRatios,
     getKnownProductUnitCost,
     type ProfitLossStatement,
     type CashFlowStatement,
     type DimensionalAnalysis,
-    type FinancialRatios
+    type FinancialRatios,
 } from '../../services/profitLossService';
-import { calculateBalanceSheet, type BalanceSheet } from '../../services/balanceSheetService';
-import AccountingSetupRequired from '../../components/common/AccountingSetupRequired';
+import type { BalanceSheet } from '../../services/balanceSheetService';
 import {
     getGLProfitLoss,
     getGLBalanceSheet,
@@ -39,6 +34,7 @@ import {
     type GLProfitLoss,
     type GLBalanceSheet,
     type GLCashFlow,
+    type GLAccountLine,
 } from '../../services/glService';
 import {
     PERIOD_PRESET_CUSTOM,
@@ -119,8 +115,103 @@ const BS_AI_PROMPTS = [
     'What is driving asset growth?',
 ];
 
-type BsCurrency = 'usd' | 'aed';
-type BsCompare = 'apr' | 'prior';
+function periodDayCount(from: string, to: string): number {
+    const start = new Date(`${from}T12:00:00`);
+    const end = new Date(`${to}T12:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / (86400000)) + 1);
+}
+
+function glBalanceBySystemKey(lines: GLAccountLine[], key: string): number | null {
+    const row = lines.find((l) => l.system_key === key);
+    if (!row) return null;
+    return Math.abs(Number(row.balance) || 0);
+}
+
+function glBalanceBySystemKeys(lines: GLAccountLine[], keys: string[]): number | null {
+    let sum = 0;
+    let found = false;
+    for (const key of keys) {
+        const v = glBalanceBySystemKey(lines, key);
+        if (v != null) {
+            sum += v;
+            found = true;
+        }
+    }
+    return found ? sum : null;
+}
+
+type GlRatioRow = { label: string; value: string; note?: string };
+
+function buildGlFinancialRatios(
+    pl: GLProfitLoss | null,
+    bs: GLBalanceSheet | null,
+    daysInPeriod: number,
+): GlRatioRow[] {
+    if (!pl || !bs || pl.revenue <= 0) {
+        return [{ label: 'Data', value: '—', note: 'needs GL profit & loss and balance sheet' }];
+    }
+    const revenue = pl.revenue;
+    const cogs = pl.cogs;
+    const grossMargin = (pl.gross_profit / revenue) * 100;
+    const netMargin = (pl.net_income / revenue) * 100;
+    const operatingMargin = ((pl.gross_profit - pl.operating_expenses) / revenue) * 100;
+
+    const ar = glBalanceBySystemKeys(bs.assets, ['accounts_receivable', 'ar']) ?? 0;
+    const ap = glBalanceBySystemKeys(bs.liabilities, ['accounts_payable', 'ap']) ?? 0;
+    const inventory = glBalanceBySystemKeys(bs.assets, ['inventory', 'stock']) ?? 0;
+
+    const currentAssets =
+        glBalanceBySystemKeys(bs.assets, ['cash_on_hand', 'accounts_receivable', 'inventory', 'ar', 'stock']);
+    const currentLiabilities = glBalanceBySystemKeys(bs.liabilities, ['accounts_payable', 'ap']);
+
+    const dailyRevenue = revenue / Math.max(daysInPeriod, 1);
+    const dailyCogs = cogs / Math.max(daysInPeriod, 1);
+
+    const inventoryTurnover = inventory > 0 ? cogs / inventory : null;
+    const dso = dailyRevenue > 0 ? ar / dailyRevenue : null;
+    const dpo = dailyCogs > 0 ? ap / dailyCogs : null;
+
+    const debtToEquity = bs.total_equity !== 0 ? bs.total_liabilities / Math.abs(bs.total_equity) : null;
+    const currentRatio =
+        currentAssets != null && currentLiabilities != null && currentLiabilities > 0
+            ? currentAssets / currentLiabilities
+            : null;
+
+    const rows: GlRatioRow[] = [
+        { label: 'Gross margin', value: `${grossMargin.toFixed(1)}%` },
+        { label: 'Net margin', value: `${netMargin.toFixed(1)}%` },
+        { label: 'Operating margin', value: `${operatingMargin.toFixed(1)}%` },
+        {
+            label: 'Current ratio',
+            value: currentRatio == null ? '—' : currentRatio.toFixed(2),
+            note: currentRatio == null ? 'needs current asset & liability GL accounts' : undefined,
+        },
+        {
+            label: 'Debt to equity',
+            value: debtToEquity == null ? '—' : debtToEquity.toFixed(2),
+        },
+        {
+            label: 'Inventory turnover',
+            value: inventoryTurnover == null ? '—' : `${inventoryTurnover.toFixed(2)}x`,
+            note: inventoryTurnover == null ? 'needs inventory balance on GL' : undefined,
+        },
+        {
+            label: 'DSO (days)',
+            value: dso == null ? '—' : dso.toFixed(1),
+            note: dso == null ? 'needs accounts receivable on GL' : undefined,
+        },
+        {
+            label: 'DPO (days)',
+            value: dpo == null ? '—' : dpo.toFixed(1),
+            note: dpo == null ? 'needs accounts payable on GL' : undefined,
+        },
+        { label: 'ROA', value: '—', note: 'needs average total assets' },
+        { label: 'ROE', value: '—', note: 'needs average equity' },
+        { label: 'Revenue per employee', value: '—', note: 'needs headcount' },
+    ];
+    return rows;
+}
 
 function formatUsdFull(n: number): string {
     const abs = Math.abs(n);
@@ -260,21 +351,25 @@ export default function ProfitabilityReports() {
     const [activeTab, setActiveTab] = useState<TabType>('pl');
     const [, setLoading] = useState(true);
 
-    // State for actual data
-    const [plData, setPlData] = useState<ProfitLossStatement | null>(null);
-    const [cashFlowData, setCashFlowData] = useState<CashFlowStatement | null>(null);
-    const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
-    const [dimensionalData, setDimensionalData] = useState<DimensionalAnalysis | null>(null);
-    const [ratiosData, setRatiosData] = useState<FinancialRatios | null>(null);
+    // Legacy calculator outputs removed — GL-only for statements (hidden tabs may still reference null stubs).
+    const plData = null as ProfitLossStatement | null;
+    const cashFlowData = null as CashFlowStatement | null;
+    const balanceSheetData = null as BalanceSheet | null;
+    const dimensionalData = null as DimensionalAnalysis | null;
+    const ratiosData = null as FinancialRatios | null;
     const [glPlData, setGlPlData] = useState<GLProfitLoss | null>(null);
     const [glBalanceSheet, setGlBalanceSheet] = useState<GLBalanceSheet | null>(null);
     const [glCashFlow, setGlCashFlow] = useState<GLCashFlow | null>(null);
+    const [glPlError, setGlPlError] = useState<string | null>(null);
+    const [glBsError, setGlBsError] = useState<string | null>(null);
+    const [glCfError, setGlCfError] = useState<string | null>(null);
+    const [glLoading, setGlLoading] = useState(false);
     const [monthlyData, setMonthlyData] = useState<MonthlyProfitPoint[]>([]);
     const [topCustomers, setTopCustomers] = useState<Array<{name: string; revenue: number; invoices: number; margin: number}>>([]);
     const [topProducts, setTopProducts] = useState<Array<{name: string; revenue: number; profit: number; margin: number; units: number}>>([]);
     const [overdueAlerts, setOverdueAlerts] = useState<Array<{customer: string; amount: number; days: number; invoice: string}>>([]);
     const [lowStockAlerts, setLowStockAlerts] = useState<Array<{name: string; stock: number; sku: string; threshold: number}>>([]); 
-    const [salesmanData, setSalesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
+    const [salesmanData] = useState<Array<{name: string; revenue: number; orders: number; margin: number}>>([]);
 
     const ytdPreset = periodPresets().find((p) => p.key === 'ytd')!;
     const [period, setPeriod] = useState<PeriodKey>('ytd');
@@ -287,9 +382,10 @@ export default function ProfitabilityReports() {
     const [cfCompare, setCfCompare] = useState<CfCompare>('prior');
     const [cfPeriod, setCfPeriod] = useState<CfPeriodKey>('12mo');
     const [cfAiQuestion, setCfAiQuestion] = useState('');
-    const [bsCurrency, setBsCurrency] = useState<BsCurrency>('usd');
-    const [bsCompare, setBsCompare] = useState<BsCompare>('apr');
     const [bsAiQuestion, setBsAiQuestion] = useState('');
+    // Backlog: Balance sheet tab USD/AED and compare chips removed (GL USD only); legacy mock UI below still references fixed values.
+    const bsCurrency: 'usd' | 'aed' = 'usd';
+    const bsCompare: 'apr' | 'prior' = 'apr';
 
     useEffect(() => {
         const update = () =>
@@ -313,52 +409,45 @@ export default function ProfitabilityReports() {
         }
     }, []);
 
+    const loadGlReports = useCallback(async () => {
+        setGlLoading(true);
+        setGlPlError(null);
+        setGlBsError(null);
+        setGlCfError(null);
+        const [plRes, bsRes, cfRes] = await Promise.allSettled([
+            getGLProfitLoss(dateFrom, dateTo),
+            getGLBalanceSheet(dateTo),
+            getGLCashFlow(dateFrom, dateTo),
+        ]);
+        if (plRes.status === 'fulfilled') {
+            setGlPlData(plRes.value);
+        } else {
+            setGlPlData(null);
+            setGlPlError(plRes.reason instanceof Error ? plRes.reason.message : 'Failed to load profit & loss from GL');
+        }
+        if (bsRes.status === 'fulfilled') {
+            setGlBalanceSheet(bsRes.value);
+        } else {
+            setGlBalanceSheet(null);
+            setGlBsError(bsRes.reason instanceof Error ? bsRes.reason.message : 'Failed to load balance sheet from GL');
+        }
+        if (cfRes.status === 'fulfilled') {
+            setGlCashFlow(cfRes.value);
+        } else {
+            setGlCashFlow(null);
+            setGlCfError(cfRes.reason instanceof Error ? cfRes.reason.message : 'Failed to load cash flow from GL');
+        }
+        setGlLoading(false);
+        setLoading(false);
+    }, [dateFrom, dateTo]);
+
     useEffect(() => {
-        loadFinancialData();
-        loadAnalyticsData();
+        void loadAnalyticsData();
     }, []);
 
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            const [glPl, glBs, glCf] = await Promise.all([
-                getGLProfitLoss(dateFrom, dateTo).catch(() => null),
-                getGLBalanceSheet(dateTo).catch(() => null),
-                getGLCashFlow(dateFrom, dateTo).catch(() => null),
-            ]);
-            if (!cancelled) {
-                setGlPlData(glPl);
-                setGlBalanceSheet(glBs);
-                setGlCashFlow(glCf);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [dateFrom, dateTo]);
-
-    const loadFinancialData = async () => {
-        setLoading(true);
-        try {
-            const [pl, cashFlow, balanceSheet, dimensional, ratios] = await Promise.all([
-                calculateProfitLoss(1),
-                calculateCashFlow(1),
-                calculateBalanceSheet(),
-                calculateDimensionalAnalysis(1),
-                calculateFinancialRatios(),
-            ]);
-
-            setPlData(pl);
-            setCashFlowData(cashFlow);
-            setBalanceSheetData(balanceSheet);
-            setDimensionalData(dimensional);
-            setRatiosData(ratios);
-        } catch (error) {
-            console.error('Failed to load financial data:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+        void loadGlReports();
+    }, [loadGlReports]);
 
     const loadAnalyticsData = async () => {
         try {
@@ -518,20 +607,7 @@ export default function ProfitabilityReports() {
                 }));
             setLowStockAlerts(lowStock);
 
-            // Salesman Performance — load directly, don't rely on dimensionalData state
-            try {
-                const { calculateDimensionalAnalysis: getDim } = await import('../../services/profitLossService');
-                const dimData = await getDim(12); // last 12 months for better coverage
-                if (dimData?.bySalesman?.length > 0) {
-                    setSalesmanData(
-                        dimData.bySalesman
-                            .map(s => ({ name: s.employeeName, revenue: s.revenue, orders: s.ordersCount, margin: s.margin }))
-                            .sort((a, b) => b.revenue - a.revenue)
-                    );
-                }
-            } catch (e) {
-                console.warn('Salesman data unavailable:', e);
-            }
+            // Salesman performance: GL-only page — invoice-derived salesman rollup not wired here.
         } catch (e) {
             console.error('Analytics load error:', e);
         }
@@ -665,33 +741,17 @@ export default function ProfitabilityReports() {
         };
     }, [cashFlowData]);
 
-    // Financial ratios
-    const ratioData = ratiosData ? {
-        margins: [
-            { label: 'Gross Profit Margin', value: `${ratiosData.profitability.grossMargin.toFixed(1)}%`, target: '60%', status: ratiosData.profitability.grossMargin >= 60 ? 'success' : 'warning', formula: '(GP / Rev) * 100' },
-            { label: 'Operating Margin', value: `${ratiosData.profitability.operatingMargin.toFixed(1)}%`, target: '20%', status: ratiosData.profitability.operatingMargin >= 20 ? 'success' : 'warning', formula: '(Op. Profit / Rev) * 100' },
-            { label: 'Net Profit Margin', value: `${ratiosData.profitability.netMargin.toFixed(1)}%`, target: '15%', status: ratiosData.profitability.netMargin >= 15 ? 'success' : 'warning', formula: '(Net Profit / Rev) * 100' }
-        ],
-        returns: [
-            { label: 'ROA (Assets)', value: `${ratiosData.profitability.roa.toFixed(1)}%`, sub: 'Return on Assets', status: 'success' },
-            { label: 'ROE (Equity)', value: `${ratiosData.profitability.roe.toFixed(1)}%`, sub: 'Return on Equity', status: 'success' },
-            { label: 'ROCE (Capital)', value: `${ratiosData.profitability.roce.toFixed(1)}%`, sub: 'Return on Cap. Emp.', status: 'success' }
-        ],
-        efficiency: [
-            { label: 'Op. Expense Ratio', value: `${ratiosData.efficiency.operatingExpenseRatio.toFixed(1)}%`, sub: 'OER', status: 'warning' },
-            { label: 'Payroll Cost Ratio', value: `${ratiosData.efficiency.payrollCostRatio.toFixed(1)}%`, sub: 'Payroll / Rev', status: 'success' },
-            { label: 'Revenue per Emp', value: formatCurrency(ratiosData.efficiency.revenuePerEmployee), sub: 'Productivity', status: 'neutral' }
-        ],
-        ai_metrics: [
-            { label: 'Inventory Turnover', value: `${ratiosData.efficiency.inventoryTurnover.toFixed(2)}x`, rate: 'per year', text: 'How many times inventory is sold per year', severity: 'medium' },
-            { label: 'Gross Margin', value: formatCurrency(plData?.grossProfit.amount || 0), rate: `${ratiosData.profitability.grossMargin.toFixed(1)}%`, text: 'Total gross profit from operations', severity: 'high' }
-        ]
-    } : {
-        margins: [],
-        returns: [],
-        efficiency: [],
-        ai_metrics: []
+    const ratioData = {
+        margins: [] as Array<{ value: string }>,
+        returns: [] as Array<{ value: string }>,
+        efficiency: [] as Array<{ value: string }>,
+        ai_metrics: [] as Array<{ value: string }>,
     };
+
+    const glRatioRows = useMemo(
+        () => buildGlFinancialRatios(glPlData, glBalanceSheet, periodDayCount(dateFrom, dateTo)),
+        [glPlData, glBalanceSheet, dateFrom, dateTo],
+    );
 
     // Display-only derivations from existing state (no data processing changes)
     const invoiceCount = useMemo(
@@ -788,9 +848,29 @@ export default function ProfitabilityReports() {
         </div>
     );
 
-    const glPlSection = glPlData && !glBsEmpty ? (
+    const glErrorPanel = (message: string, onRetry: () => void) => (
+        <div
+            style={{
+                ...panel,
+                background: 'var(--color-badge-red-bg)',
+                borderColor: 'rgba(239,68,68,.28)',
+                marginBottom: 8,
+            }}
+        >
+            <p style={{ margin: '0 0 10px', fontSize: 10, color: 'var(--color-brand-red-tint)', lineHeight: 1.5 }}>{message}</p>
+            <button type="button" onClick={() => void onRetry()} style={ghostBtn}>
+                <RefreshCw size={11} /> Retry
+            </button>
+        </div>
+    );
+
+    const glPlSection = glPlError ? (
+        glErrorPanel(glPlError, loadGlReports)
+    ) : glLoading && !glPlData ? (
+        <div style={{ ...panel, marginBottom: 8, fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Loading GL profit &amp; loss…</div>
+    ) : glPlData && (glPlData.revenue !== 0 || glPlData.net_income !== 0 || glPlData.cogs !== 0) ? (
         <div style={{ ...panel, marginBottom: 8, borderColor: 'rgba(34,197,94,.35)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#22C55E', marginBottom: 8, fontFamily: "'Syne',sans-serif" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-brand-green-tint)', marginBottom: 8, fontFamily: "'Syne',sans-serif" }}>
                 From GL — authoritative
             </div>
             <div style={{ fontSize: 9, color: 'var(--color-redwood-text-subtle)', marginBottom: 6 }}>
@@ -805,8 +885,8 @@ export default function ProfitabilityReports() {
             ].map(([label, val, pos]) => (
                 <div key={String(label)} style={rowStyle}>
                     <span style={{ color: 'var(--color-redwood-text-muted)' }}>{label}</span>
-                    <span style={{ color: pos ? '#22C55E' : '#EF4444', fontWeight: 600 }}>
-                        {formatUsdFull(Number(val))}
+                    <span style={{ color: pos ? 'var(--color-brand-green-tint)' : 'var(--color-brand-red-tint)', fontWeight: 600 }}>
+                        {globalFormatCurrency(Number(val))}
                     </span>
                 </div>
             ))}
@@ -815,7 +895,9 @@ export default function ProfitabilityReports() {
         <div style={{ ...panel, marginBottom: 8 }}>{glEmptyCta}</div>
     );
 
-    const glBalanceTab = glBalanceSheet && !glBsEmpty ? (
+    const glBalanceTab = glBsError ? (
+        glErrorPanel(glBsError, loadGlReports)
+    ) : glBalanceSheet && !glBsEmpty ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
                 Balance sheet (GL) · as of {glBalanceSheet.as_of}
@@ -841,7 +923,7 @@ export default function ProfitabilityReports() {
                         ))}
                         {section === 'equity' && (
                             <div style={rowStyle}>
-                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Net income (YTD)</span>
+                                <span style={{ color: 'var(--color-redwood-text-muted)' }}>Net income (to date)</span>
                                 <span style={{ fontWeight: 600 }}>{formatUsdFull(glBalanceSheet.net_income)}</span>
                             </div>
                         )}
@@ -860,7 +942,9 @@ export default function ProfitabilityReports() {
         glEmptyCta
     );
 
-    const glCashFlowTab = glCashFlow && !glCfEmpty ? (
+    const glCashFlowTab = glCfError ? (
+        glErrorPanel(glCfError, loadGlReports)
+    ) : glCashFlow && !glCfEmpty ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
                 Cash flow (GL) · {glCashFlow.start} → {glCashFlow.end}
@@ -1142,84 +1226,39 @@ export default function ProfitabilityReports() {
                 </div>
             )}
 
-            {/* Balance sheet secondary filter bar (UI-only toggles) */}
-            {false && activeTab === 'balance' && (
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        flexWrap: 'wrap',
-                        padding: '6px 10px',
-                        background: 'var(--color-redwood-bg-surface)',
-                        border: '1px solid var(--color-redwood-border)',
-                        borderRadius: 8,
-                    }}
-                    className="print:hidden"
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
-                            Currency
-                        </span>
-                        {(['usd', 'aed'] as BsCurrency[]).map((c) => (
-                            <button
-                                key={c}
-                                type="button"
-                                onClick={() => setBsCurrency(c)}
-                                style={{
-                                    padding: '3px 10px',
-                                    borderRadius: 999,
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    border: '1px solid',
-                                    borderColor: bsCurrency === c ? 'rgba(79,142,247,.45)' : 'var(--color-redwood-border)',
-                                    background: bsCurrency === c ? 'rgba(79,142,247,.18)' : 'rgba(255,255,255,.04)',
-                                    color: bsCurrency === c ? '#93C5FD' : 'var(--color-redwood-text-muted)',
-                                    fontFamily: 'inherit',
-                                }}
-                            >
-                                {c === 'usd' ? 'USD ($)' : 'AED'}
-                            </button>
-                        ))}
-                        <span style={{ width: 1, height: 16, background: 'var(--color-redwood-border)', margin: '0 4px' }} />
-                        <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--color-redwood-text-subtle)', textTransform: 'uppercase', marginRight: 2 }}>
-                            Compare
-                        </span>
-                        {([
-                            { key: 'apr' as BsCompare, label: 'vs Apr 2026' },
-                            { key: 'prior' as BsCompare, label: 'vs May 2025' },
-                        ]).map((c) => (
-                            <button
-                                key={c.key}
-                                type="button"
-                                onClick={() => setBsCompare(c.key)}
-                                style={{
-                                    padding: '3px 10px',
-                                    borderRadius: 999,
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    border: '1px solid',
-                                    borderColor: bsCompare === c.key ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
-                                    background: bsCompare === c.key ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
-                                    color: bsCompare === c.key ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
-                                    fontFamily: 'inherit',
-                                }}
-                            >
-                                {c.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* Tab Content */}
             <div style={{ ...darkPanelStyle, minHeight: 600 }}>
                 {activeTab === 'cashflow' && glCashFlowTab}
                 {activeTab === 'balance' && glBalanceTab}
-                {activeTab === 'ratios' && <AccountingSetupRequired />}
+                {activeTab === 'ratios' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', fontFamily: "'Syne',sans-serif" }}>
+                            Financial ratios (GL)
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--color-redwood-text-muted)', marginBottom: 4 }}>
+                            Computed from GL profit &amp; loss and balance sheet for {dateFrom} → {dateTo}
+                        </div>
+                        {!glPlData || !glBalanceSheet || glBsEmpty ? (
+                            glEmptyCta
+                        ) : (
+                            <div style={{ ...panel }}>
+                                {glRatioRows.map((row) => (
+                                    <div key={row.label} style={rowStyle}>
+                                        <span style={{ color: 'var(--color-redwood-text-muted)' }}>{row.label}</span>
+                                        <span style={{ fontWeight: 600, textAlign: 'right' }}>
+                                            {row.value}
+                                            {row.note && row.value === '—' && (
+                                                <span style={{ display: 'block', fontSize: 8, fontWeight: 500, color: 'var(--color-redwood-text-subtle)' }}>
+                                                    {row.note}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 {activeTab === 'executive' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {/* KPI Cards */}
@@ -1425,11 +1464,11 @@ export default function ProfitabilityReports() {
                             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                                 Budget vs Actual
                             </div>
-                            <AccountingSetupRequired />
+                            <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>Budget comparison requires budget data (not loaded on this GL-only view).</div>
                         </div>
 
-                        {/* Financial Ratios — 4 cards */}
-                        <AccountingSetupRequired />
+                        {/* Financial Ratios — GL-backed on Financial ratios tab */}
+                        <div style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }}>See Financial ratios tab for GL-derived metrics.</div>
 
                         {/* AI Suggested Actions */}
                         <div style={panel}>
