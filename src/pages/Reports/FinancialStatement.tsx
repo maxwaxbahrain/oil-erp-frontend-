@@ -52,6 +52,11 @@ import {
     type GLCashFlow,
     type GLProfitLoss,
 } from '../../services/glService';
+import {
+    PERIOD_PRESET_CUSTOM,
+    periodPresets,
+    type PeriodPresetKey,
+} from '../../utils/periodPresets';
 
 // ─── Style tokens (dark redwood) ───────────────────────────────────────────
 const panel: CSSProperties = {
@@ -88,7 +93,7 @@ const ghostBtn: CSSProperties = {
     gap: '4px',
 };
 
-type PeriodKey = 'mtd' | 'ytd' | 'q2' | 'q1' | 'fy2025' | 'custom';
+type PeriodKey = PeriodPresetKey | typeof PERIOD_PRESET_CUSTOM;
 
 interface SectionTotals {
     revenue: number;
@@ -103,23 +108,6 @@ interface SectionTotals {
     cashOut: number;
     cashNet: number;
 }
-
-const PERIOD_PILLS: { key: PeriodKey; label: string }[] = [
-    { key: 'mtd', label: 'MTD May 2026' },
-    { key: 'ytd', label: 'YTD 2026' },
-    { key: 'q2', label: 'Q2-2026' },
-    { key: 'q1', label: 'Q1-2026' },
-    { key: 'fy2025', label: 'FY 2025' },
-    { key: 'custom', label: 'Custom' },
-];
-
-const PERIOD_RANGES: Record<Exclude<PeriodKey, 'custom'>, { from: string; to: string; rangeLabel: string }> = {
-    mtd: { from: '2026-05-01', to: '2026-05-31', rangeLabel: '01 May 2026 → 31 May 2026' },
-    ytd: { from: '2026-01-01', to: '2026-05-31', rangeLabel: '01 Jan 2026 → 31 May 2026' },
-    q2: { from: '2026-04-01', to: '2026-06-30', rangeLabel: '01 Apr 2026 → 30 Jun 2026' },
-    q1: { from: '2026-01-01', to: '2026-03-31', rangeLabel: '01 Jan 2026 → 31 Mar 2026' },
-    fy2025: { from: '2025-01-01', to: '2025-12-31', rangeLabel: '01 Jan 2025 → 31 Dec 2025' },
-};
 
 const AI_PROMPTS: string[] = [];
 const AI_INSIGHTS: Array<{ title: string; type: 'positive' | 'warning' | 'info'; body: string; badge: string }> = [];
@@ -313,7 +301,7 @@ function GLAccountRows({
                 <LineRow
                     key={`${r.code}-${r.name}`}
                     label={`${r.code} · ${r.name}`}
-                    value={positive === false ? -Math.abs(r.balance) : r.balance}
+                    value={r.balance}
                     positive={positive ?? true}
                     indent
                 />
@@ -333,13 +321,13 @@ function GLBalanceSheetPanel({ bs }: { bs: GLBalanceSheet }) {
             <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
                 LIABILITIES
             </div>
-            <GLAccountRows rows={bs.liabilities} positive={false} />
-            <LineRow label="Total liabilities" value={-bs.total_liabilities} positive={false} bold />
+            <GLAccountRows rows={bs.liabilities} />
+            <LineRow label="Total liabilities" value={bs.total_liabilities} bold />
             <div style={{ fontSize: 8.5, color: 'var(--color-redwood-text-subtle)', margin: '6px 0 4px', fontWeight: 600 }}>
                 EQUITY
             </div>
             <GLAccountRows rows={bs.equity} />
-            <LineRow label="Net income (YTD)" value={bs.net_income} positive={bs.net_income >= 0} indent />
+            <LineRow label="Net income (to date)" value={bs.net_income} positive={bs.net_income >= 0} indent />
             <LineRow label="Total equity" value={bs.total_equity} positive bold />
             <div
                 style={{
@@ -562,15 +550,12 @@ export default function FinancialStatement() {
 
     const applyPeriod = useCallback((key: PeriodKey) => {
         setPeriod(key);
-        if (key === 'custom') return;
-        if (key === 'ytd') {
-            setDateFrom(yearStartISO());
-            setDateTo(todayISO());
-            return;
+        if (key === PERIOD_PRESET_CUSTOM) return;
+        const preset = periodPresets().find((p) => p.key === key);
+        if (preset) {
+            setDateFrom(preset.from);
+            setDateTo(preset.to);
         }
-        const r = PERIOD_RANGES[key];
-        setDateFrom(r.from);
-        setDateTo(r.to);
     }, []);
 
     async function loadAll() {
@@ -688,12 +673,9 @@ export default function FinancialStatement() {
     const formatRangeDate = (iso: string) =>
         formatLocalDate(iso, { day: '2-digit', month: 'short', year: 'numeric' }) || iso;
 
-    const rangeLabel =
-        period === 'custom'
-            ? `${dateFrom ? formatRangeDate(dateFrom) : '…'} → ${dateTo ? formatRangeDate(dateTo) : '…'}`
-            : period === 'ytd'
-              ? `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`
-              : PERIOD_RANGES[period as Exclude<PeriodKey, 'custom'>]?.rangeLabel ?? '';
+    const rangeLabel = `${dateFrom ? formatRangeDate(dateFrom) : '…'} → ${dateTo ? formatRangeDate(dateTo) : '…'}`;
+    const balanceSheetSubtitle = `As of ${formatRangeDate(dateTo)}`;
+    const periodRangeSubtitle = `${formatRangeDate(dateFrom)} → ${formatRangeDate(dateTo)}`;
 
     const handleDownloadPDF = () => {
         const periodLabel = `${dateFrom || 'all-time'} → ${dateTo || 'today'}`;
@@ -775,7 +757,7 @@ export default function FinancialStatement() {
             : [];
 
     return (
-        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '100px' }}>
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '24px' }}>
             {error && (
                 <div
                     style={{
@@ -847,7 +829,7 @@ export default function FinancialStatement() {
             {/* Period pills + date range + live indicator */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {PERIOD_PILLS.map((p) => (
+                    {periodPresets().map((p) => (
                         <button
                             key={p.key}
                             type="button"
@@ -868,9 +850,27 @@ export default function FinancialStatement() {
                             {p.label}
                         </button>
                     ))}
+                    <button
+                        type="button"
+                        onClick={() => applyPeriod(PERIOD_PRESET_CUSTOM)}
+                        style={{
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            fontSize: 9,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            border: '1px solid',
+                            borderColor: period === PERIOD_PRESET_CUSTOM ? 'rgba(124,58,237,.45)' : 'var(--color-redwood-border)',
+                            background: period === PERIOD_PRESET_CUSTOM ? 'rgba(124,58,237,.18)' : 'rgba(255,255,255,.04)',
+                            color: period === PERIOD_PRESET_CUSTOM ? '#C4B5FD' : 'var(--color-redwood-text-muted)',
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        Custom
+                    </button>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    {period === 'custom' && (
+                    {period === PERIOD_PRESET_CUSTOM && (
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <input
                                 type="date"
@@ -958,7 +958,7 @@ export default function FinancialStatement() {
                     <SectionHeader
                         icon={TrendingUp}
                         title="Profit & Loss"
-                        subtitle={`Income statement · ${rangeLabel}${glNetProfitAvailable ? '' : ' (estimate)'}`}
+                        subtitle={`Income statement · ${periodRangeSubtitle}${glNetProfitAvailable ? '' : ' (estimate)'}`}
                         iconColor="#22C55E"
                         onExport={handleDownloadPDF}
                     />
@@ -1050,7 +1050,7 @@ export default function FinancialStatement() {
                     <SectionHeader
                         icon={Briefcase}
                         title="Balance Sheet"
-                        subtitle="Assets · Liabilities · Equity"
+                        subtitle={balanceSheetSubtitle}
                         iconColor="#4F8EF7"
                         onExport={handleDownloadPDF}
                     />
@@ -1066,7 +1066,7 @@ export default function FinancialStatement() {
                     <SectionHeader
                         icon={Wallet}
                         title="Cash Flow"
-                        subtitle="Operating · Investing · Financing"
+                        subtitle={periodRangeSubtitle}
                         iconColor="#A78BFA"
                         onExport={handleDownloadPDF}
                     />
@@ -1083,7 +1083,10 @@ export default function FinancialStatement() {
                 <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-redwood-text-main)', marginBottom: 8 }}>
                     Budget vs Actual
                 </div>
-                <AccountingSetupRequired />
+                <AccountingSetupRequired
+                    title="No budget yet"
+                    description="Budgets are not set up yet. Budget vs Actual will appear here once a budget is entered for this company."
+                />
             </div>
 
             {/* AI CFO Insights */}
@@ -1144,11 +1147,8 @@ export default function FinancialStatement() {
             <div
                 style={{
                     ...panel,
-                    position: 'sticky',
-                    bottom: 8,
                     background: 'linear-gradient(135deg, rgba(124,58,237,.12) 0%, var(--color-redwood-bg-surface) 60%)',
                     borderColor: 'rgba(124,58,237,.28)',
-                    zIndex: 10,
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
