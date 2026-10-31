@@ -123,6 +123,16 @@ export type LedgerDeadStockReportData = {
     slow: LedgerSlowStockRow[];
 };
 
+export type SupplierAccuracyReportRow = {
+    supplierName: string;
+    totalOrders: number;
+    onTimeDeliveries: number;
+    lateDeliveries: number;
+    openOrders: number;
+    accuracyLabel: string;
+    expectedLeadTimeLabel: string;
+};
+
 const pageRootStyle: CSSProperties = {
     padding: 12,
     maxWidth: 1280,
@@ -343,6 +353,46 @@ function buildLedgerDeadStockReportData(rows: OnHandRow[], asOf: string): Ledger
             daysIdle: r.days_since_movement ?? 0,
         }));
     return { asOf, dead, slow };
+}
+
+export function mapSupplierAccuracyReportRows(rows: SupplierAccuracy[]): SupplierAccuracyReportRow[] {
+    return rows.map((s) => {
+        const openOrders = Math.max(0, s.totalOrders - s.onTimeDeliveries - s.lateDeliveries);
+        const totalOrders = s.onTimeDeliveries + s.lateDeliveries + openOrders;
+        const received = s.onTimeDeliveries + s.lateDeliveries;
+        const accuracyLabel = received === 0
+            ? '—'
+            : `${((s.onTimeDeliveries / received) * 100).toFixed(1)}%`;
+        return {
+            supplierName: s.supplierName,
+            totalOrders,
+            onTimeDeliveries: s.onTimeDeliveries,
+            lateDeliveries: s.lateDeliveries,
+            openOrders,
+            accuracyLabel,
+            expectedLeadTimeLabel: `${s.averageLeadTime.toFixed(1)} days`,
+        };
+    });
+}
+
+export function exportSupplierAccuracyPdf(rows: SupplierAccuracyReportRow[]) {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Supplier Accuracy Report', 14, 16);
+    autoTable(doc, {
+        startY: 22,
+        head: [['Supplier', 'Orders', 'On time', 'Late', 'Open', 'Accuracy', 'Expected lead time']],
+        body: rows.map(s => [
+            s.supplierName,
+            String(s.totalOrders),
+            String(s.onTimeDeliveries),
+            String(s.lateDeliveries),
+            String(s.openOrders),
+            s.accuracyLabel,
+            s.expectedLeadTimeLabel,
+        ]),
+    });
+    doc.save('SupplierAccuracy.pdf');
 }
 
 export function exportLedgerDeadStockPdf(data: LedgerDeadStockReportData) {
@@ -774,9 +824,11 @@ export default function InventoryReports() {
                     data = buildLedgerDeadStockReportData(onHand.rows ?? [], dateTo);
                     break;
                 }
-                case 'supplier':
-                    data = await calculateSupplierAccuracy();
+                case 'supplier': {
+                    const supplierRows = await calculateSupplierAccuracy();
+                    data = mapSupplierAccuracyReportRows(supplierRows);
                     break;
+                }
                 case 'loss':
                     data = await calculateLossLeakage();
                     break;
@@ -1474,7 +1526,7 @@ function ReportModal({
                             {type === 'deadstock' && data && (
                                 <LedgerDeadStockReport data={data as LedgerDeadStockReportData} />
                             )}
-                            {type === 'supplier' && <SupplierReport data={data as SupplierAccuracy[]} />}
+                            {type === 'supplier' && <SupplierReport data={data as SupplierAccuracyReportRow[]} />}
                             {type === 'loss' && <LossReport data={data as LossLeakage[]} />}
                             {type === 'forecast' && data && (
                                 <DemandEngineReport
@@ -1495,6 +1547,8 @@ function ReportModal({
                         onClick={() => {
                             if (type === 'deadstock' && data) {
                                 exportLedgerDeadStockPdf(data as LedgerDeadStockReportData);
+                            } else if (type === 'supplier' && data) {
+                                exportSupplierAccuracyPdf(data as SupplierAccuracyReportRow[]);
                             } else {
                                 window.print();
                             }
@@ -1778,16 +1832,24 @@ function LedgerDeadStockReport({ data }: { data: LedgerDeadStockReportData }) {
     );
 }
 
-function SupplierReport({ data }: { data: SupplierAccuracy[] }) {
+function SupplierReport({ data }: { data: SupplierAccuracyReportRow[] }) {
     return (
         <div className="space-y-4">
-            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)' }} title="Based on PO expected date, not GRN receipt date">
-                On time = received within {SUPPLIER_ON_TIME_DAYS} days (PO order date → expected date). Expected lead time column uses PO expected date.
+            <p style={{ fontSize: 10, color: 'var(--color-redwood-text-muted)', lineHeight: 1.5 }}>
+                On time = received within {SUPPLIER_ON_TIME_DAYS} days of the PO expected date. Open = ordered, not yet received. Accuracy counts received orders only.
             </p>
             <ReportTable
                 title="Supplier Accuracy"
-                headers={['Supplier', 'Orders', 'On Time', 'Late', 'Accuracy', 'Expected lead time']}
-                rows={data.map(s => [s.supplierName, String(s.totalOrders), String(s.onTimeDeliveries), String(s.lateDeliveries), `${s.accuracyScore.toFixed(1)}%`, `${s.averageLeadTime.toFixed(1)} days`])}
+                headers={['Supplier', 'Orders', 'On time', 'Late', 'Open', 'Accuracy', 'Expected lead time']}
+                rows={data.map(s => [
+                    s.supplierName,
+                    String(s.totalOrders),
+                    String(s.onTimeDeliveries),
+                    String(s.lateDeliveries),
+                    String(s.openOrders),
+                    s.accuracyLabel,
+                    s.expectedLeadTimeLabel,
+                ])}
             />
         </div>
     );
